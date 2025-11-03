@@ -1,5 +1,5 @@
 from .db_pool import BaseDBPool, save_local
-from .sqlite_push import db_push
+from .push import db_push
 from .unwarp import unwarp, unwarp_or, unwarp_or_raise
 
 __all__ = [
