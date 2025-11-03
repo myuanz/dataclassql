@@ -11,7 +11,8 @@ __datasource__ = {
 }
 
 from typed_db.model_inspector import inspect_models
-from typed_db.sqlite_push import db_push, push_sqlite, _build_sqlite_schema
+from typed_db.push import db_push
+from typed_db.push.sqlite import _build_sqlite_schema, push_sqlite
 
 
 @dataclass
