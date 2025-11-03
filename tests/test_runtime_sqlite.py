@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import sqlite3
+import sys
+import types
+from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -161,6 +164,103 @@ def test_include_not_supported(tmp_path: Path):
     _, client = _build_client()
     user_table = client.runtime_user
 
-    with pytest.raises(NotImplementedError):
-        user_table.find_many(include={"anything": True})
+    result = user_table.find_many(include={"anything": True})
+    assert result == []
     client.__class__.close_all()
+
+
+def test_lazy_relations(tmp_path: Path):
+    module_name = "tests.dynamic_relations"
+    db_path = tmp_path / "relations.db"
+    module = types.ModuleType(module_name)
+    setattr(module, "__datasource__", {"provider": "sqlite", "url": f"sqlite:///{db_path.as_posix()}"})
+    setattr(module, "datetime", datetime)
+
+    @dataclass
+    class LazyUser:
+        id: int
+        name: str
+        birthday: 'LazyBirthDay | None'
+        addresses: list['LazyAddress']
+
+    LazyUser.__module__ = module_name
+    setattr(module, "LazyUser", LazyUser)
+
+    @dataclass
+    class LazyBirthDay:
+        user_id: int
+        user: LazyUser
+        date: datetime
+
+        def primary_key(self):
+            return self.user_id
+
+        def foreign_key(self):
+            yield self.user.id == self.user_id, LazyUser.birthday
+
+    LazyBirthDay.__module__ = module_name
+    setattr(module, "LazyBirthDay", LazyBirthDay)
+
+    @dataclass
+    class LazyAddress:
+        id: int
+        user_id: int
+        user: LazyUser
+        location: str
+
+        def foreign_key(self):
+            yield self.user.id == self.user_id, LazyUser.addresses
+
+    LazyAddress.__module__ = module_name
+    setattr(module, "LazyAddress", LazyAddress)
+
+    sys.modules[module_name] = module
+    generated_module_name = "tests.generated_relations"
+    GeneratedClient: type[Any] | None = None
+    try:
+        module_generated = generate_client([LazyUser, LazyBirthDay, LazyAddress])
+        generated_module = types.ModuleType(generated_module_name)
+        namespace = generated_module.__dict__
+        namespace["__name__"] = generated_module_name
+        sys.modules[generated_module_name] = generated_module
+        exec(module_generated.code, namespace)
+        GeneratedClient = cast(type[Any], namespace["GeneratedClient"])
+        with sqlite3.connect(db_path) as conn_setup:
+            db_push([namespace["LazyUser"], namespace["LazyBirthDay"], namespace["LazyAddress"]], {"sqlite": conn_setup})
+        client = GeneratedClient()
+
+        client.lazy_user.insert({"id": 1, "name": "Alice"})
+        client.lazy_birth_day.insert({"user_id": 1, "date": datetime(1990, 1, 1)})
+        client.lazy_address.insert({"id": 1, "user_id": 1, "location": "Home"})
+
+        address = client.lazy_address.find_first(order_by=[("id", "asc")])
+        assert isinstance(address.user, LazyUser)
+        assert address.user.name == "Alice"
+        assert address.user is address.user
+        user_addresses = address.user.addresses
+        assert isinstance(user_addresses, list)
+        assert user_addresses and user_addresses[0].location == "Home"
+
+        user = client.lazy_user.find_first(order_by=[("id", "asc")])
+        assert isinstance(user.birthday, LazyBirthDay)
+        assert str(user.birthday.date).startswith("1990-01-01")
+        addresses_value = user.addresses
+        assert isinstance(addresses_value, list)
+        assert len(addresses_value) == 1
+        assert isinstance(addresses_value[0], LazyAddress)
+        assert addresses_value[0].location == "Home"
+
+        included = client.lazy_address.find_many(include={"user": True})
+        assert included[0].user.name == "Alice"
+
+        user_included = client.lazy_user.find_many(include={"addresses": True, "birthday": True})
+        first_user = user_included[0]
+        assert len(first_user.addresses) == 1
+        assert isinstance(first_user.birthday, LazyBirthDay)
+        assert str(first_user.birthday.date).startswith("1990-01-01")
+
+    finally:
+        if GeneratedClient is not None:
+            GeneratedClient.close_all()
+        sys.modules.pop(generated_module_name, None)
+        sys.modules.pop(module_name, None)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typed_db.db_pool import BaseDBPool, save_local
-from typed_db.runtime.backends import BackendProtocol, create_backend
+from typed_db.runtime.backends import BackendProtocol, RelationSpec, create_backend
 from typed_db.runtime.datasource import resolve_sqlite_path
 import sqlite3
 from datetime import datetime
@@ -64,6 +64,9 @@ class AddressTable:
             backref='addresses',
         ),
     )
+    relations: tuple[RelationSpec, ...] = (
+        RelationSpec(name='user', table_name='UserTable', table_module=__name__, many=False, mapping=(('user_id', 'id'),)),
+    )
 
     def __init__(self, backend: BackendProtocol[Address, AddressInsert, AddressWhereDict]) -> None:
         self._backend: BackendProtocol[Address, AddressInsert, AddressWhereDict] = backend
@@ -113,6 +116,9 @@ class BirthDayTable:
             backref='birthday',
         ),
     )
+    relations: tuple[RelationSpec, ...] = (
+        RelationSpec(name='user', table_name='UserTable', table_module=__name__, many=False, mapping=(('user_id', 'id'),)),
+    )
 
     def __init__(self, backend: BackendProtocol[BirthDay, BirthDayInsert, BirthDayWhereDict]) -> None:
         self._backend: BackendProtocol[BirthDay, BirthDayInsert, BirthDayWhereDict] = backend
@@ -155,6 +161,9 @@ class BookTable:
     indexes: tuple[tuple[str, ...], ...] = (('name',),)
     unique_indexes: tuple[tuple[str, ...], ...] = ()
     foreign_keys: tuple[ForeignKeySpec, ...] = ()
+    relations: tuple[RelationSpec, ...] = (
+        RelationSpec(name='users', table_name='UserBookTable', table_module=__name__, many=True, mapping=(('id', 'book_id'),)),
+    )
 
     def __init__(self, backend: BackendProtocol[Book, BookInsert, BookWhereDict]) -> None:
         self._backend: BackendProtocol[Book, BookInsert, BookWhereDict] = backend
@@ -203,6 +212,11 @@ class UserTable:
     indexes: tuple[tuple[str, ...], ...] = (('name',), ('name', 'email'), ('last_login',),)
     unique_indexes: tuple[tuple[str, ...], ...] = (('name', 'email'),)
     foreign_keys: tuple[ForeignKeySpec, ...] = ()
+    relations: tuple[RelationSpec, ...] = (
+        RelationSpec(name='birthday', table_name='BirthDayTable', table_module=__name__, many=False, mapping=(('id', 'user_id'),)),
+        RelationSpec(name='addresses', table_name='AddressTable', table_module=__name__, many=True, mapping=(('id', 'user_id'),)),
+        RelationSpec(name='books', table_name='UserBookTable', table_module=__name__, many=True, mapping=(('id', 'user_id'),)),
+    )
 
     def __init__(self, backend: BackendProtocol[User, UserInsert, UserWhereDict]) -> None:
         self._backend: BackendProtocol[User, UserInsert, UserWhereDict] = backend
@@ -260,6 +274,10 @@ class UserBookTable:
             remote_columns=('id',),
             backref='users',
         ),
+    )
+    relations: tuple[RelationSpec, ...] = (
+        RelationSpec(name='user', table_name='UserTable', table_module=__name__, many=False, mapping=(('user_id', 'id'),)),
+        RelationSpec(name='book', table_name='BookTable', table_module=__name__, many=False, mapping=(('book_id', 'id'),)),
     )
 
     def __init__(self, backend: BackendProtocol[UserBook, UserBookInsert, UserBookWhereDict]) -> None:

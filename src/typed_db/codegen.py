@@ -25,7 +25,7 @@ def generate_client(models: Sequence[type[Any]]) -> GeneratedModule:
         "from dataclasses import dataclass, field",
         "import sqlite3",
         "from typed_db.db_pool import BaseDBPool, save_local",
-        "from typed_db.runtime.backends import BackendProtocol, create_backend",
+        "from typed_db.runtime.backends import BackendProtocol, RelationSpec, create_backend",
         "from typed_db.runtime.datasource import resolve_sqlite_path",
     }
 
@@ -39,7 +39,7 @@ def generate_client(models: Sequence[type[Any]]) -> GeneratedModule:
     rendered_models: list[str] = []
     for name in sorted(model_infos.keys()):
         info = model_infos[name]
-        rendered_models.append(_render_model(info, renderer))
+        rendered_models.append(_render_model(info, renderer, model_infos))
 
     body_sections.extend(rendered_models)
     body_sections.append(_render_client_class(model_infos))
@@ -94,14 +94,14 @@ class ForeignKeySpec:
 """
 
 
-def _render_model(info: ModelInfo, renderer: "_TypeRenderer") -> str:
+def _render_model(info: ModelInfo, renderer: "_TypeRenderer", model_infos: Mapping[str, ModelInfo]) -> str:
     alias_block, include_alias, sortable_alias = _render_type_aliases(info)
     sections: list[str] = []
     if alias_block:
         sections.append(alias_block)
     sections.append(_render_insert_structures(info, renderer))
     sections.append(_render_where_dict(info, renderer))
-    sections.append(_render_table_class(info, renderer, include_alias, sortable_alias))
+    sections.append(_render_table_class(info, renderer, include_alias, sortable_alias, model_infos))
     return "\n\n".join(sections)
 
 
@@ -168,7 +168,60 @@ def _render_where_dict(info: ModelInfo, renderer: "_TypeRenderer") -> str:
     return "\n".join(lines)
 
 
-def _render_table_class(info: ModelInfo, renderer: "_TypeRenderer", include_alias: str | None, sortable_alias: str) -> str:
+def _build_relation_entries(info: ModelInfo, model_infos: Mapping[str, ModelInfo]) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    if not info.relations:
+        return entries
+
+    target_index: dict[str, ModelInfo] = {name: model for name, model in model_infos.items()}
+
+    for relation in info.relations:
+        target_model = relation.target
+        target_info = target_index.get(target_model.__name__)
+        if target_info is None:
+            continue
+
+        mapping: tuple[tuple[str, str], ...] | None = None
+        if not relation.many:
+            for fk in info.foreign_keys:
+                if fk.remote_model is target_model:
+                    mapping = tuple((local, remote) for local, remote in zip(fk.local_columns, fk.remote_columns))
+                    break
+            if mapping is None:
+                for fk in target_info.foreign_keys:
+                    if fk.remote_model is info.model and fk.backref_attribute == relation.name:
+                        mapping = tuple((remote, local) for remote, local in zip(fk.remote_columns, fk.local_columns))
+                        break
+        else:
+            for fk in target_info.foreign_keys:
+                if fk.remote_model is info.model and fk.backref_attribute == relation.name:
+                    mapping = tuple((remote, local) for remote, local in zip(fk.remote_columns, fk.local_columns))
+                    break
+        if mapping is None:
+            continue
+        if target_model.__module__ == info.model.__module__:
+            module_expr = "__name__"
+        else:
+            module_expr = repr(target_model.__module__)
+        entries.append(
+            {
+                "name": relation.name,
+                "table_name": f"{target_model.__name__}Table",
+                "many": relation.many,
+                "mapping": mapping,
+                "table_module_expr": module_expr,
+            }
+        )
+    return entries
+
+
+def _render_table_class(
+    info: ModelInfo,
+    renderer: "_TypeRenderer",
+    include_alias: str | None,
+    sortable_alias: str,
+    model_infos: Mapping[str, ModelInfo],
+) -> str:
     name = info.model.__name__
     indent = "    "
     where_alias = f"{name}WhereDict"
@@ -207,6 +260,18 @@ def _render_table_class(info: ModelInfo, renderer: "_TypeRenderer", include_alia
         lines.append(f"{indent})")
     else:
         lines.append(f"{indent}foreign_keys: tuple[ForeignKeySpec, ...] = ()")
+    relation_entries = _build_relation_entries(info, model_infos)
+    if relation_entries:
+        lines.append(f"{indent}relations: tuple[RelationSpec, ...] = (")
+        for entry in relation_entries:
+            mapping_literal = _tuple_literal(entry["mapping"])
+            module_expr = entry["table_module_expr"]
+            lines.append(
+                f"{indent*2}RelationSpec(name={entry['name']!r}, table_name={entry['table_name']!r}, table_module={module_expr}, many={entry['many']}, mapping={mapping_literal}),"
+            )
+        lines.append(f"{indent})")
+    else:
+        lines.append(f"{indent}relations: tuple[RelationSpec, ...] = ()")
     lines.append("")
     lines.append(f"{indent}def __init__(self, backend: BackendProtocol[{name}, {name}Insert, {where_alias}]) -> None:")
     lines.append(f"{indent*2}self._backend: BackendProtocol[{name}, {name}Insert, {where_alias}] = backend")

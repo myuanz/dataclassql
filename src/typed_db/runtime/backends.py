@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import sqlite3
+import sys
 import threading
-from dataclasses import MISSING, fields, is_dataclass
+from dataclasses import MISSING, dataclass, fields, is_dataclass
 from typing import (
     Any,
     Callable,
@@ -11,8 +12,10 @@ from typing import (
     Sequence,
     cast,
     runtime_checkable,
+    get_origin,
 )
-from typing import get_origin
+
+from weakref import WeakKeyDictionary
 
 from pypika import Query, Table
 from pypika.enums import Order
@@ -22,13 +25,25 @@ from pypika.terms import Parameter
 ConnectionFactory = Callable[[], sqlite3.Connection]
 
 
+@dataclass(slots=True)
+class RelationSpec:
+    name: str
+    table_name: str
+    table_module: str
+    many: bool
+    mapping: tuple[tuple[str, str], ...]
+
+
 @runtime_checkable
 class TableProtocol[ModelT, InsertT, WhereT](Protocol):
+    def __init__(self, backend: BackendProtocol[ModelT, InsertT, WhereT]) -> None: ...
+
     model: type[ModelT]
     insert_model: type[InsertT]
     columns: tuple[str, ...]
     auto_increment_columns: tuple[str, ...]
     primary_key: tuple[str, ...]
+    relations: tuple[RelationSpec, ...]
 
 
 @runtime_checkable
@@ -65,21 +80,170 @@ class BackendProtocol[ModelT, InsertT, WhereT](Protocol):
     ) -> ModelT | None: ...
 
 
+@dataclass(slots=True)
+class LazyRelationState:
+    attribute: str
+    backend: BackendProtocol[Any, Any, Mapping[str, object]]
+    table_cls: type[Any]
+    mapping: tuple[tuple[str, str], ...]
+    many: bool
+    loaded: bool = False
+    value: Any = None
+    loading: bool = False
+_LAZY_CLASS_CACHE: dict[type[Any], type[Any]] = {}
+_LAZY_RELATION_STATE: WeakKeyDictionary[Any, dict[str, LazyRelationState]] = WeakKeyDictionary()
+
+
+def _resolve_lazy_relation(instance: Any, state: LazyRelationState) -> Any:
+    if state.loaded:
+        return state.value
+    if state.loading:
+        return state.value
+    state.loading = True
+    state.value = [] if state.many else None
+    where: dict[str, object] = {}
+    for owner_column, target_column in state.mapping:
+        owner_value = getattr(instance, owner_column, None)
+        if owner_value is None:
+            value: Any = [] if state.many else None
+            state.loaded = True
+            state.value = value
+            object.__setattr__(instance, state.attribute, value)
+            state.loading = False
+            return value
+        where[target_column] = owner_value
+
+    table = state.table_cls(state.backend)
+    if state.many:
+        loaded = table.find_many(where=cast(Mapping[str, object], where))
+    else:
+        loaded = table.find_first(where=cast(Mapping[str, object], where))
+
+    if state.many and loaded is None:
+        loaded = []
+
+    state.loaded = True
+    state.value = loaded
+    state.loading = False
+    object.__setattr__(instance, state.attribute, loaded)
+    return loaded
+
+
+def _ensure_lazy_model_class(model_cls: type[Any]) -> type[Any]:
+    cached = _LAZY_CLASS_CACHE.get(model_cls)
+    if cached is not None:
+        return cached
+
+    base_getattribute = cast(Callable[[Any, str], Any], model_cls.__getattribute__)
+    base_setattr = cast(Callable[[Any, str, Any], None], model_cls.__setattr__)
+
+    def __getattribute__(self: Any, name: str) -> Any:
+        state_map = _LAZY_RELATION_STATE.get(self)
+        if state_map is not None:
+            state = state_map.get(name)
+            if state is not None:
+                if not state.loaded:
+                    _resolve_lazy_relation(self, state)
+                return state.value
+        return base_getattribute(self, name)
+
+    def __setattr__(self: Any, name: str, value: Any) -> None:
+        state_map = _LAZY_RELATION_STATE.get(self)
+        if state_map is not None:
+            state = state_map.get(name)
+            if state is not None:
+                state.loaded = True
+                state.value = value
+        base_setattr(self, name, value)
+
+    namespace: dict[str, Any] = {
+        "__slots__": (),
+        "__lazy_base__": model_cls,
+        "__getattribute__": __getattribute__,
+        "__setattr__": __setattr__,
+        "__hash__": object.__hash__,
+    }
+    lazy_cls = type(f"{model_cls.__name__}LazyRuntime", (model_cls,), namespace)
+    try:
+        lazy_cls.__name__ = model_cls.__name__
+    except AttributeError:
+        pass
+    try:
+        lazy_cls.__qualname__ = model_cls.__qualname__
+    except AttributeError:
+        pass
+    lazy_cls.__module__ = model_cls.__module__
+    _LAZY_CLASS_CACHE[model_cls] = lazy_cls
+    return lazy_cls
+
+
+def _find_backref_relations(
+    table: TableProtocol[Any, Any, Any],
+    existing_names: set[str],
+) -> list[RelationSpec]:
+    model = table.model
+    module_name = table.__class__.__module__
+    module = sys.modules.get(module_name)
+    if module is None:
+        return []
+
+    extras: list[RelationSpec] = []
+    for attr in dir(module):
+        candidate = getattr(module, attr, None)
+        if not isinstance(candidate, type):
+            continue
+        if candidate is table.__class__:
+            continue
+        foreign_keys = getattr(candidate, "foreign_keys", None)
+        if not foreign_keys:
+            continue
+        candidate_model = getattr(candidate, "model", None)
+        if candidate_model is None:
+            continue
+        for fk in foreign_keys:
+            if fk.backref is None:
+                continue
+            if fk.remote_model is not model:
+                continue
+            name = fk.backref
+            if name in existing_names:
+                continue
+            mapping_pairs: tuple[tuple[str, str], ...] = tuple(
+                (remote, local) for remote, local in zip(fk.remote_columns, fk.local_columns)
+            )
+            primary_key = getattr(candidate, "primary_key", ())
+            many = tuple(primary_key) != tuple(fk.local_columns)
+            extras.append(
+                RelationSpec(
+                    name=name,
+                    table_name=candidate.__name__,
+                    table_module=candidate.__module__,
+                    many=many,
+                    mapping=mapping_pairs,
+                )
+            )
+            existing_names.add(name)
+    return extras
+
+
 class SQLiteBackend[ModelT, InsertT, WhereT: Mapping[str, object]](BackendProtocol[ModelT, InsertT, WhereT]):
     def __init__(self, source: sqlite3.Connection | ConnectionFactory | "SQLiteBackend") -> None:
         if isinstance(source, SQLiteBackend):
             self._factory: ConnectionFactory | None = source._factory
             self._connection: sqlite3.Connection | None = source._connection
             self._local = source._local
+            self._identity_map = source._identity_map
         elif isinstance(source, sqlite3.Connection):
             self._factory = None
             self._connection = source
             self._ensure_row_factory(self._connection)
             self._local = threading.local()
+            self._identity_map: dict[tuple[type[Any], tuple[Any, ...]], Any] = {}
         elif callable(source):
             self._factory = source
             self._connection = None
             self._local = threading.local()
+            self._identity_map = {}
         else:
             raise TypeError("SQLite backend source must be connection or callable returning connection")
 
@@ -121,7 +285,9 @@ class SQLiteBackend[ModelT, InsertT, WhereT: Mapping[str, object]](BackendProtoc
                     raise ValueError(f"Composite key requires '{pk}' value")
                 pk_filter[pk] = value
 
-        return self._fetch_single(table, pk_filter)
+        result = self._fetch_single(table, pk_filter, include=None)
+        self._invalidate_backrefs(table, result)
+        return result
 
     def insert_many(
         self,
@@ -185,7 +351,9 @@ class SQLiteBackend[ModelT, InsertT, WhereT: Mapping[str, object]](BackendProtoc
                     if value is None:
                         raise ValueError(f"Primary key column '{pk}' is null after insert")
                     pk_filter[pk] = value
-                results.append(self._fetch_single(table, pk_filter))
+                instance = self._fetch_single(table, pk_filter, include=None)
+                self._invalidate_backrefs(table, instance)
+                results.append(instance)
             start = end
         return results
 
@@ -199,9 +367,6 @@ class SQLiteBackend[ModelT, InsertT, WhereT: Mapping[str, object]](BackendProtoc
         take: int | None = None,
         skip: int | None = None,
     ) -> list[ModelT]:
-        if include:
-            raise NotImplementedError("Include is not supported yet")
-
         table_name = table.model.__name__
         sql_table = Table(table_name)
         select_query = Query.from_(sql_table).select(*[sql_table.field(col) for col in table.columns])
@@ -234,7 +399,8 @@ class SQLiteBackend[ModelT, InsertT, WhereT: Mapping[str, object]](BackendProtoc
 
         sql = select_query.get_sql(quote_char='"') + ";"
         rows = self._fetch_all(sql, params)
-        return [self._row_to_model(table, row) for row in rows]
+        include_map = include or {}
+        return [self._row_to_model(table, row, include_map) for row in rows]
 
     def find_first(
         self,
@@ -255,8 +421,13 @@ class SQLiteBackend[ModelT, InsertT, WhereT: Mapping[str, object]](BackendProtoc
         )
         return results[0] if results else None
 
-    def _fetch_single(self, table: TableProtocol[ModelT, InsertT, WhereT], where: Mapping[str, object]) -> ModelT:
-        results = self.find_many(table, where=cast(WhereT, where))
+    def _fetch_single(
+        self,
+        table: TableProtocol[ModelT, InsertT, WhereT],
+        where: Mapping[str, object],
+        include: Mapping[str, bool] | None,
+    ) -> ModelT:
+        results = self.find_many(table, where=cast(WhereT, where), include=include)
         if not results:
             raise RuntimeError("Inserted row could not be reloaded")
         return results[0]
@@ -307,39 +478,187 @@ class SQLiteBackend[ModelT, InsertT, WhereT: Mapping[str, object]](BackendProtoc
         if connection.row_factory is None:
             connection.row_factory = sqlite3.Row
 
-    @staticmethod
-    def _row_to_model(table: TableProtocol[ModelT, Any, Any], row: sqlite3.Row) -> ModelT:
+    def _row_to_model(
+        self,
+        table: TableProtocol[ModelT, Any, Any],
+        row: sqlite3.Row,
+        include_map: Mapping[str, bool],
+    ) -> ModelT:
+        key = self._identity_key(table, row)
+        if key is not None:
+            cached = self._identity_map.get(key)
+        else:
+            cached = None
         model = table.model
-        if is_dataclass(model):
-            values: dict[str, Any] = {column: row[column] for column in table.columns}
-            instance = model.__new__(model)
-            for field in fields(model):
-                if field.name in values:
-                    value = values[field.name]
-                elif field.default is not MISSING:
-                    value = field.default
-                elif field.default_factory is not MISSING:  # type: ignore[attr-defined]
-                    value = field.default_factory()  # type: ignore[misc]
-                else:
-                    origin = get_origin(field.type)
-                    if origin in (list, set, frozenset):
-                        value = origin()  # type: ignore[call-arg]
+        if cached is None:
+            if is_dataclass(model):
+                values: dict[str, Any] = {column: row[column] for column in table.columns}
+                instance = model.__new__(model)
+                for field in fields(model):
+                    if field.name in values:
+                        value = values[field.name]
+                    elif field.default is not MISSING:
+                        value = field.default
+                    elif field.default_factory is not MISSING:  # type: ignore[attr-defined]
+                        value = field.default_factory()  # type: ignore[misc]
                     else:
-                        value = None
-                setattr(instance, field.name, value)
-            return cast(ModelT, instance)
-        return cast(ModelT, model(**{column: row[column] for column in table.columns}))
+                        origin = get_origin(field.type)
+                        if origin in (list, set, frozenset):
+                            value = origin()  # type: ignore[call-arg]
+                        else:
+                            value = None
+                    object.__setattr__(instance, field.name, value)
+            else:
+                instance = cast(ModelT, model(**{column: row[column] for column in table.columns}))
+            if key is not None:
+                self._identity_map[key] = instance
+        else:
+            instance = cast(ModelT, cached)
+            for column in table.columns:
+                object.__setattr__(instance, column, row[column])
+        self._attach_relations(table, instance, include_map)
+        return instance
+
+    def _invalidate_backrefs(
+        self,
+        table: TableProtocol[ModelT, Any, Any],
+        instance: ModelT,
+    ) -> None:
+        foreign_keys = getattr(table, "foreign_keys", ())
+        if not foreign_keys:
+            return
+        for fk in foreign_keys:
+            backref = getattr(fk, "backref", None)
+            if not backref:
+                continue
+            remote_model = fk.remote_model
+            if remote_model is None:
+                continue
+            key_values: list[Any] = []
+            for local_col, remote_col in zip(fk.local_columns, fk.remote_columns):
+                value = getattr(instance, local_col, None)
+                if value is None:
+                    key_values = []
+                    break
+                key_values.append(value)
+            if not key_values:
+                continue
+            identity_key = (remote_model, tuple(key_values))
+            owner = self._identity_map.get(identity_key)
+            if owner is None:
+                continue
+            state_map = _LAZY_RELATION_STATE.get(owner)
+            if state_map is None:
+                continue
+            state = state_map.get(backref)
+            if state is None:
+                continue
+            state.loaded = False
+            state.loading = False
+            state.value = [] if state.many else None
+
+    def _identity_key(
+        self,
+        table: TableProtocol[ModelT, Any, Any],
+        row: sqlite3.Row,
+    ) -> tuple[type[Any], tuple[Any, ...]] | None:
+        pk_columns = getattr(table, "primary_key", ())
+        if not pk_columns:
+            return None
+        values: list[Any] = []
+        for column in pk_columns:
+            value = row[column]
+            if value is None:
+                return None
+            values.append(value)
+        return (table.model, tuple(values))
+
+    def _attach_relations(
+        self,
+        table: TableProtocol[ModelT, Any, Any],
+        instance: ModelT,
+        include_map: Mapping[str, bool],
+    ) -> None:
+        relations_attr = cast(Sequence[Any], getattr(table, "relations", ()))
+        relations: list[RelationSpec] = []
+        for entry in relations_attr:
+            if isinstance(entry, RelationSpec):
+                relations.append(entry)
+            elif isinstance(entry, dict):
+                relations.append(
+                    RelationSpec(
+                        name=entry['name'],
+                        table_name=entry['table_name'],
+                        table_module=entry.get('table_module', table.__class__.__module__),
+                        many=bool(entry['many']),
+                        mapping=tuple(tuple(pair) for pair in entry['mapping']),
+                    )
+                )
+            else:
+                raise TypeError("Unsupported relation specification")
+
+        existing_names: set[str] = {spec.name for spec in relations}
+        relations.extend(_find_backref_relations(table, existing_names))
+        if not relations:
+            return
+        backend_for_lazy = cast(BackendProtocol[Any, Any, Mapping[str, object]], self)
+
+        base_model_cls = cast(type[Any], getattr(instance.__class__, "__lazy_base__", instance.__class__))
+        lazy_cls = _ensure_lazy_model_class(base_model_cls)
+        if instance.__class__ is not lazy_cls:
+            instance.__class__ = lazy_cls
+
+        states = _LAZY_RELATION_STATE.get(instance)
+        if states is None:
+            states = {}
+
+        for spec in relations:
+            name = spec.name
+            table_module_name = spec.table_module or table.__class__.__module__
+            module = sys.modules.get(table_module_name)
+            if module is None:
+                raise RuntimeError(f"Module '{table_module_name}' not loaded for relation '{name}'")
+            table_cls_name = spec.table_name
+            table_cls = getattr(module, table_cls_name)
+            mapping = spec.mapping
+            many = spec.many
+            existing_state = states.get(name)
+            if existing_state is None:
+                state = LazyRelationState(
+                    attribute=name,
+                    backend=backend_for_lazy,
+                    table_cls=cast(type[Any], table_cls),
+                    mapping=mapping,
+                    many=many,
+                )
+                states[name] = state
+            else:
+                existing_state.backend = backend_for_lazy
+                existing_state.table_cls = cast(type[Any], table_cls)
+                existing_state.mapping = mapping
+                existing_state.many = many
+                state = existing_state
+
+        if not states:
+            return
+        _LAZY_RELATION_STATE[instance] = states
+
+        for name, state in states.items():
+            if include_map.get(name):
+                _resolve_lazy_relation(instance, state)
 
     def close(self) -> None:
         if self._factory is None:
             if self._connection is not None:
                 self._connection.close()
                 self._connection = None
+            self._identity_map.clear()
             return
         connection = getattr(self._local, "connection", None)
         if connection is not None:
             connection.close()
             delattr(self._local, "connection")
+        self._identity_map.clear()
 
 
 def create_backend(provider: str, connection: Any) -> BackendProtocol[Any, Any, Mapping[str, object]]:
