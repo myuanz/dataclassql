@@ -5,7 +5,7 @@ from dataclasses import MISSING, dataclass, fields, is_dataclass
 from types import UnionType
 from typing import Annotated, Any, Iterable, Mapping, Sequence, get_args, get_origin, get_type_hints
 
-from .tsqlite import Col, TableInfo
+from .table_spec import Col, TableInfo
 
 
 @dataclass(slots=True)

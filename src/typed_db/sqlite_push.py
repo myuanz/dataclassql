@@ -9,7 +9,7 @@ from pypika.queries import Column
 from pypika.utils import format_quotes
 
 from .model_inspector import ModelInfo, inspect_models
-from .tsqlite import TableInfo
+from .table_spec import TableInfo
 
 
 TYPE_MAP: Mapping[type[Any], str] = {
