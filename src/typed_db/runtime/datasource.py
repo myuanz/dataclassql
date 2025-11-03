@@ -23,10 +23,8 @@ def resolve_sqlite_path(url: str | None) -> str:
     path = parsed.path
     if not path:
         return ":memory:"
-    if path.startswith("//"):
-        resolved = Path(path[1:])
-    else:
-        resolved = Path(path)
+
+    resolved = Path(path).relative_to("/").resolve()
     return resolved.as_posix()
 
 
