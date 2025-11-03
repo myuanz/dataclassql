@@ -72,6 +72,11 @@ def _render_metadata_base() -> str:
 class DataSourceConfig:
     provider: str
     url: str | None
+    name: str | None = None
+
+    @property
+    def key(self) -> str:
+        return self.name or self.provider
 
 
 @dataclass(slots=True)
@@ -158,7 +163,9 @@ def _render_table_class(info: ModelInfo, renderer: "_TypeRenderer", include_alia
     lines.append(f"{indent}insert_model = {name}Insert")
     ds = info.datasource
     ds_url_repr = repr(ds.url)
-    lines.append(f"{indent}datasource = DataSourceConfig(provider={ds.provider!r}, url={ds_url_repr})")
+    lines.append(
+        f"{indent}datasource = DataSourceConfig(provider={ds.provider!r}, url={ds_url_repr}, name={repr(ds.name)})"
+    )
     lines.append(f"{indent}columns = {_tuple_literal(col.name for col in info.columns)}")
     lines.append(f"{indent}primary_key = {_tuple_literal(info.primary_key)}")
     if info.indexes:
@@ -222,13 +229,20 @@ def _render_client_class(model_infos: Mapping[str, ModelInfo]) -> str:
     lines = ["class GeneratedClient:"]
     datasource_configs: dict[str, DataSourceConfig] = {}
     for info in model_infos.values():
-        key = info.datasource.provider
-        datasource_configs[key] = info.datasource
+        datasource = info.datasource
+        key = datasource.name or datasource.provider
+        existing = datasource_configs.get(key)
+        if existing is None:
+            datasource_configs[key] = datasource
+        elif existing != datasource:
+            raise ValueError(
+                f"Conflicting datasource key '{key}' for providers"
+            )
     lines.append(f"{indent}datasources = {{")
     for key in sorted(datasource_configs.keys()):
         ds = datasource_configs[key]
         lines.append(
-            f"{indent*2}{key!r}: DataSourceConfig(provider={ds.provider!r}, url={repr(ds.url)}),"
+            f"{indent*2}{key!r}: DataSourceConfig(provider={ds.provider!r}, url={repr(ds.url)}, name={repr(ds.name)}),"
         )
     lines.append(f"{indent}}}")
     lines.append("")
@@ -239,7 +253,8 @@ def _render_client_class(model_infos: Mapping[str, ModelInfo]) -> str:
     lines.append(f"{indent*4}raise KeyError(f'datasource {{key}} missing connection')")
     for name in sorted(model_infos.keys()):
         attr = _camel_to_snake(name)
-        ds_key = model_infos[name].datasource.provider
+        datasource = model_infos[name].datasource
+        ds_key = datasource.name or datasource.provider
         lines.append(f"{indent*2}self.{attr} = {name}Table(connections[{ds_key!r}])")
     return "\n".join(lines)
 

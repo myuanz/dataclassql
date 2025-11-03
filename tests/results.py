@@ -9,6 +9,11 @@ from typing import Any, Literal, Mapping, Sequence, TypedDict
 class DataSourceConfig:
     provider: str
     url: str | None
+    name: str | None = None
+
+    @property
+    def key(self) -> str:
+        return self.name or self.provider
 
 
 @dataclass(slots=True)
@@ -41,7 +46,7 @@ class AddressWhereDict(TypedDict, total=False):
 class AddressTable:
     model = Address
     insert_model = AddressInsert
-    datasource = DataSourceConfig(provider='sqlite', url='sqlite:///analytics.db')
+    datasource = DataSourceConfig(provider='sqlite', url='sqlite:///analytics.db', name=None)
     columns = ('id', 'location', 'user_id')
     primary_key = ('id',)
     indexes = ()
@@ -89,7 +94,7 @@ class BirthDayWhereDict(TypedDict, total=False):
 class BirthDayTable:
     model = BirthDay
     insert_model = BirthDayInsert
-    datasource = DataSourceConfig(provider='sqlite', url='sqlite:///analytics.db')
+    datasource = DataSourceConfig(provider='sqlite', url='sqlite:///analytics.db', name=None)
     columns = ('user_id', 'date')
     primary_key = ('user_id',)
     indexes = ()
@@ -137,7 +142,7 @@ class BookWhereDict(TypedDict, total=False):
 class BookTable:
     model = Book
     insert_model = BookInsert
-    datasource = DataSourceConfig(provider='sqlite', url='sqlite:///analytics.db')
+    datasource = DataSourceConfig(provider='sqlite', url='sqlite:///analytics.db', name=None)
     columns = ('id', 'name')
     primary_key = ('id',)
     indexes = (('name',),)
@@ -184,7 +189,7 @@ class UserWhereDict(TypedDict, total=False):
 class UserTable:
     model = User
     insert_model = UserInsert
-    datasource = DataSourceConfig(provider='sqlite', url='sqlite:///analytics.db')
+    datasource = DataSourceConfig(provider='sqlite', url='sqlite:///analytics.db', name=None)
     columns = ('id', 'name', 'email', 'last_login')
     primary_key = ('id',)
     indexes = (('name',), ('name', 'email'), ('last_login',),)
@@ -228,7 +233,7 @@ class UserBookWhereDict(TypedDict, total=False):
 class UserBookTable:
     model = UserBook
     insert_model = UserBookInsert
-    datasource = DataSourceConfig(provider='sqlite', url='sqlite:///analytics.db')
+    datasource = DataSourceConfig(provider='sqlite', url='sqlite:///analytics.db', name=None)
     columns = ('user_id', 'book_id', 'created_at')
     primary_key = ('user_id', 'book_id')
     indexes = (('created_at',),)
@@ -265,7 +270,7 @@ class UserBookTable:
 
 class GeneratedClient:
     datasources = {
-        'sqlite': DataSourceConfig(provider='sqlite', url='sqlite:///analytics.db'),
+        'sqlite': DataSourceConfig(provider='sqlite', url='sqlite:///analytics.db', name=None),
     }
 
     def __init__(self, connections: Mapping[str, Any]) -> None:

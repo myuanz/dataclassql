@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+import types
 from collections.abc import Sequence as ABCSequence
 from dataclasses import dataclass, fields
 from datetime import datetime
@@ -114,11 +116,12 @@ def test_generate_client_matches_expected_shape() -> None:
     user_table_cls = namespace['UserTable']
     columns_tuple = user_table_cls.columns
     assert set(get_args(sortable_alias)) == set(columns_tuple)
-    assert user_table_cls.datasource == data_source_config(provider='sqlite', url='sqlite:///analytics.db')
+    expected_ds = data_source_config(provider='sqlite', url='sqlite:///analytics.db', name=None)
+    assert user_table_cls.datasource == expected_ds
 
     ds_mapping = generated_client.datasources
     assert ds_mapping == {
-        'sqlite': data_source_config(provider='sqlite', url='sqlite:///analytics.db')
+        'sqlite': data_source_config(provider='sqlite', url='sqlite:///analytics.db', name=None)
     }
     init_hints = get_type_hints(generated_client.__init__, globalns=namespace, localns=namespace)
     assert init_hints['connections'] == Mapping[str, Any]
@@ -210,3 +213,64 @@ def test_generate_client_matches_expected_shape() -> None:
     (include_dict_first,) = tuple(include_args_first)
     assert get_origin(include_dict_first) is dict
     assert get_args(include_dict_first)[0] is include_alias
+
+
+def test_generated_client_supports_named_datasources() -> None:
+    module_name_primary = "tests.codegen_primary"
+    module_name_secondary = "tests.codegen_secondary"
+    primary_module = types.ModuleType(module_name_primary)
+    setattr(primary_module, "__datasource__", {
+        "provider": "sqlite",
+        "url": "sqlite:///primary.db",
+        "name": "primary",
+    })
+    secondary_module = types.ModuleType(module_name_secondary)
+    setattr(secondary_module, "__datasource__", {
+        "provider": "sqlite",
+        "url": "sqlite:///secondary.db",
+        "name": "secondary",
+    })
+    sys.modules[module_name_primary] = primary_module
+    sys.modules[module_name_secondary] = secondary_module
+
+    @dataclass
+    class PrimaryUser:
+        id: int
+
+    PrimaryUser.__module__ = module_name_primary
+    setattr(primary_module, "PrimaryUser", PrimaryUser)
+
+    @dataclass
+    class SecondaryUser:
+        id: int
+
+    SecondaryUser.__module__ = module_name_secondary
+    setattr(secondary_module, "SecondaryUser", SecondaryUser)
+
+    try:
+        module = generate_client([PrimaryUser, SecondaryUser])
+        namespace: dict[str, Any] = {}
+        exec(module.code, namespace)
+
+        generated_client = namespace["GeneratedClient"]
+        data_source_config = namespace["DataSourceConfig"]
+        expected_mapping = {
+            "primary": data_source_config(provider="sqlite", url="sqlite:///primary.db", name="primary"),
+            "secondary": data_source_config(provider="sqlite", url="sqlite:///secondary.db", name="secondary"),
+        }
+        assert generated_client.datasources == expected_mapping
+
+        primary_table_cls = namespace["PrimaryUserTable"]
+        secondary_table_cls = namespace["SecondaryUserTable"]
+        assert primary_table_cls.datasource == expected_mapping["primary"]
+        assert secondary_table_cls.datasource == expected_mapping["secondary"]
+
+        connections = {"primary": object(), "secondary": object()}
+        client = generated_client(connections)
+        assert isinstance(client.primary_user, primary_table_cls)
+        assert isinstance(client.secondary_user, secondary_table_cls)
+        assert client.primary_user._backend is connections["primary"]
+        assert client.secondary_user._backend is connections["secondary"]
+    finally:
+        sys.modules.pop(module_name_primary, None)
+        sys.modules.pop(module_name_secondary, None)

@@ -29,21 +29,25 @@ def db_push(
     confirm_rebuild: Callable[[ModelInfo, SchemaPlan, tuple[ExistingColumn, ...] | None, SchemaDiff], bool] | None = None,
 ) -> None:
     model_infos = inspect_models(models)
-    grouped: dict[str, list[ModelInfo]] = {}
+    grouped: dict[str, dict[str, list[ModelInfo]]] = {}
     for info in model_infos.values():
-        grouped.setdefault(info.datasource.provider, []).append(info)
+        provider = info.datasource.provider
+        key = info.datasource.key
+        provider_map = grouped.setdefault(provider, {})
+        provider_map.setdefault(key, []).append(info)
 
-    for provider, infos in grouped.items():
-        if provider not in connections:
-            raise KeyError(f"Connection for provider '{provider}' is missing")
+    for provider, key_map in grouped.items():
         pusher = get_pusher(provider)
-        connection = connections[provider]
-        pusher.push(
-            connection,
-            infos,
-            sync_indexes=sync_indexes,
-            confirm_rebuild=confirm_rebuild,
-        )
+        for key, infos in key_map.items():
+            if key not in connections:
+                raise KeyError(f"Connection for datasource '{key}' is missing")
+            connection = connections[key]
+            pusher.push(
+                connection,
+                infos,
+                sync_indexes=sync_indexes,
+                confirm_rebuild=confirm_rebuild,
+            )
 
 
 __all__ = [

@@ -51,6 +51,11 @@ class ModelInfo:
 class DataSourceConfig:
     provider: str
     url: str | None
+    name: str | None = None
+
+    @property
+    def key(self) -> str:
+        return self.name or self.provider
 
 
 @dataclass(slots=True)
@@ -373,4 +378,6 @@ def _module_datasource(module: Any | None) -> DataSourceConfig:
     provider = str(config["provider"])
     raw_url = config.get("url")
     url = str(raw_url) if raw_url is not None else None
-    return DataSourceConfig(provider=provider, url=url)
+    raw_name = config.get("name")
+    name = str(raw_name) if raw_name is not None else None
+    return DataSourceConfig(provider=provider, url=url, name=name)
