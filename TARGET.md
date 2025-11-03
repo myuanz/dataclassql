@@ -38,32 +38,36 @@ class Address:
 
 因此要分成两步, 基于这样的 User 生成:
 ```
-T_User_include_col = Literal['Address']
-T_User_sortable_col = Literal['id', 'name', 'email', 'last_login', 'created_at']
+TUserIncludeCol = Literal['Address', 'BirthDay', 'UserBook']
+TUserSortableCol = Literal['id', 'name', 'email', 'last_login', 'created_at']
 
 @dataclass(slots=True)
 class UserInsert:
     id: int | None
     name: str
-    email : str | None
+    email: str | None
     last_login: datetime
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 class UserInsertDict(TypedDict):
     id: int | None
     name: str
-    email : str | None
+    email: str | None
     last_login: datetime
     created_at: datetime
 
-class UserWhereDict(UserInsertDict, total=False):
-    ...
+class UserWhereDict(TypedDict, total=False):
+    id: int | None
+    name: str | None
+    email: str | None
+    last_login: datetime | None
+    created_at: datetime | None
 
 
 class UserTable:
     model = User
     insert_model = UserInsert
-    columns = ("id", "name")
+    columns = ("id", "name", "email", "last_login", "created_at")
     primary_key = ("id",)
 
     def insert(self, data: UserInsert | UserInsertDict) -> User: ...
@@ -72,8 +76,8 @@ class UserTable:
         self,
         *,
         where: UserWhereDict | None = None,
-        include: dict[T_User_include, bool] | None = None,
-        order_by: Sequence[tuple[T_User_sortable_col, Literal['asc', 'desc']]] | None = None,
+        include: dict[TUserIncludeCol, bool] | None = None,
+        order_by: Sequence[tuple[TUserSortableCol, Literal['asc', 'desc']]] | None = None,
         take: int | None = None,
         skip: int | None = None,
     ) -> list[User]: ...
@@ -81,8 +85,8 @@ class UserTable:
         self,
         *,
         where: UserWhereDict | None = None,
-        include: dict[T_User_include, bool] | None = None,
-        order_by: Sequence[tuple[T_User_sortable_col, Literal['asc', 'desc']]] | None = None,
+        include: dict[TUserIncludeCol, bool] | None = None,
+        order_by: Sequence[tuple[TUserSortableCol, Literal['asc', 'desc']]] | None = None,
         skip: int | None = None,
     ) -> User | None: ...
 ```
@@ -101,8 +105,12 @@ class UserTable:
 - 与 Prisma 类似的 n+1 机制, 可以在find系列函数里设置include=, 也可以不include, 但在获取对象时即时查询
 - 使用 fake self 机制获取主键、索引、外键、唯键等信息
 - 不依赖 fastlite, 只依赖 sqlite-utils
-- 初期仅支持 `insert` / `insert_many` / `find_many` / `find_first` 的代码生成. Insert 支持 dataclass 与 TypedDict 两种结构
-- 生成结果包含 `ForeignKeySpec` 描述外键、`*Insert` dataclass、`*InsertDict*` TypedDict 组合、具体的 `*Table` 表访问类以及聚合的 `GeneratedClient`
+- 初期仅支持 `insert` / `insert_many` / `find_many` / `find_first` 的代码生成. Insert 支持 dataclass 与 TypedDict 两种结构, WhereDict 会独立生成并把所有列标注为可选
+- 每个模型模块通过模块级 `__datasource__ = {"provider": ..., "url": ...}` 指定数据源(目前仅支持 sqlite), 代码生成时会按 provider 分组构建表与客户端, `GeneratedClient` 在初始化时需要提供 `{provider: connection}` 的映射
+- 生成结果包含 `DataSourceConfig`、`ForeignKeySpec` 等元信息, 以及 `T{Name}IncludeCol`/`T{Name}SortableCol` 字面量类型别名、`*Insert` dataclass、`*InsertDict` 与 `*WhereDict` TypedDict 组合、具体的 `*Table` 表访问类以及聚合的 `GeneratedClient`
+- 每个 model 文件里需要写明数据源, 不同的 model 可以有不同的数据源. 在后面调用时按数据源分组使用. model 文件下可以定义模块变量 __datasource__ = {'provider': xxx, 'url': xxx}, 像 Prisma 一样, 提供器是数据库, url是连接url
+    - 未来会支持其他数据库, 现在只关注 sqlite
+    - 未来会支持从环境变量, 现在先不管
 
 ## 期待的样例
 
