@@ -96,7 +96,9 @@ class UserTable:
 
 - [x] 元编程工具集, 收集 dataclass 字段信息等
 - [x] 基本的类型化代码生成 (Insert/InsertDict + insert/insert_many/find_many/find_first)
-- [ ] sqlite 后端生成, 包括创建表, 创建索引, 生成查询语句等, 相关sql使用`pypika`生成
+- [ ] sqlite 后端:
+    - [ ] 对应 prisma db push 的功能, 如: 创建表, 创建索引, 变更表结构和变更索引等
+    - [ ] 运行时查询和插入等功能
 
 # 设计
 
@@ -111,6 +113,7 @@ class UserTable:
 - 每个 model 文件里需要写明数据源, 不同的 model 可以有不同的数据源. 在后面调用时按数据源分组使用. model 文件下可以定义模块变量 __datasource__ = {'provider': xxx, 'url': xxx}, 像 Prisma 一样, 提供器是数据库, url是连接url
     - 未来会支持其他数据库, 现在只关注 sqlite
     - 未来会支持从环境变量, 现在先不管
+- 相关sql使用`pypika`生成
 
 ## 期待的样例
 

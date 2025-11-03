@@ -26,12 +26,10 @@ class User:
     name: str
     email: str
 
-    @property
-    def index_sqls(self):
-        return f'''
-            CREATE INDEX IF NOT EXISTS idx_user_name ON {self} (name);
-            CREATE INDEX IF NOT EXISTS idx_user_email ON {self} (email);
-        '''
+    def index(self):
+        yield self.name
+        yield self.email
+
 
 db = database(':memory:')
 user_tb = TypedTable[User, db] # table will be created if not exists, and indexes will be created too
