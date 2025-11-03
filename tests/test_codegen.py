@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import sqlite3
 import sys
+import tempfile
 import types
 from collections.abc import Sequence as ABCSequence
 from dataclasses import dataclass, fields
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Literal, Mapping, get_args, get_origin, get_type_hints
 
 from typed_db.codegen import generate_client
@@ -126,7 +128,8 @@ def test_generate_client_matches_expected_shape() -> None:
         'sqlite': data_source_config(provider='sqlite', url='sqlite:///analytics.db', name=None)
     }
     init_hints = get_type_hints(generated_client.__init__, globalns=namespace, localns=namespace)
-    assert init_hints['connections'] == Mapping[str, Any]
+    assert set(init_hints.keys()) == {"return"}
+    assert init_hints["return"] is type(None)
 
     user_insert_cls = namespace['UserInsert']
     user_insert_dict = namespace['UserInsertDict']
@@ -230,16 +233,18 @@ def test_generate_client_matches_expected_shape() -> None:
 def test_generated_client_supports_named_datasources() -> None:
     module_name_primary = "tests.codegen_primary"
     module_name_secondary = "tests.codegen_secondary"
+    primary_db = Path(tempfile.mkstemp(prefix="primary", suffix=".db")[1])
+    secondary_db = Path(tempfile.mkstemp(prefix="secondary", suffix=".db")[1])
     primary_module = types.ModuleType(module_name_primary)
     setattr(primary_module, "__datasource__", {
         "provider": "sqlite",
-        "url": "sqlite:///primary.db",
+        "url": f"sqlite:////{primary_db.as_posix()}",
         "name": "primary",
     })
     secondary_module = types.ModuleType(module_name_secondary)
     setattr(secondary_module, "__datasource__", {
         "provider": "sqlite",
-        "url": "sqlite:///secondary.db",
+        "url": f"sqlite:////{secondary_db.as_posix()}",
         "name": "secondary",
     })
     sys.modules[module_name_primary] = primary_module
@@ -259,16 +264,18 @@ def test_generated_client_supports_named_datasources() -> None:
     SecondaryUser.__module__ = module_name_secondary
     setattr(secondary_module, "SecondaryUser", SecondaryUser)
 
+    namespace: dict[str, Any] = {}
+    generated_client_cls = None
     try:
         module = generate_client([PrimaryUser, SecondaryUser])
-        namespace: dict[str, Any] = {}
         exec(module.code, namespace)
 
         generated_client = namespace["GeneratedClient"]
+        generated_client_cls = generated_client
         data_source_config = namespace["DataSourceConfig"]
         expected_mapping = {
-            "primary": data_source_config(provider="sqlite", url="sqlite:///primary.db", name="primary"),
-            "secondary": data_source_config(provider="sqlite", url="sqlite:///secondary.db", name="secondary"),
+            "primary": data_source_config(provider="sqlite", url=f"sqlite:////{primary_db.as_posix()}", name="primary"),
+            "secondary": data_source_config(provider="sqlite", url=f"sqlite:////{secondary_db.as_posix()}", name="secondary"),
         }
         assert generated_client.datasources == expected_mapping
 
@@ -277,11 +284,7 @@ def test_generated_client_supports_named_datasources() -> None:
         assert primary_table_cls.datasource == expected_mapping["primary"]
         assert secondary_table_cls.datasource == expected_mapping["secondary"]
 
-        connections = {
-            "primary": sqlite3.connect(":memory:"),
-            "secondary": sqlite3.connect(":memory:"),
-        }
-        client = generated_client(connections)
+        client = generated_client()
         assert isinstance(client.primary_user, primary_table_cls)
         assert isinstance(client.secondary_user, secondary_table_cls)
         assert isinstance(client.primary_user._backend, SQLiteBackend)
@@ -289,3 +292,7 @@ def test_generated_client_supports_named_datasources() -> None:
     finally:
         sys.modules.pop(module_name_primary, None)
         sys.modules.pop(module_name_secondary, None)
+        primary_db.unlink(missing_ok=True)
+        secondary_db.unlink(missing_ok=True)
+        if generated_client_cls is not None:
+            generated_client_cls.close_all()

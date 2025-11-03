@@ -165,6 +165,7 @@ class SQLiteBackend[ModelT, InsertT, WhereT: Mapping[str, object]](BackendProtoc
                 start = end
                 continue
             cursor = connection.executemany(sql, [tuple(param) for param in subset_params])
+            connection.commit()
             generated_start: int | None = None
             if len(pk_columns) == 1 and pk_columns[0] in auto_increment:
                 last_rowid_result = connection.execute("SELECT last_insert_rowid()").fetchone()
@@ -278,9 +279,12 @@ class SQLiteBackend[ModelT, InsertT, WhereT: Mapping[str, object]](BackendProtoc
         cursor = self._execute(sql, params)
         return cursor.fetchall()
 
-    def _execute(self, sql: str, params: Sequence[Any]) -> sqlite3.Cursor:
+    def _execute(self, sql: str, params: Sequence[Any], auto_commit: bool = True) -> sqlite3.Cursor:
         connection = self._acquire_connection()
-        return connection.execute(sql, tuple(params))
+        cursor = connection.execute(sql, tuple(params))
+        if auto_commit:
+            connection.commit()
+        return cursor
 
     def _acquire_connection(self) -> sqlite3.Connection:
         if self._factory is None:
@@ -307,6 +311,17 @@ class SQLiteBackend[ModelT, InsertT, WhereT: Mapping[str, object]](BackendProtoc
         data = {column: row[column] for column in table.columns}
         model = table.model
         return cast(ModelT, model(**data))
+
+    def close(self) -> None:
+        if self._factory is None:
+            if self._connection is not None:
+                self._connection.close()
+                self._connection = None
+            return
+        connection = getattr(self._local, "connection", None)
+        if connection is not None:
+            connection.close()
+            delattr(self._local, "connection")
 
 
 def create_backend(provider: str, connection: Any) -> BackendProtocol[Any, Any, Mapping[str, object]]:

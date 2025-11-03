@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typed_db.db_pool import BaseDBPool, save_local
 from typed_db.runtime.backends import BackendProtocol, create_backend
+from typed_db.runtime.datasource import resolve_sqlite_path
+import sqlite3
 from datetime import datetime
 from test_codegen import Address, BirthDay, Book, User, UserBook
 from typing import Any, Literal, Mapping, Sequence, TypedDict, cast
@@ -274,22 +277,36 @@ class UserBookTable:
     def find_first(self, *, where: UserBookWhereDict | None = None, include: dict[TUserBookIncludeCol, bool] | None = None, order_by: Sequence[tuple[TUserBookSortableCol, Literal['asc', 'desc']]] | None = None, skip: int | None = None) -> UserBook | None:
         return self._backend.find_first(self, where=where, include=cast(Mapping[str, bool] | None, include), order_by=order_by, skip=skip)
 
-class GeneratedClient:
+class GeneratedClient(BaseDBPool):
     datasources = {
         'sqlite': DataSourceConfig(provider='sqlite', url='sqlite:///analytics.db', name=None),
     }
 
-    def __init__(self, connections: Mapping[str, Any]) -> None:
-        self._connections: dict[str, BackendProtocol[Any, Any, Mapping[str, object]]] = {}
-        for key, config in self.datasources.items():
-            if key not in connections:
-                raise KeyError(f'datasource {key} missing connection')
-            backend = create_backend(config.provider, connections[key])
-            self._connections[key] = backend
-        self.address = AddressTable(cast(BackendProtocol[Address, AddressInsert, AddressWhereDict], self._connections['sqlite']))
-        self.birth_day = BirthDayTable(cast(BackendProtocol[BirthDay, BirthDayInsert, BirthDayWhereDict], self._connections['sqlite']))
-        self.book = BookTable(cast(BackendProtocol[Book, BookInsert, BookWhereDict], self._connections['sqlite']))
-        self.user = UserTable(cast(BackendProtocol[User, UserInsert, UserWhereDict], self._connections['sqlite']))
-        self.user_book = UserBookTable(cast(BackendProtocol[UserBook, UserBookInsert, UserBookWhereDict], self._connections['sqlite']))
+    @classmethod
+    @save_local
+    def _backend_sqlite(cls) -> BackendProtocol[Any, Any, Mapping[str, object]]:
+        config = cls.datasources['sqlite']
+        if config.provider == 'sqlite':
+            path = resolve_sqlite_path(config.url)
+            conn = sqlite3.connect(path, check_same_thread=False)
+            cls._setup_sqlite_db(conn)
+            return create_backend('sqlite', conn)
+        raise ValueError(f"Unsupported provider '{config.provider}' for datasource 'sqlite'")
+
+    def __init__(self) -> None:
+        self.address = AddressTable(cast(BackendProtocol[Address, AddressInsert, AddressWhereDict], self._backend_sqlite()))
+        self.birth_day = BirthDayTable(cast(BackendProtocol[BirthDay, BirthDayInsert, BirthDayWhereDict], self._backend_sqlite()))
+        self.book = BookTable(cast(BackendProtocol[Book, BookInsert, BookWhereDict], self._backend_sqlite()))
+        self.user = UserTable(cast(BackendProtocol[User, UserInsert, UserWhereDict], self._backend_sqlite()))
+        self.user_book = UserBookTable(cast(BackendProtocol[UserBook, UserBookInsert, UserBookWhereDict], self._backend_sqlite()))
+
+    @classmethod
+    def close_all(cls, verbose: bool = False) -> None:
+        super().close_all(verbose=verbose)
+        if hasattr(cls._local, '_backend_sqlite'):
+            backend = getattr(cls._local, '_backend_sqlite')
+            if hasattr(backend, 'close') and callable(getattr(backend, 'close')):
+                backend.close()
+            delattr(cls._local, '_backend_sqlite')
 
 __all__ = ("DataSourceConfig", "ForeignKeySpec", "GeneratedClient", "TAddressIncludeCol", "TAddressSortableCol", "AddressInsert", "AddressInsertDict", "AddressWhereDict", "AddressTable", "TBirthDayIncludeCol", "TBirthDaySortableCol", "BirthDayInsert", "BirthDayInsertDict", "BirthDayWhereDict", "BirthDayTable", "TBookIncludeCol", "TBookSortableCol", "BookInsert", "BookInsertDict", "BookWhereDict", "BookTable", "TUserIncludeCol", "TUserSortableCol", "UserInsert", "UserInsertDict", "UserWhereDict", "UserTable", "TUserBookIncludeCol", "TUserBookSortableCol", "UserBookInsert", "UserBookInsertDict", "UserBookWhereDict", "UserBookTable",)

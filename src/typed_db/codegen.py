@@ -23,7 +23,10 @@ def generate_client(models: Sequence[type[Any]]) -> GeneratedModule:
 
     base_imports = {
         "from dataclasses import dataclass, field",
+        "import sqlite3",
+        "from typed_db.db_pool import BaseDBPool, save_local",
         "from typed_db.runtime.backends import BackendProtocol, create_backend",
+        "from typed_db.runtime.datasource import resolve_sqlite_path",
     }
 
     model_imports: dict[str, set[str]] = defaultdict(set)
@@ -239,7 +242,7 @@ def _render_default_fragment(model_name: str, col: ColumnInfo) -> str | None:
 
 def _render_client_class(model_infos: Mapping[str, ModelInfo]) -> str:
     indent = "    "
-    lines = ["class GeneratedClient:"]
+    lines = ["class GeneratedClient(BaseDBPool):"]
     datasource_configs: dict[str, DataSourceConfig] = {}
     for info in model_infos.values():
         datasource = info.datasource
@@ -258,22 +261,51 @@ def _render_client_class(model_infos: Mapping[str, ModelInfo]) -> str:
             f"{indent*2}{key!r}: DataSourceConfig(provider={ds.provider!r}, url={repr(ds.url)}, name={repr(ds.name)}),"
         )
     lines.append(f"{indent}}}")
+
+    backend_methods: list[tuple[str, str]] = []
+    for key in sorted(datasource_configs.keys()):
+        method_suffix = _sanitize_identifier(key)
+        method_name = f"_backend_{method_suffix}"
+        backend_methods.append((key, method_name))
+        lines.append("")
+        lines.append(f"{indent}@classmethod")
+        lines.append(f"{indent}@save_local")
+        lines.append(
+            f"{indent}def {method_name}(cls) -> BackendProtocol[Any, Any, Mapping[str, object]]:"
+        )
+        lines.append(f"{indent*2}config = cls.datasources[{key!r}]")
+        lines.append(f"{indent*2}if config.provider == 'sqlite':")
+        lines.append(f"{indent*3}path = resolve_sqlite_path(config.url)")
+        lines.append(f"{indent*3}conn = sqlite3.connect(path, check_same_thread=False)")
+        lines.append(f"{indent*3}cls._setup_sqlite_db(conn)")
+        lines.append(f"{indent*3}return create_backend('sqlite', conn)")
+        lines.append(
+            f"{indent*2}raise ValueError(f\"Unsupported provider '{{config.provider}}' for datasource '{key}'\")"
+        )
+
     lines.append("")
-    lines.append(f"{indent}def __init__(self, connections: Mapping[str, Any]) -> None:")
-    lines.append(f"{indent*2}self._connections: dict[str, BackendProtocol[Any, Any, Mapping[str, object]]] = {{}}")
-    lines.append(f"{indent*2}for key, config in self.datasources.items():")
-    lines.append(f"{indent*3}if key not in connections:")
-    lines.append(f"{indent*4}raise KeyError(f'datasource {{key}} missing connection')")
-    lines.append(f"{indent*3}backend = create_backend(config.provider, connections[key])")
-    lines.append(f"{indent*3}self._connections[key] = backend")
+    lines.append(f"{indent}def __init__(self) -> None:")
+    method_map = {key: method for key, method in backend_methods}
+
     for name in sorted(model_infos.keys()):
         attr = _camel_to_snake(name)
         datasource = model_infos[name].datasource
         ds_key = datasource.name or datasource.provider
         where_alias = f"{name}WhereDict"
+        method_name = method_map[ds_key]
         lines.append(
-            f"{indent*2}self.{attr} = {name}Table(cast(BackendProtocol[{name}, {name}Insert, {where_alias}], self._connections[{ds_key!r}]))"
+            f"{indent*2}self.{attr} = {name}Table(cast(BackendProtocol[{name}, {name}Insert, {where_alias}], self.{method_name}()))"
         )
+    lines.append("")
+    lines.append(f"{indent}@classmethod")
+    lines.append(f"{indent}def close_all(cls, verbose: bool = False) -> None:")
+    lines.append(f"{indent*2}super().close_all(verbose=verbose)")
+    for _, method_name in backend_methods:
+        lines.append(f"{indent*2}if hasattr(cls._local, '{method_name}'):")
+        lines.append(f"{indent*3}backend = getattr(cls._local, '{method_name}')")
+        lines.append(f"{indent*3}if hasattr(backend, 'close') and callable(getattr(backend, 'close')):")
+        lines.append(f"{indent*4}backend.close()")
+        lines.append(f"{indent*3}delattr(cls._local, '{method_name}')")
     return "\n".join(lines)
 
 
@@ -314,6 +346,19 @@ def _tuple_literal(values: Iterable[Any]) -> str:
     if len(items) == 1:
         return f"({joined},)"
     return f"({joined})"
+
+
+def _sanitize_identifier(value: str) -> str:
+    result_chars: list[str] = []
+    for char in value:
+        if char.isalnum() or char == "_":
+            result_chars.append(char.lower())
+        else:
+            result_chars.append("_")
+    identifier = "".join(result_chars).replace("__", "_")
+    if not identifier or identifier[0].isdigit():
+        identifier = f"ds_{identifier}" if identifier else "ds"
+    return identifier
 
 
 def _camel_to_snake(name: str) -> str:

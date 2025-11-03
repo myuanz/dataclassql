@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -10,7 +12,7 @@ from typed_db.codegen import generate_client
 from typed_db.push import db_push
 
 
-__datasource__ = {"provider": "sqlite", "url": "sqlite:///runtime.db"}
+__datasource__ = {"provider": "sqlite", "url": None}
 
 
 @dataclass
@@ -20,19 +22,31 @@ class RuntimeUser:
     email: str | None
 
 
-def _build_client(connection: Any):
+def _prepare_database(db_path: Path) -> None:
+    global __datasource__
+    __datasource__ = {"provider": "sqlite", "url": f"sqlite:////{db_path.as_posix()}"}
+    conn = sqlite3.connect(db_path)
+    try:
+        db_push([RuntimeUser], {"sqlite": conn})
+    finally:
+        conn.close()
+
+
+def _build_client() -> tuple[dict[str, Any], Any]:
     module = generate_client([RuntimeUser])
     namespace: dict[str, Any] = {}
     exec(module.code, namespace)
     generated_client = namespace["GeneratedClient"]
-    client = generated_client({"sqlite": connection})
+    expected_url = __datasource__["url"]
+    assert generated_client.datasources[[*generated_client.datasources.keys()][0]].url == expected_url
+    client = generated_client()
     return namespace, client
 
 
-def test_insert_and_find_roundtrip():
-    conn = sqlite3.connect(":memory:")
-    db_push([RuntimeUser], {"sqlite": conn})
-    namespace, client = _build_client(conn)
+def test_insert_and_find_roundtrip(tmp_path: Path):
+    db_path = tmp_path / "runtime.db"
+    _prepare_database(db_path)
+    namespace, client = _build_client()
     user_table = client.runtime_user
     InsertModel = namespace["RuntimeUserInsert"]
 
@@ -53,12 +67,13 @@ def test_insert_and_find_roundtrip():
 
     first = user_table.find_first(order_by=[("name", "asc")])
     assert first.name == "Alice"
+    client.__class__.close_all()
 
 
-def test_insert_many_utilises_backend():
-    conn = sqlite3.connect(":memory:")
-    db_push([RuntimeUser], {"sqlite": conn})
-    namespace, client = _build_client(conn)
+def test_insert_many_utilises_backend(tmp_path: Path):
+    db_path = tmp_path / "runtime.db"
+    _prepare_database(db_path)
+    namespace, client = _build_client()
     user_table = client.runtime_user
     InsertModel = namespace["RuntimeUserInsert"]
 
@@ -71,12 +86,13 @@ def test_insert_many_utilises_backend():
 
     all_rows = user_table.find_many(order_by=[("name", "asc")])
     assert [user.name for user in all_rows] == ["Carol", "Dave"]
+    client.__class__.close_all()
 
 
-def test_insert_many_generates_sequential_ids():
-    conn = sqlite3.connect(":memory:")
-    db_push([RuntimeUser], {"sqlite": conn})
-    namespace, client = _build_client(conn)
+def test_insert_many_generates_sequential_ids(tmp_path: Path):
+    db_path = tmp_path / "runtime.db"
+    _prepare_database(db_path)
+    namespace, client = _build_client()
     user_table = client.runtime_user
     InsertModel = namespace["RuntimeUserInsert"]
 
@@ -91,31 +107,42 @@ def test_insert_many_generates_sequential_ids():
 
     ids = [user.id for user in inserted]
     assert ids == [1, 2, 3]
+    client.__class__.close_all()
 
 
-def test_backend_accepts_factory_and_caches_connection():
-    conn = sqlite3.connect(":memory:")
-    db_push([RuntimeUser], {"sqlite": conn})
-    calls: list[int] = []
-
-    def factory() -> sqlite3.Connection:
-        calls.append(1)
-        return conn
-
-    namespace, client = _build_client(factory)
+def test_backend_thread_local(tmp_path: Path):
+    db_path = tmp_path / "runtime.db"
+    _prepare_database(db_path)
+    namespace, client = _build_client()
     user_table = client.runtime_user
     InsertModel = namespace["RuntimeUserInsert"]
 
     user_table.insert(InsertModel(id=None, name="Eve", email=None))
-    user_table.find_first()
 
-    assert len(calls) == 1
+    def worker() -> int | None:
+        other_client = namespace["GeneratedClient"]()
+        try:
+            record = other_client.runtime_user.find_first(order_by=[("name", "asc")])
+            return record.id if record else None
+        finally:
+            other_client.__class__.close_all()
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        future = executor.submit(worker)
+        thread_result = future.result()
+
+    main_record = user_table.find_first(order_by=[("name", "asc")])
+    assert main_record is not None
+    assert thread_result is not None
+    client.__class__.close_all()
 
 
-def test_find_many_rejects_unknown_columns():
-    conn = sqlite3.connect(":memory:")
-    db_push([RuntimeUser], {"sqlite": conn})
-    _, client = _build_client(conn)
+def test_find_many_rejects_unknown_columns(tmp_path: Path):
+    db_path = tmp_path / "runtime.db"
+    _prepare_database(db_path)
+    _, client = _build_client()
     user_table = client.runtime_user
 
     with pytest.raises(KeyError):
@@ -123,13 +150,15 @@ def test_find_many_rejects_unknown_columns():
 
     with pytest.raises(ValueError):
         user_table.find_many(order_by=[("name", "sideways")])
+    client.__class__.close_all()
 
 
-def test_include_not_supported():
-    conn = sqlite3.connect(":memory:")
-    db_push([RuntimeUser], {"sqlite": conn})
-    _, client = _build_client(conn)
+def test_include_not_supported(tmp_path: Path):
+    db_path = tmp_path / "runtime.db"
+    _prepare_database(db_path)
+    _, client = _build_client()
     user_table = client.runtime_user
 
     with pytest.raises(NotImplementedError):
         user_table.find_many(include={"anything": True})
+    client.__class__.close_all()

@@ -2,15 +2,14 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
-import sqlite3
 import sys
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Sequence
-from urllib.parse import urlparse
 
 from .codegen import generate_client
 from .push import db_push
+from .runtime.datasource import open_sqlite_connection, resolve_sqlite_path
 
 
 DEFAULT_MODEL_FILE = "model.py"
@@ -46,26 +45,6 @@ def collect_models(module: ModuleType) -> list[type[Any]]:
     return models
 
 
-def resolve_sqlite_path(url: str | None) -> str:
-    if not url:
-        raise ValueError("SQLite datasource must specify a url, e.g. sqlite:///path/to.db")
-
-    parsed = urlparse(url)
-    if parsed.scheme != "sqlite":
-        raise ValueError(f"Unsupported sqlite url '{url}'")
-
-    if parsed.path in {":memory:", "/:memory:"}:
-        return ":memory:"
-
-    if parsed.netloc and parsed.netloc != "":  # e.g. sqlite://localhost/path.db
-        raise ValueError(f"Unsupported sqlite netloc '{parsed.netloc}' in url '{url}'")
-
-    path = parsed.path
-    if path.startswith("/"):
-        path = path[1:]
-    return path or ":memory:"
-
-
 def push_database(models: Sequence[type[Any]]) -> None:
     from .model_inspector import inspect_models
 
@@ -80,8 +59,7 @@ def push_database(models: Sequence[type[Any]]) -> None:
                 continue
             if config.provider != "sqlite":
                 raise ValueError(f"Unsupported provider '{config.provider}'")
-            path = resolve_sqlite_path(config.url)
-            connection = sqlite3.connect(path)
+            connection = open_sqlite_connection(config.url)
             connections[key] = connection
             opened.append(connection)
         db_push(models, connections)
