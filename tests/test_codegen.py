@@ -80,7 +80,7 @@ class User:
         yield self.name, self.email
         yield self.last_login
 
-    def unique(self):
+    def unique_index(self):
         yield self.name, self.email
 
 
