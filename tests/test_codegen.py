@@ -3,10 +3,14 @@ from __future__ import annotations
 from collections.abc import Sequence as ABCSequence
 from dataclasses import dataclass, fields
 from datetime import datetime
-from typing import Any, Literal, get_args, get_origin, get_type_hints
+from typing import Any, Literal, Mapping, get_args, get_origin, get_type_hints
 
 from typed_db.codegen import generate_client
 
+__datasource__ = {
+    "provider": "sqlite",
+    "url": "sqlite:///analytics.db",
+}
 
 @dataclass
 class Address:
@@ -83,7 +87,7 @@ class User:
 def test_generate_client_matches_expected_shape() -> None:
     module = generate_client([User, Address, BirthDay, Book, UserBook])
     code = module.code
-    open('./results.py', 'w', encoding='utf-8').write(code)
+    open('./tests/results.py', 'w', encoding='utf-8').write(code)
 
     assert "class UserWhereDict" in code
     assert "def insert_many" in code
@@ -95,16 +99,29 @@ def test_generate_client_matches_expected_shape() -> None:
 
     assert module.model_names == ('Address', 'BirthDay', 'Book', 'User', 'UserBook')
 
-    include_alias = namespace['T_User_include']
+    assert 'DataSourceConfig' in namespace['__all__']
+
+    data_source_config = namespace['DataSourceConfig']
+    generated_client = namespace['GeneratedClient']
+
+    include_alias = namespace['TUserIncludeCol']
     assert get_origin(include_alias) is Literal
     assert set(get_args(include_alias)) == {'Address', 'BirthDay', 'UserBook'}
 
-    sortable_alias = namespace['T_User_sortable_col']
+    sortable_alias = namespace['TUserSortableCol']
     assert get_origin(sortable_alias) is Literal
 
     user_table_cls = namespace['UserTable']
     columns_tuple = user_table_cls.columns
     assert set(get_args(sortable_alias)) == set(columns_tuple)
+    assert user_table_cls.datasource == data_source_config(provider='sqlite', url='sqlite:///analytics.db')
+
+    ds_mapping = generated_client.datasources
+    assert ds_mapping == {
+        'sqlite': data_source_config(provider='sqlite', url='sqlite:///analytics.db')
+    }
+    init_hints = get_type_hints(generated_client.__init__, globalns=namespace, localns=namespace)
+    assert init_hints['connections'] == Mapping[str, Any]
 
     user_insert_cls = namespace['UserInsert']
     user_insert_dict = namespace['UserInsertDict']
@@ -127,7 +144,18 @@ def test_generate_client_matches_expected_shape() -> None:
 
     assert getattr(user_insert_dict, '__total__') is True
     assert getattr(user_where_dict, '__total__') is False
-    assert get_type_hints(user_where_dict, globalns=namespace, localns=namespace) == insert_dict_hints
+    assert user_insert_dict not in user_where_dict.__mro__
+
+    where_hints = get_type_hints(user_where_dict, globalns=namespace, localns=namespace)
+    for name, hint in where_hints.items():
+        assert name in insert_dict_hints
+        got_args = set(get_args(hint)) or {hint}
+        assert type(None) in got_args
+        got_args.remove(type(None))
+        expected_hint = insert_dict_hints[name]
+        expected_args = set(get_args(expected_hint)) or {expected_hint}
+        expected_args.discard(type(None))
+        assert got_args == expected_args
 
     insert_hints = get_type_hints(user_table_cls.insert, globalns=namespace, localns=namespace)
     insert_data_type = insert_hints['data']

@@ -44,6 +44,13 @@ class ModelInfo:
     indexes: list[tuple[str, ...]]
     unique_indexes: list[tuple[str, ...]]
     foreign_keys: list[ForeignKeyInfo]
+    datasource: 'DataSourceConfig'
+
+
+@dataclass(slots=True)
+class DataSourceConfig:
+    provider: str
+    url: str | None
 
 
 @dataclass(slots=True)
@@ -106,10 +113,12 @@ class FakeSelf:
 def inspect_models(models: Sequence[type[Any]]) -> dict[str, ModelInfo]:
     registry: dict[str, type[Any]] = {model.__name__: model for model in models}
     globalns: dict[str, Any] = {}
+    module_map: dict[type[Any], Any] = {}
     for model in models:
         module = sys.modules.get(model.__module__)
         if module is None:
             module = __import__(model.__module__, fromlist=["*"])
+        module_map[model] = module
         globalns.update(vars(module))
     globalns.update(registry)
 
@@ -122,6 +131,10 @@ def inspect_models(models: Sequence[type[Any]]) -> dict[str, ModelInfo]:
         columns, relations, specs = _categorize_fields(model, annotations, registry)
         field_specs_map[model] = specs
         relation_map[model] = relations
+
+    datasource_map: dict[type[Any], DataSourceConfig] = {
+        model: _module_datasource(module_map[model]) for model in models
+    }
 
     backref_records: list[tuple[type[Any], str, Any, bool]] = []
     for model, relations in relation_map.items():
@@ -155,6 +168,7 @@ def inspect_models(models: Sequence[type[Any]]) -> dict[str, ModelInfo]:
                 indexes=indexes,
                 unique_indexes=unique_indexes,
                 foreign_keys=foreign_keys,
+                datasource=datasource_map[model],
             )
         return infos
     finally:
@@ -341,3 +355,22 @@ def _ensure_sequence(value: Col | tuple[Col, ...]) -> list[Col]:
     if isinstance(value, Col):
         return [value]
     return list(value)
+
+
+def _module_datasource(module: Any | None) -> DataSourceConfig:
+    if module is None:
+        raise ValueError("Model module is not available while resolving datasource")
+    config = getattr(module, "__datasource__", None)
+    if not isinstance(config, Mapping):
+        raise ValueError(
+            f"Module {module.__name__} must define __datasource__ = "
+            "{'provider': 'sqlite', 'url': 'sqlite:///example.db'}"
+        )
+    if "provider" not in config:
+        raise ValueError(
+            f"Module {module.__name__} __datasource__ must declare a 'provider' key"
+        )
+    provider = str(config["provider"])
+    raw_url = config.get("url")
+    url = str(raw_url) if raw_url is not None else None
+    return DataSourceConfig(provider=provider, url=url)

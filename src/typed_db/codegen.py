@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from types import UnionType
 from typing import Annotated, Any, Iterable, Mapping, Sequence, get_args, get_origin, Literal
 
-from .model_inspector import ColumnInfo, ForeignKeyInfo, ModelInfo, inspect_models
+from .model_inspector import ColumnInfo, ForeignKeyInfo, ModelInfo, inspect_models, DataSourceConfig
 
 
 @dataclass(slots=True)
@@ -49,7 +49,7 @@ def generate_client(models: Sequence[type[Any]]) -> GeneratedModule:
     for module, names in sorted(combined_imports.items()):
         names_list = ", ".join(sorted(names))
         import_lines.append(f"from {module} import {names_list}")
-    typing_names = {"Any", "Literal", "Sequence", "TypedDict"}
+    typing_names = {"Any", "Literal", "Mapping", "Sequence", "TypedDict"}
     typing_names.update(renderer.typing_names)
     if typing_names:
         import_lines.append(f"from typing import {', '.join(sorted(typing_names))}")
@@ -69,6 +69,12 @@ def generate_client(models: Sequence[type[Any]]) -> GeneratedModule:
 
 def _render_metadata_base() -> str:
     return """@dataclass(slots=True)
+class DataSourceConfig:
+    provider: str
+    url: str | None
+
+
+@dataclass(slots=True)
 class ForeignKeySpec:
     local_columns: tuple[str, ...]
     remote_model: type[Any]
@@ -83,7 +89,7 @@ def _render_model(info: ModelInfo, renderer: "_TypeRenderer") -> str:
     if alias_block:
         sections.append(alias_block)
     sections.append(_render_insert_structures(info, renderer))
-    sections.append(_render_where_dict(info))
+    sections.append(_render_where_dict(info, renderer))
     sections.append(_render_table_class(info, renderer, include_alias, sortable_alias))
     return "\n\n".join(sections)
 
@@ -94,12 +100,11 @@ def _render_type_aliases(info: ModelInfo) -> tuple[str, str, str]:
     sortable_literals = [col.name for col in info.columns]
 
     lines: list[str] = []
-    include_alias = f"T_{name}_include"
+    include_alias = f"T{name}IncludeCol"
     include_literal_expr = _literal_expression(include_literals)
     lines.append(f"{include_alias} = {include_literal_expr}")
-    lines.append(f"T_{name}_include_col = {include_alias}")
 
-    sortable_alias = f"T_{name}_sortable_col"
+    sortable_alias = f"T{name}SortableCol"
     lines.append(f"{sortable_alias} = {_literal_expression(sortable_literals)}")
 
     return "\n".join(lines), include_alias, sortable_alias
@@ -130,9 +135,19 @@ def _render_insert_structures(info: ModelInfo, renderer: "_TypeRenderer") -> str
     return "\n\n".join([dataclass_block, dict_block])
 
 
-def _render_where_dict(info: ModelInfo) -> str:
+def _render_where_dict(info: ModelInfo, renderer: "_TypeRenderer") -> str:
     name = info.model.__name__
-    return f"class {name}WhereDict({name}InsertDict, total=False):\n    ..."
+    lines = [f"class {name}WhereDict(TypedDict, total=False):"]
+    field_lines: list[str] = []
+    for col in info.columns:
+        annotation = renderer.render(col.python_type)
+        if "None" not in annotation:
+            annotation = f"{annotation} | None"
+        field_lines.append(f"    {col.name}: {annotation}")
+    if not field_lines:
+        field_lines.append("    pass")
+    lines.extend(field_lines)
+    return "\n".join(lines)
 
 
 def _render_table_class(info: ModelInfo, renderer: "_TypeRenderer", include_alias: str | None, sortable_alias: str) -> str:
@@ -141,6 +156,9 @@ def _render_table_class(info: ModelInfo, renderer: "_TypeRenderer", include_alia
     lines = [f"class {name}Table:"]
     lines.append(f"{indent}model = {name}")
     lines.append(f"{indent}insert_model = {name}Insert")
+    ds = info.datasource
+    ds_url_repr = repr(ds.url)
+    lines.append(f"{indent}datasource = DataSourceConfig(provider={ds.provider!r}, url={ds_url_repr})")
     lines.append(f"{indent}columns = {_tuple_literal(col.name for col in info.columns)}")
     lines.append(f"{indent}primary_key = {_tuple_literal(info.primary_key)}")
     if info.indexes:
@@ -173,7 +191,7 @@ def _render_table_class(info: ModelInfo, renderer: "_TypeRenderer", include_alia
     lines.append(f"{indent}def insert_many(self, data: Sequence[{name}Insert | {name}InsertDict]) -> list[{name}]:")
     lines.append(f"{indent*2}raise NotImplementedError('Database insert_many is not implemented yet')")
     lines.append("")
-    include_annotation = f"dict[{include_alias}, bool] | None" if include_alias else "dict[str, Any] | None"
+    include_annotation = f"dict[{include_alias}, bool] | None"
     lines.append(f"{indent}def find_many(self, *, where: {name}WhereDict | None = None, include: {include_annotation} = None, order_by: Sequence[tuple[{sortable_alias}, Literal['asc', 'desc']]] | None = None, take: int | None = None, skip: int | None = None) -> list[{name}]:")
     lines.append(f"{indent*2}raise NotImplementedError('Query generation is not implemented yet')")
     lines.append("")
@@ -202,21 +220,36 @@ def _render_default_fragment(model_name: str, col: ColumnInfo) -> str | None:
 def _render_client_class(model_infos: Mapping[str, ModelInfo]) -> str:
     indent = "    "
     lines = ["class GeneratedClient:"]
-    lines.append(f"{indent}def __init__(self, backend: Any) -> None:")
-    lines.append(f"{indent*2}self._backend = backend")
+    datasource_configs: dict[str, DataSourceConfig] = {}
+    for info in model_infos.values():
+        key = info.datasource.provider
+        datasource_configs[key] = info.datasource
+    lines.append(f"{indent}datasources = {{")
+    for key in sorted(datasource_configs.keys()):
+        ds = datasource_configs[key]
+        lines.append(
+            f"{indent*2}{key!r}: DataSourceConfig(provider={ds.provider!r}, url={repr(ds.url)}),"
+        )
+    lines.append(f"{indent}}}")
+    lines.append("")
+    lines.append(f"{indent}def __init__(self, connections: Mapping[str, Any]) -> None:")
+    lines.append(f"{indent*2}self._connections = connections")
+    lines.append(f"{indent*2}for key in self.datasources.keys():")
+    lines.append(f"{indent*3}if key not in connections:")
+    lines.append(f"{indent*4}raise KeyError(f'datasource {{key}} missing connection')")
     for name in sorted(model_infos.keys()):
         attr = _camel_to_snake(name)
-        lines.append(f"{indent*2}self.{attr} = {name}Table(backend)")
+        ds_key = model_infos[name].datasource.provider
+        lines.append(f"{indent*2}self.{attr} = {name}Table(connections[{ds_key!r}])")
     return "\n".join(lines)
 
 
 def _render_all(model_infos: Mapping[str, ModelInfo]) -> str:
-    exports: list[str] = ["ForeignKeySpec", "GeneratedClient"]
+    exports: list[str] = ["DataSourceConfig", "ForeignKeySpec", "GeneratedClient"]
     for name in sorted(model_infos.keys()):
         exports.extend([
-            f"T_{name}_include",
-            f"T_{name}_include_col",
-            f"T_{name}_sortable_col",
+            f"T{name}IncludeCol",
+            f"T{name}SortableCol",
             f"{name}Insert",
             f"{name}InsertDict",
             f"{name}WhereDict",
