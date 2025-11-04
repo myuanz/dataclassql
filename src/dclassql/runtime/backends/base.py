@@ -29,13 +29,13 @@ class BackendBase[ModelT, InsertT, WhereT: Mapping[str, object]](BackendProtocol
             raise ValueError("Insert payload cannot be empty")
 
         sql_table = self.table_cls(table.model.__name__)
-        columns = list(payload.keys())
-        params = [payload[name] for name in columns]
+        column_names = [spec.name for spec in table.column_specs if spec.name in payload]
+        params = [payload[name] for name in column_names]
 
         insert_query = (
             self.query_cls.into(sql_table)
-            .columns(*columns)
-            .insert(*(self._new_parameter() for _ in columns))
+            .columns(*column_names)
+            .insert(*(self._new_parameter() for _ in column_names))
         )
         sql = self._render_query(insert_query)
         cursor = self._execute(sql, params)
@@ -65,12 +65,14 @@ class BackendBase[ModelT, InsertT, WhereT: Mapping[str, object]](BackendProtocol
         skip: int | None = None,
     ) -> list[ModelT]:
         sql_table = self.table_cls(table.model.__name__)
-        select_query = self.query_cls.from_(sql_table).select(*[sql_table.field(col) for col in table.columns])
+        select_query = self.query_cls.from_(sql_table).select(
+            *[sql_table.field(spec.name) for spec in table.column_specs]
+        )
         params: list[Any] = []
 
         if where:
             for column, value in where.items():
-                if column not in table.columns:
+                if column not in table.column_specs_by_name:
                     raise KeyError(f"Unknown column '{column}' in where clause")
                 field = sql_table.field(column)
                 if value is None:
@@ -81,7 +83,7 @@ class BackendBase[ModelT, InsertT, WhereT: Mapping[str, object]](BackendProtocol
 
         if order_by:
             for column, direction in order_by:
-                if column not in table.columns:
+                if column not in table.column_specs_by_name:
                     raise KeyError(f"Unknown column '{column}' in order_by clause")
                 direction_lower = direction.lower()
                 if direction_lower not in {"asc", "desc"}:
@@ -143,7 +145,7 @@ class BackendBase[ModelT, InsertT, WhereT: Mapping[str, object]](BackendProtocol
         model = table.model
         if cached is None:
             if is_dataclass(model):
-                values: dict[str, Any] = {column: row[column] for column in table.columns}
+                values: dict[str, Any] = {spec.name: row[spec.name] for spec in table.column_specs}
                 instance = model.__new__(model)
                 for field in fields(model):
                     if field.name in values:
@@ -160,13 +162,13 @@ class BackendBase[ModelT, InsertT, WhereT: Mapping[str, object]](BackendProtocol
                             value = None
                     object.__setattr__(instance, field.name, value)
             else:
-                instance = cast(ModelT, model(**{column: row[column] for column in table.columns}))
+                instance = cast(ModelT, model(**{spec.name: row[spec.name] for spec in table.column_specs}))
             if key is not None:
                 self._identity_map[key] = instance
         else:
             instance = cast(ModelT, cached)
-            for column in table.columns:
-                object.__setattr__(instance, column, row[column])
+            for spec in table.column_specs:
+                object.__setattr__(instance, spec.name, row[spec.name])
         self._attach_relations(table, instance, include_map)
         return instance
 

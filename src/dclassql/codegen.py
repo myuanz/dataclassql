@@ -230,7 +230,6 @@ def _render_table_class(
     lines.append(
         f"{indent}datasource = DataSourceConfig(provider={ds.provider!r}, url={ds_url_repr}, name={repr(ds.name)})"
     )
-    lines.append(f"{indent}columns: tuple[str, ...] = {_tuple_literal(col.name for col in info.columns)}")
     lines.append(f"{indent}column_specs: tuple[ColumnSpec, ...] = (")
     for column in info.columns:
         lines.append(
@@ -246,11 +245,6 @@ def _render_table_class(
     lines.append(
         f"{indent}column_specs_by_name: Mapping[str, ColumnSpec] = MappingProxyType({{spec.name: spec for spec in column_specs}})"
     )
-    auto_increment = tuple(col.name for col in info.columns if col.auto_increment)
-    if auto_increment:
-        lines.append(f"{indent}auto_increment_columns: tuple[str, ...] = {_tuple_literal(auto_increment)}")
-    else:
-        lines.append(f"{indent}auto_increment_columns: tuple[str, ...] = ()")
     lines.append(f"{indent}primary_key: tuple[str, ...] = {_tuple_literal(info.primary_key)}")
     if info.indexes:
         lines.append(f"{indent}indexes: tuple[tuple[str, ...], ...] = {_tuple_literal(tuple(idx) for idx in info.indexes)}")

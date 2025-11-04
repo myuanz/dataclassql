@@ -43,24 +43,24 @@ class SQLiteBackend[ModelT, InsertT, WhereT: Mapping[str, object]](BackendBase[M
             return []
 
         payloads = [self._normalize_insert_payload(table, item) for item in items]
-        columns = list(payloads[0].keys())
-        if not columns:
+        column_names = [spec.name for spec in table.column_specs if spec.name in payloads[0]]
+        if not column_names:
             raise ValueError("Insert payload cannot be empty")
 
-        params_matrix = [[payload.get(column) for column in columns] for payload in payloads]
+        params_matrix = [[payload.get(column) for column in column_names] for payload in payloads]
         table_name = table.model.__name__
         sql_table = self.table_cls(table_name)
         insert_query = (
             self.query_cls.into(sql_table)
-            .columns(*columns)
-            .insert(*(self._new_parameter() for _ in columns))
+            .columns(*column_names)
+            .insert(*(self._new_parameter() for _ in column_names))
         )
         sql = self._render_query(insert_query)
 
         pk_columns = list(table.primary_key)
         if not pk_columns:
             raise ValueError(f"Table {table_name} does not define primary key")
-        auto_increment = set(table.auto_increment_columns)
+        auto_increment = {spec.name for spec in table.column_specs if spec.auto_increment}
 
         results: list[ModelT] = []
         step = batch_size if batch_size and batch_size > 0 else len(payloads)
@@ -108,7 +108,7 @@ class SQLiteBackend[ModelT, InsertT, WhereT: Mapping[str, object]](BackendBase[M
         primary_key = getattr(table, "primary_key", ())
         if not primary_key:
             raise ValueError(f"Table {table.model.__name__} does not define primary key")
-        auto_increment = set(getattr(table, "auto_increment_columns", ()))
+        auto_increment = {spec.name for spec in table.column_specs if spec.auto_increment}
         mutable_payload = cast(dict[str, object], payload)
         pk_filter: dict[str, object] = {}
         for pk in primary_key:

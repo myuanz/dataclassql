@@ -13,10 +13,8 @@ class TableProtocol[ModelT, InsertT, WhereT](Protocol):
 
     model: type[ModelT]
     insert_model: type[InsertT]
-    columns: tuple[str, ...]
     column_specs: tuple[ColumnSpec, ...]
     column_specs_by_name: Mapping[str, ColumnSpec]
-    auto_increment_columns: tuple[str, ...]
     primary_key: tuple[str, ...]
     foreign_keys: tuple[ForeignKeySpec, ...]
     relations: tuple[RelationSpec, ...]

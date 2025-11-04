@@ -46,14 +46,12 @@ class AddressTable:
     model = Address
     insert_model = AddressInsert
     datasource = DataSourceConfig(provider='sqlite', url='sqlite:///analytics.db', name=None)
-    columns: tuple[str, ...] = ('id', 'location', 'user_id')
     column_specs: tuple[ColumnSpec, ...] = (
         ColumnSpec(name='id', optional=False, auto_increment=True, has_default=False, has_default_factory=False),
         ColumnSpec(name='location', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
         ColumnSpec(name='user_id', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
     )
     column_specs_by_name: Mapping[str, ColumnSpec] = MappingProxyType({spec.name: spec for spec in column_specs})
-    auto_increment_columns: tuple[str, ...] = ('id',)
     primary_key: tuple[str, ...] = ('id',)
     indexes: tuple[tuple[str, ...], ...] = ()
     unique_indexes: tuple[tuple[str, ...], ...] = ()
@@ -104,13 +102,11 @@ class BirthDayTable:
     model = BirthDay
     insert_model = BirthDayInsert
     datasource = DataSourceConfig(provider='sqlite', url='sqlite:///analytics.db', name=None)
-    columns: tuple[str, ...] = ('user_id', 'date')
     column_specs: tuple[ColumnSpec, ...] = (
         ColumnSpec(name='user_id', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
         ColumnSpec(name='date', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
     )
     column_specs_by_name: Mapping[str, ColumnSpec] = MappingProxyType({spec.name: spec for spec in column_specs})
-    auto_increment_columns: tuple[str, ...] = ()
     primary_key: tuple[str, ...] = ('user_id',)
     indexes: tuple[tuple[str, ...], ...] = ()
     unique_indexes: tuple[tuple[str, ...], ...] = ()
@@ -161,13 +157,11 @@ class BookTable:
     model = Book
     insert_model = BookInsert
     datasource = DataSourceConfig(provider='sqlite', url='sqlite:///analytics.db', name=None)
-    columns: tuple[str, ...] = ('id', 'name')
     column_specs: tuple[ColumnSpec, ...] = (
         ColumnSpec(name='id', optional=False, auto_increment=True, has_default=False, has_default_factory=False),
         ColumnSpec(name='name', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
     )
     column_specs_by_name: Mapping[str, ColumnSpec] = MappingProxyType({spec.name: spec for spec in column_specs})
-    auto_increment_columns: tuple[str, ...] = ('id',)
     primary_key: tuple[str, ...] = ('id',)
     indexes: tuple[tuple[str, ...], ...] = (('name',),)
     unique_indexes: tuple[tuple[str, ...], ...] = ()
@@ -217,7 +211,6 @@ class UserTable:
     model = User
     insert_model = UserInsert
     datasource = DataSourceConfig(provider='sqlite', url='sqlite:///analytics.db', name=None)
-    columns: tuple[str, ...] = ('id', 'name', 'email', 'last_login')
     column_specs: tuple[ColumnSpec, ...] = (
         ColumnSpec(name='id', optional=False, auto_increment=True, has_default=False, has_default_factory=False),
         ColumnSpec(name='name', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
@@ -225,7 +218,6 @@ class UserTable:
         ColumnSpec(name='last_login', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
     )
     column_specs_by_name: Mapping[str, ColumnSpec] = MappingProxyType({spec.name: spec for spec in column_specs})
-    auto_increment_columns: tuple[str, ...] = ('id',)
     primary_key: tuple[str, ...] = ('id',)
     indexes: tuple[tuple[str, ...], ...] = (('name',), ('name', 'email'), ('last_login',),)
     unique_indexes: tuple[tuple[str, ...], ...] = (('name', 'email'),)
@@ -274,14 +266,12 @@ class UserBookTable:
     model = UserBook
     insert_model = UserBookInsert
     datasource = DataSourceConfig(provider='sqlite', url='sqlite:///analytics.db', name=None)
-    columns: tuple[str, ...] = ('user_id', 'book_id', 'created_at')
     column_specs: tuple[ColumnSpec, ...] = (
         ColumnSpec(name='user_id', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
         ColumnSpec(name='book_id', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
         ColumnSpec(name='created_at', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
     )
     column_specs_by_name: Mapping[str, ColumnSpec] = MappingProxyType({spec.name: spec for spec in column_specs})
-    auto_increment_columns: tuple[str, ...] = ()
     primary_key: tuple[str, ...] = ('user_id', 'book_id')
     indexes: tuple[tuple[str, ...], ...] = (('created_at',),)
     unique_indexes: tuple[tuple[str, ...], ...] = ()

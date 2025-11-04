@@ -120,8 +120,9 @@ def test_generate_client_matches_expected_shape() -> None:
     assert get_origin(sortable_alias) is Literal
 
     user_table_cls = namespace['UserTable']
-    columns_tuple = user_table_cls.columns
-    assert set(get_args(sortable_alias)) == set(columns_tuple)
+    column_specs = user_table_cls.column_specs
+    column_names = tuple(spec.name for spec in column_specs)
+    assert set(get_args(sortable_alias)) == set(column_names)
     expected_ds = data_source_config(provider='sqlite', url='sqlite:///analytics.db', name=None)
     assert user_table_cls.datasource == expected_ds
 
@@ -140,7 +141,7 @@ def test_generate_client_matches_expected_shape() -> None:
     backend_protocol = namespace['BackendProtocol']
 
     insert_field_names = [f.name for f in fields(user_insert_cls)]
-    assert insert_field_names == list(columns_tuple)
+    assert insert_field_names == list(column_names)
 
     user_model_hints = get_type_hints(User)
     insert_hints = get_type_hints(user_insert_cls, globalns=namespace, localns=namespace)
