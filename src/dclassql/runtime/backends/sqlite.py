@@ -3,353 +3,14 @@ from __future__ import annotations
 import sqlite3
 import sys
 import threading
-from collections.abc import Iterator
-from dataclasses import MISSING, dataclass, fields, is_dataclass
-from typing import (
-    Any,
-    Callable,
-    Iterable,
-    Mapping,
-    Protocol,
-    Sequence,
-    SupportsIndex,
-    cast,
-    runtime_checkable,
-    get_origin,
-)
-
-from weakref import WeakKeyDictionary
+from dataclasses import MISSING, fields, is_dataclass
+from typing import Any, Mapping, Sequence, cast, get_origin
 
 from pypika import Query, Table
 from pypika.enums import Order
 from pypika.terms import Parameter
-
-
-ConnectionFactory = Callable[[], sqlite3.Connection]
-
-
-@dataclass(slots=True)
-class RelationSpec:
-    name: str
-    table_name: str
-    table_module: str
-    many: bool
-    mapping: tuple[tuple[str, str], ...]
-
-
-@runtime_checkable
-class TableProtocol[ModelT, InsertT, WhereT](Protocol):
-    def __init__(self, backend: BackendProtocol[ModelT, InsertT, WhereT]) -> None: ...
-
-    model: type[ModelT]
-    insert_model: type[InsertT]
-    columns: tuple[str, ...]
-    auto_increment_columns: tuple[str, ...]
-    primary_key: tuple[str, ...]
-    relations: tuple[RelationSpec, ...]
-
-
-@runtime_checkable
-class BackendProtocol[ModelT, InsertT, WhereT](Protocol):
-    def insert(self, table: TableProtocol[ModelT, InsertT, WhereT], data: InsertT | Mapping[str, object]) -> ModelT: ...
-
-    def insert_many(
-        self,
-        table: TableProtocol[ModelT, InsertT, WhereT],
-        data: Sequence[InsertT | Mapping[str, object]],
-        *,
-        batch_size: int | None = None,
-    ) -> list[ModelT]: ...
-
-    def find_many(
-        self,
-        table: TableProtocol[ModelT, InsertT, WhereT],
-        *,
-        where: WhereT | None = None,
-        include: Mapping[str, bool] | None = None,
-        order_by: Sequence[tuple[str, str]] | None = None,
-        take: int | None = None,
-        skip: int | None = None,
-    ) -> list[ModelT]: ...
-
-    def find_first(
-        self,
-        table: TableProtocol[ModelT, InsertT, WhereT],
-        *,
-        where: WhereT | None = None,
-        include: Mapping[str, bool] | None = None,
-        order_by: Sequence[tuple[str, str]] | None = None,
-        skip: int | None = None,
-    ) -> ModelT | None: ...
-
-
-@dataclass(slots=True)
-class LazyRelationState:
-    attribute: str
-    backend: BackendProtocol[Any, Any, Mapping[str, object]]
-    table_cls: type[Any]
-    mapping: tuple[tuple[str, str], ...]
-    many: bool
-    loaded: bool = False
-    value: Any = None
-    loading: bool = False
-    model_cls: type[Any] | None = None
-
-
-class _LazyProxyBase:
-    __slots__ = ()
-
-
-class _LazyListProxy(_LazyProxyBase, list[Any]):
-    __slots__ = ("_lazy_owner", "_lazy_state")
-
-    def __init__(self, owner: Any, state: LazyRelationState) -> None:
-        super().__init__()
-        object.__setattr__(self, "_lazy_owner", owner)
-        object.__setattr__(self, "_lazy_state", state)
-
-    def _lazy_resolve(self) -> list[Any]:
-        state = cast(LazyRelationState, object.__getattribute__(self, "_lazy_state"))
-        owner = object.__getattribute__(self, "_lazy_owner")
-        return cast(list[Any], _resolve_lazy_relation(owner, state))
-
-    def __repr__(self) -> str:
-        state = cast(LazyRelationState, object.__getattribute__(self, "_lazy_state"))
-        if not state.loaded:
-            return f"<LazyRelationList {state.attribute} (lazy)>"
-        return repr(state.value)
-
-    def __str__(self) -> str:
-        return self.__repr__()
-
-    def __bool__(self) -> bool:
-        return bool(self._lazy_resolve())
-
-    def __len__(self) -> int:
-        return len(self._lazy_resolve())
-
-    def __iter__(self) -> Iterator[Any]:
-        return iter(self._lazy_resolve())
-
-    def __getitem__(self, index: SupportsIndex | slice) -> Any:
-        return self._lazy_resolve()[index]
-
-    def __setitem__(self, index: SupportsIndex | slice, value: Any) -> None:
-        self._lazy_resolve()[index] = value
-
-    def append(self, value: Any) -> None:
-        self._lazy_resolve().append(value)
-
-    def extend(self, values: Iterable[Any]) -> None:
-        self._lazy_resolve().extend(values)
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._lazy_resolve(), name)
-
-
-_LAZY_SINGLE_PROXY_CLASS_CACHE: dict[type[Any], type[Any]] = {}
-
-
-def _ensure_lazy_single_proxy_class(model_cls: type[Any]) -> type[Any]:
-    cached = _LAZY_SINGLE_PROXY_CLASS_CACHE.get(model_cls)
-    if cached is not None:
-        return cached
-
-    def __init__(self: Any, owner: Any, state: LazyRelationState) -> None:
-        object.__setattr__(self, "_lazy_owner", owner)
-        object.__setattr__(self, "_lazy_state", state)
-
-    def _lazy_resolve(self: Any) -> Any:
-        state = cast(LazyRelationState, object.__getattribute__(self, "_lazy_state"))
-        owner = object.__getattribute__(self, "_lazy_owner")
-        return _resolve_lazy_relation(owner, state)
-
-    def __repr__(self: Any) -> str:
-        state = cast(LazyRelationState, object.__getattribute__(self, "_lazy_state"))
-        if not state.loaded:
-            return f"<LazyRelation {model_cls.__name__} (lazy)>"
-        return repr(state.value)
-
-    def __str__(self: Any) -> str:
-        state = cast(LazyRelationState, object.__getattribute__(self, "_lazy_state"))
-        if not state.loaded:
-            return f"<LazyRelation {model_cls.__name__} (lazy)>"
-        return str(state.value)
-
-    def __bool__(self: Any) -> bool:
-        value = _lazy_resolve(self)
-        return bool(value)
-
-    def __eq__(self: Any, other: object) -> bool:
-        value = _lazy_resolve(self)
-        return value == other
-
-    def __hash__(self: Any) -> int:
-        value = _lazy_resolve(self)
-        return hash(value)
-
-    def __setattr__(self: Any, name: str, value: Any) -> None:
-        if name in {"_lazy_owner", "_lazy_state"}:
-            object.__setattr__(self, name, value)
-            return
-        target = _lazy_resolve(self)
-        setattr(target, name, value)
-        state = cast(LazyRelationState, object.__getattribute__(self, "_lazy_state"))
-        state.value = target
-        state.loaded = True
-
-    def __delattr__(self: Any, name: str) -> None:
-        if name in {"_lazy_owner", "_lazy_state"}:
-            raise AttributeError(name)
-        target = _lazy_resolve(self)
-        delattr(target, name)
-
-    def __getattribute__(self: Any, name: str) -> Any:
-        if name in {"_lazy_owner", "_lazy_state"}:
-            return object.__getattribute__(self, name)
-        try:
-            return object.__getattribute__(self, name)
-        except AttributeError:
-            pass
-        state = cast(LazyRelationState, object.__getattribute__(self, "_lazy_state"))
-        if state.loaded:
-            value = state.value
-        else:
-            owner = object.__getattribute__(self, "_lazy_owner")
-            value = _resolve_lazy_relation(owner, state)
-        return getattr(value, name)
-
-    namespace: dict[str, Any] = {
-        "__slots__": ("_lazy_owner", "_lazy_state"),
-        "__init__": __init__,
-        "_lazy_resolve": _lazy_resolve,
-        "__repr__": __repr__,
-        "__str__": __str__,
-        "__bool__": __bool__,
-        "__eq__": __eq__,
-        "__hash__": __hash__,
-        "__setattr__": __setattr__,
-        "__delattr__": __delattr__,
-        "__getattribute__": __getattribute__,
-        "__lazy_marker__": True,
-    }
-
-    proxy_cls = type(f"{model_cls.__name__}LazyRelationProxy", (model_cls, _LazyProxyBase), namespace)
-    proxy_cls.__module__ = model_cls.__module__
-    _LAZY_SINGLE_PROXY_CLASS_CACHE[model_cls] = proxy_cls
-    return proxy_cls
-_LAZY_CLASS_CACHE: dict[type[Any], type[Any]] = {}
-_LAZY_RELATION_STATE: WeakKeyDictionary[Any, dict[str, LazyRelationState]] = WeakKeyDictionary()
-
-
-def _resolve_lazy_relation(instance: Any, state: LazyRelationState) -> Any:
-    if state.loaded:
-        return state.value
-    if state.loading:
-        return state.value
-    state.loading = True
-    state.value = [] if state.many else None
-    where: dict[str, object] = {}
-    for owner_column, target_column in state.mapping:
-        owner_value = getattr(instance, owner_column, None)
-        if owner_value is None:
-            value: Any = [] if state.many else None
-            state.loaded = True
-            state.value = value
-            object.__setattr__(instance, state.attribute, value)
-            state.loading = False
-            return value
-        where[target_column] = owner_value
-
-    table = state.table_cls(state.backend)
-    if state.many:
-        loaded = table.find_many(where=cast(Mapping[str, object], where))
-    else:
-        loaded = table.find_first(where=cast(Mapping[str, object], where))
-
-    if state.many and loaded is None:
-        loaded = []
-
-    state.loaded = True
-    state.value = loaded
-    state.loading = False
-    object.__setattr__(instance, state.attribute, loaded)
-    return loaded
-
-
-def _create_lazy_single_proxy(owner: Any, state: LazyRelationState) -> Any:
-    model_cls = state.model_cls
-    if model_cls is None:
-        model_cls = cast(type[Any], getattr(state.table_cls, "model", None))
-        if model_cls is None:
-            raise RuntimeError(f"Relation '{state.attribute}' missing model class metadata")
-        state.model_cls = model_cls
-    lazy_model_cls = _ensure_lazy_model_class(model_cls)
-    proxy_cls = _ensure_lazy_single_proxy_class(lazy_model_cls)
-    return proxy_cls(owner, state)
-
-
-def _ensure_lazy_placeholder(instance: Any, state: LazyRelationState) -> Any:
-    existing = state.value
-    if isinstance(existing, _LazyProxyBase):
-        return existing
-    if state.loading:
-        return existing
-    if state.many:
-        proxy = _LazyListProxy(instance, state)
-    else:
-        proxy = _create_lazy_single_proxy(instance, state)
-    state.value = proxy
-    return proxy
-
-
-def _ensure_lazy_model_class(model_cls: type[Any]) -> type[Any]:
-    cached = _LAZY_CLASS_CACHE.get(model_cls)
-    if cached is not None:
-        return cached
-
-    base_getattribute = cast(Callable[[Any, str], Any], model_cls.__getattribute__)
-    base_setattr = cast(Callable[[Any, str, Any], None], model_cls.__setattr__)
-
-    def __getattribute__(self: Any, name: str) -> Any:
-        state_map = _LAZY_RELATION_STATE.get(self)
-        if state_map is not None:
-            state = state_map.get(name)
-            if state is not None:
-                if state.loaded:
-                    return state.value
-                placeholder = _ensure_lazy_placeholder(self, state)
-                return placeholder
-        return base_getattribute(self, name)
-
-    def __setattr__(self: Any, name: str, value: Any) -> None:
-        state_map = _LAZY_RELATION_STATE.get(self)
-        if state_map is not None:
-            state = state_map.get(name)
-            if state is not None:
-                state.loaded = True
-                state.value = value
-        base_setattr(self, name, value)
-
-    namespace: dict[str, Any] = {
-        "__slots__": (),
-        "__lazy_base__": model_cls,
-        "__getattribute__": __getattribute__,
-        "__setattr__": __setattr__,
-        "__hash__": object.__hash__,
-    }
-    lazy_cls = type(f"{model_cls.__name__}LazyRuntime", (model_cls,), namespace)
-    try:
-        lazy_cls.__name__ = model_cls.__name__
-    except AttributeError:
-        pass
-    try:
-        lazy_cls.__qualname__ = model_cls.__qualname__
-    except AttributeError:
-        pass
-    lazy_cls.__module__ = model_cls.__module__
-    _LAZY_CLASS_CACHE[model_cls] = lazy_cls
-    return lazy_cls
+from .lazy import ensure_lazy_state, finalize_lazy_state, reset_lazy_backref
+from .protocols import BackendProtocol, ConnectionFactory, RelationSpec, TableProtocol
 
 
 def _find_backref_relations(
@@ -722,15 +383,7 @@ class SQLiteBackend[ModelT, InsertT, WhereT: Mapping[str, object]](BackendProtoc
             owner = self._identity_map.get(identity_key)
             if owner is None:
                 continue
-            state_map = _LAZY_RELATION_STATE.get(owner)
-            if state_map is None:
-                continue
-            state = state_map.get(backref)
-            if state is None:
-                continue
-            state.loaded = False
-            state.loading = False
-            state.value = [] if state.many else None
+            reset_lazy_backref(owner, backref)
 
     def _identity_key(
         self,
@@ -754,6 +407,7 @@ class SQLiteBackend[ModelT, InsertT, WhereT: Mapping[str, object]](BackendProtoc
         instance: ModelT,
         include_map: Mapping[str, bool],
     ) -> None:
+        include_lookup = dict(include_map)
         relations_attr = cast(Sequence[Any], getattr(table, "relations", ()))
         relations: list[RelationSpec] = []
         for entry in relations_attr:
@@ -776,16 +430,8 @@ class SQLiteBackend[ModelT, InsertT, WhereT: Mapping[str, object]](BackendProtoc
         relations.extend(_find_backref_relations(table, existing_names))
         if not relations:
             return
+
         backend_for_lazy = cast(BackendProtocol[Any, Any, Mapping[str, object]], self)
-
-        base_model_cls = cast(type[Any], getattr(instance.__class__, "__lazy_base__", instance.__class__))
-        lazy_cls = _ensure_lazy_model_class(base_model_cls)
-        if instance.__class__ is not lazy_cls:
-            instance.__class__ = lazy_cls
-
-        states = _LAZY_RELATION_STATE.get(instance)
-        if states is None:
-            states = {}
 
         for spec in relations:
             name = spec.name
@@ -797,32 +443,16 @@ class SQLiteBackend[ModelT, InsertT, WhereT: Mapping[str, object]](BackendProtoc
             table_cls = getattr(module, table_cls_name)
             mapping = spec.mapping
             many = spec.many
-            existing_state = states.get(name)
-            if existing_state is None:
-                state = LazyRelationState(
-                    attribute=name,
-                    backend=backend_for_lazy,
-                    table_cls=cast(type[Any], table_cls),
-                    mapping=mapping,
-                    many=many,
-                    model_cls=cast(type[Any] | None, getattr(table_cls, "model", None)),
-                )
-                states[name] = state
-            else:
-                existing_state.backend = backend_for_lazy
-                existing_state.table_cls = cast(type[Any], table_cls)
-                existing_state.mapping = mapping
-                existing_state.many = many
-                existing_state.model_cls = cast(type[Any] | None, getattr(table_cls, "model", None))
-                state = existing_state
-
-        if not states:
-            return
-        _LAZY_RELATION_STATE[instance] = states
-
-        for name, state in states.items():
-            if include_map.get(name):
-                _resolve_lazy_relation(instance, state)
+            state = ensure_lazy_state(
+                instance=instance,
+                attribute=name,
+                backend=backend_for_lazy,
+                table_cls=cast(type[Any], table_cls),
+                mapping=mapping,
+                many=many,
+            )
+            eager = bool(include_lookup.get(name))
+            finalize_lazy_state(instance, state, eager=eager)
 
     def close(self) -> None:
         if self._factory is None:
