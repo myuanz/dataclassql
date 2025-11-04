@@ -233,6 +233,26 @@ def test_lazy_relations(tmp_path: Path):
         client.lazy_birth_day.insert({"user_id": 1, "date": datetime(1990, 1, 1)})
         client.lazy_address.insert({"id": 1, "user_id": 1, "location": "Home"})
 
+        user = client.lazy_user.find_first(order_by=[("id", "asc")])
+        user_repr = repr(user)
+        assert "<LazyRelationList addresses (lazy)>" in user_repr
+        assert f"<LazyRelation {LazyBirthDay.__name__} (lazy)>" in user_repr
+
+        birthday_proxy = user.birthday
+        assert isinstance(birthday_proxy, LazyBirthDay)
+        assert f"<LazyRelation {LazyBirthDay.__name__} (lazy)>" in repr(birthday_proxy)
+        assert str(birthday_proxy.date).startswith("1990-01-01")
+        birthday_loaded = user.birthday
+        assert isinstance(birthday_loaded, LazyBirthDay)
+        assert str(birthday_loaded.date).startswith("1990-01-01")
+
+        addresses_proxy = user.addresses
+        assert isinstance(addresses_proxy, list)
+        assert "<LazyRelationList addresses (lazy)>" in repr(addresses_proxy)
+        assert len(addresses_proxy) == 1
+        assert isinstance(addresses_proxy[0], LazyAddress)
+        assert addresses_proxy[0].location == "Home"
+
         address = client.lazy_address.find_first(order_by=[("id", "asc")])
         assert isinstance(address.user, LazyUser)
         assert address.user.name == "Alice"
@@ -240,15 +260,6 @@ def test_lazy_relations(tmp_path: Path):
         user_addresses = address.user.addresses
         assert isinstance(user_addresses, list)
         assert user_addresses and user_addresses[0].location == "Home"
-
-        user = client.lazy_user.find_first(order_by=[("id", "asc")])
-        assert isinstance(user.birthday, LazyBirthDay)
-        assert str(user.birthday.date).startswith("1990-01-01")
-        addresses_value = user.addresses
-        assert isinstance(addresses_value, list)
-        assert len(addresses_value) == 1
-        assert isinstance(addresses_value[0], LazyAddress)
-        assert addresses_value[0].location == "Home"
 
         included = client.lazy_address.find_many(include={"user": True})
         assert included[0].user.name == "Alice"
