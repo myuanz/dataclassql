@@ -122,14 +122,14 @@ class BackendBase[ModelT, InsertT, WhereT: Mapping[str, object]](BackendProtocol
         table: TableProtocol[ModelT, InsertT, WhereT],
         data: InsertT | Mapping[str, object],
     ) -> dict[str, object]:
-        allowed = set(table.columns)
+        spec_map = table.column_specs_by_name
         if isinstance(data, Mapping):
-            return {key: data[key] for key in allowed if key in data}
-        insert_model = getattr(table, "insert_model", None)
-        if insert_model and isinstance(data, insert_model):
-            return {column: getattr(data, column) for column in table.columns if hasattr(data, column)}
+            return {key: data[key] for key in spec_map.keys() if key in data}
+        insert_model = table.insert_model
+        if isinstance(data, insert_model):
+            return {column: getattr(data, column) for column in spec_map.keys() if hasattr(data, column)}
         if is_dataclass(data):
-            return {column: getattr(data, column) for column in table.columns if hasattr(data, column)}
+            return {column: getattr(data, column) for column in spec_map.keys() if hasattr(data, column)}
         raise TypeError("Unsupported insert payload type")
 
     def _row_to_model(
@@ -186,7 +186,7 @@ class BackendBase[ModelT, InsertT, WhereT: Mapping[str, object]](BackendProtocol
         table: TableProtocol[ModelT, Any, Any],
         instance: ModelT,
     ) -> None:
-        foreign_keys = getattr(table, "foreign_keys", ())
+        foreign_keys = table.foreign_keys
         if not foreign_keys:
             return
         for fk in foreign_keys:
@@ -234,37 +234,20 @@ class BackendBase[ModelT, InsertT, WhereT: Mapping[str, object]](BackendProtocol
         include_map: Mapping[str, bool],
     ) -> None:
         include_lookup = dict(include_map)
-        relations_attr = cast(Sequence[Any], getattr(table, "relations", ()))
-        relations: list[RelationSpec] = []
-        for entry in relations_attr:
-            if isinstance(entry, RelationSpec):
-                relations.append(entry)
-            elif isinstance(entry, dict):
-                relations.append(
-                    RelationSpec(
-                        name=entry["name"],
-                        table_name=entry["table_name"],
-                        table_module=entry.get("table_module", table.__class__.__module__),
-                        many=bool(entry["many"]),
-                        mapping=tuple(tuple(pair) for pair in entry["mapping"]),
-                    )
-                )
-            else:
-                raise TypeError("Unsupported relation specification")
-
-        existing_names: set[str] = {spec.name for spec in relations}
-        relations.extend(self._find_backref_relations(table, existing_names))
+        relations = table.relations
         if not relations:
             return
 
         for spec in relations:
             name = spec.name
-            table_module_name = spec.table_module or table.__class__.__module__
-            module = sys.modules.get(table_module_name)
-            if module is None:
-                raise RuntimeError(f"Module '{table_module_name}' not loaded for relation '{name}'")
-            table_cls_name = spec.table_name
-            table_cls = getattr(module, table_cls_name)
+            if spec.table_factory is not None:
+                table_cls = spec.table_factory()
+            else:
+                table_module_name = spec.table_module or table.__class__.__module__
+                module = sys.modules.get(table_module_name)
+                if module is None:
+                    raise RuntimeError(f"Module '{table_module_name}' not loaded for relation '{name}'")
+                table_cls = getattr(module, spec.table_name)
             state = ensure_lazy_state(
                 instance=instance,
                 attribute=name,
@@ -274,55 +257,6 @@ class BackendBase[ModelT, InsertT, WhereT: Mapping[str, object]](BackendProtocol
                 many=spec.many,
             )
             finalize_lazy_state(instance, state, eager=bool(include_lookup.get(name)))
-
-    def _find_backref_relations(
-        self,
-        table: TableProtocol[Any, Any, Any],
-        existing_names: set[str],
-    ) -> list[RelationSpec]:
-        model = table.model
-        module_name = table.__class__.__module__
-        module = sys.modules.get(module_name)
-        if module is None:
-            return []
-
-        extras: list[RelationSpec] = []
-        for attr in dir(module):
-            candidate = getattr(module, attr, None)
-            if not isinstance(candidate, type):
-                continue
-            if candidate is table.__class__:
-                continue
-            foreign_keys = getattr(candidate, "foreign_keys", None)
-            if not foreign_keys:
-                continue
-            candidate_model = getattr(candidate, "model", None)
-            if candidate_model is None:
-                continue
-            for fk in foreign_keys:
-                if fk.backref is None:
-                    continue
-                if fk.remote_model is not model:
-                    continue
-                name = fk.backref
-                if name in existing_names:
-                    continue
-                mapping_pairs: tuple[tuple[str, str], ...] = tuple(
-                    (remote, local) for remote, local in zip(fk.remote_columns, fk.local_columns)
-                )
-                primary_key = getattr(candidate, "primary_key", ())
-                many = tuple(primary_key) != tuple(fk.local_columns)
-                extras.append(
-                    RelationSpec(
-                        name=name,
-                        table_name=candidate.__name__,
-                        table_module=candidate.__module__,
-                        many=many,
-                        mapping=mapping_pairs,
-                    )
-                )
-                existing_names.add(name)
-        return extras
 
     def _clear_identity_map(self) -> None:
         self._identity_map.clear()
@@ -341,7 +275,7 @@ class BackendBase[ModelT, InsertT, WhereT: Mapping[str, object]](BackendProtocol
     ) -> dict[str, object]:
         _ = cursor
         pk_filter: dict[str, object] = {}
-        primary_key = getattr(table, "primary_key", ())
+        primary_key = table.primary_key
         if not primary_key:
             raise ValueError(f"Table {table.model.__name__} does not define primary key")
         for pk in primary_key:

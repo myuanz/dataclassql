@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from dclassql.db_pool import BaseDBPool, save_local
-from dclassql.runtime.backends import BackendProtocol, RelationSpec, create_backend
+from dclassql.runtime.backends import BackendProtocol, ColumnSpec, ForeignKeySpec, RelationSpec, create_backend
 from dclassql.runtime.datasource import open_sqlite_connection
+from types import MappingProxyType
 import sqlite3
 from datetime import datetime
 from test_codegen import Address, BirthDay, Book, User, UserBook
@@ -20,12 +21,6 @@ class DataSourceConfig:
         return self.name or self.provider
 
 
-@dataclass(slots=True)
-class ForeignKeySpec:
-    local_columns: tuple[str, ...]
-    remote_model: type[Any]
-    remote_columns: tuple[str, ...]
-    backref: str | None
 
 
 TAddressIncludeCol = Literal['User']
@@ -52,6 +47,12 @@ class AddressTable:
     insert_model = AddressInsert
     datasource = DataSourceConfig(provider='sqlite', url='sqlite:///analytics.db', name=None)
     columns: tuple[str, ...] = ('id', 'location', 'user_id')
+    column_specs: tuple[ColumnSpec, ...] = (
+        ColumnSpec(name='id', optional=False, auto_increment=True, has_default=False, has_default_factory=False),
+        ColumnSpec(name='location', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
+        ColumnSpec(name='user_id', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
+    )
+    column_specs_by_name: Mapping[str, ColumnSpec] = MappingProxyType({spec.name: spec for spec in column_specs})
     auto_increment_columns: tuple[str, ...] = ('id',)
     primary_key: tuple[str, ...] = ('id',)
     indexes: tuple[tuple[str, ...], ...] = ()
@@ -65,7 +66,7 @@ class AddressTable:
         ),
     )
     relations: tuple[RelationSpec, ...] = (
-        RelationSpec(name='user', table_name='UserTable', table_module=__name__, many=False, mapping=(('user_id', 'id'),)),
+        RelationSpec(name='user', table_name='UserTable', table_module=__name__, many=False, mapping=(('user_id', 'id'),), table_factory=lambda: UserTable),
     )
 
     def __init__(self, backend: BackendProtocol[Address, AddressInsert, AddressWhereDict]) -> None:
@@ -104,6 +105,11 @@ class BirthDayTable:
     insert_model = BirthDayInsert
     datasource = DataSourceConfig(provider='sqlite', url='sqlite:///analytics.db', name=None)
     columns: tuple[str, ...] = ('user_id', 'date')
+    column_specs: tuple[ColumnSpec, ...] = (
+        ColumnSpec(name='user_id', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
+        ColumnSpec(name='date', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
+    )
+    column_specs_by_name: Mapping[str, ColumnSpec] = MappingProxyType({spec.name: spec for spec in column_specs})
     auto_increment_columns: tuple[str, ...] = ()
     primary_key: tuple[str, ...] = ('user_id',)
     indexes: tuple[tuple[str, ...], ...] = ()
@@ -117,7 +123,7 @@ class BirthDayTable:
         ),
     )
     relations: tuple[RelationSpec, ...] = (
-        RelationSpec(name='user', table_name='UserTable', table_module=__name__, many=False, mapping=(('user_id', 'id'),)),
+        RelationSpec(name='user', table_name='UserTable', table_module=__name__, many=False, mapping=(('user_id', 'id'),), table_factory=lambda: UserTable),
     )
 
     def __init__(self, backend: BackendProtocol[BirthDay, BirthDayInsert, BirthDayWhereDict]) -> None:
@@ -156,13 +162,18 @@ class BookTable:
     insert_model = BookInsert
     datasource = DataSourceConfig(provider='sqlite', url='sqlite:///analytics.db', name=None)
     columns: tuple[str, ...] = ('id', 'name')
+    column_specs: tuple[ColumnSpec, ...] = (
+        ColumnSpec(name='id', optional=False, auto_increment=True, has_default=False, has_default_factory=False),
+        ColumnSpec(name='name', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
+    )
+    column_specs_by_name: Mapping[str, ColumnSpec] = MappingProxyType({spec.name: spec for spec in column_specs})
     auto_increment_columns: tuple[str, ...] = ('id',)
     primary_key: tuple[str, ...] = ('id',)
     indexes: tuple[tuple[str, ...], ...] = (('name',),)
     unique_indexes: tuple[tuple[str, ...], ...] = ()
     foreign_keys: tuple[ForeignKeySpec, ...] = ()
     relations: tuple[RelationSpec, ...] = (
-        RelationSpec(name='users', table_name='UserBookTable', table_module=__name__, many=True, mapping=(('id', 'book_id'),)),
+        RelationSpec(name='users', table_name='UserBookTable', table_module=__name__, many=True, mapping=(('id', 'book_id'),), table_factory=lambda: UserBookTable),
     )
 
     def __init__(self, backend: BackendProtocol[Book, BookInsert, BookWhereDict]) -> None:
@@ -207,15 +218,22 @@ class UserTable:
     insert_model = UserInsert
     datasource = DataSourceConfig(provider='sqlite', url='sqlite:///analytics.db', name=None)
     columns: tuple[str, ...] = ('id', 'name', 'email', 'last_login')
+    column_specs: tuple[ColumnSpec, ...] = (
+        ColumnSpec(name='id', optional=False, auto_increment=True, has_default=False, has_default_factory=False),
+        ColumnSpec(name='name', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
+        ColumnSpec(name='email', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
+        ColumnSpec(name='last_login', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
+    )
+    column_specs_by_name: Mapping[str, ColumnSpec] = MappingProxyType({spec.name: spec for spec in column_specs})
     auto_increment_columns: tuple[str, ...] = ('id',)
     primary_key: tuple[str, ...] = ('id',)
     indexes: tuple[tuple[str, ...], ...] = (('name',), ('name', 'email'), ('last_login',),)
     unique_indexes: tuple[tuple[str, ...], ...] = (('name', 'email'),)
     foreign_keys: tuple[ForeignKeySpec, ...] = ()
     relations: tuple[RelationSpec, ...] = (
-        RelationSpec(name='birthday', table_name='BirthDayTable', table_module=__name__, many=False, mapping=(('id', 'user_id'),)),
-        RelationSpec(name='addresses', table_name='AddressTable', table_module=__name__, many=True, mapping=(('id', 'user_id'),)),
-        RelationSpec(name='books', table_name='UserBookTable', table_module=__name__, many=True, mapping=(('id', 'user_id'),)),
+        RelationSpec(name='birthday', table_name='BirthDayTable', table_module=__name__, many=False, mapping=(('id', 'user_id'),), table_factory=lambda: BirthDayTable),
+        RelationSpec(name='addresses', table_name='AddressTable', table_module=__name__, many=True, mapping=(('id', 'user_id'),), table_factory=lambda: AddressTable),
+        RelationSpec(name='books', table_name='UserBookTable', table_module=__name__, many=True, mapping=(('id', 'user_id'),), table_factory=lambda: UserBookTable),
     )
 
     def __init__(self, backend: BackendProtocol[User, UserInsert, UserWhereDict]) -> None:
@@ -257,6 +275,12 @@ class UserBookTable:
     insert_model = UserBookInsert
     datasource = DataSourceConfig(provider='sqlite', url='sqlite:///analytics.db', name=None)
     columns: tuple[str, ...] = ('user_id', 'book_id', 'created_at')
+    column_specs: tuple[ColumnSpec, ...] = (
+        ColumnSpec(name='user_id', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
+        ColumnSpec(name='book_id', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
+        ColumnSpec(name='created_at', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
+    )
+    column_specs_by_name: Mapping[str, ColumnSpec] = MappingProxyType({spec.name: spec for spec in column_specs})
     auto_increment_columns: tuple[str, ...] = ()
     primary_key: tuple[str, ...] = ('user_id', 'book_id')
     indexes: tuple[tuple[str, ...], ...] = (('created_at',),)
@@ -276,8 +300,8 @@ class UserBookTable:
         ),
     )
     relations: tuple[RelationSpec, ...] = (
-        RelationSpec(name='user', table_name='UserTable', table_module=__name__, many=False, mapping=(('user_id', 'id'),)),
-        RelationSpec(name='book', table_name='BookTable', table_module=__name__, many=False, mapping=(('book_id', 'id'),)),
+        RelationSpec(name='user', table_name='UserTable', table_module=__name__, many=False, mapping=(('user_id', 'id'),), table_factory=lambda: UserTable),
+        RelationSpec(name='book', table_name='BookTable', table_module=__name__, many=False, mapping=(('book_id', 'id'),), table_factory=lambda: BookTable),
     )
 
     def __init__(self, backend: BackendProtocol[UserBook, UserBookInsert, UserBookWhereDict]) -> None:

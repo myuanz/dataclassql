@@ -1,19 +1,11 @@
 from __future__ import annotations
 
 import sqlite3
-from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Protocol, Sequence, runtime_checkable
 
+from .metadata import ColumnSpec, ForeignKeySpec, RelationSpec
+
 ConnectionFactory = Callable[[], sqlite3.Connection]
-
-@dataclass(slots=True)
-class RelationSpec:
-    name: str
-    table_name: str
-    table_module: str
-    many: bool
-    mapping: tuple[tuple[str, str], ...]
-
 
 @runtime_checkable
 class TableProtocol[ModelT, InsertT, WhereT](Protocol):
@@ -22,8 +14,11 @@ class TableProtocol[ModelT, InsertT, WhereT](Protocol):
     model: type[ModelT]
     insert_model: type[InsertT]
     columns: tuple[str, ...]
+    column_specs: tuple[ColumnSpec, ...]
+    column_specs_by_name: Mapping[str, ColumnSpec]
     auto_increment_columns: tuple[str, ...]
     primary_key: tuple[str, ...]
+    foreign_keys: tuple[ForeignKeySpec, ...]
     relations: tuple[RelationSpec, ...]
 
 

@@ -23,9 +23,10 @@ def generate_client(models: Sequence[type[Any]]) -> GeneratedModule:
 
     base_imports = {
         "from dataclasses import dataclass, field",
+        "from types import MappingProxyType",
         "import sqlite3",
         "from dclassql.db_pool import BaseDBPool, save_local",
-        "from dclassql.runtime.backends import BackendProtocol, RelationSpec, create_backend",
+        "from dclassql.runtime.backends import BackendProtocol, ColumnSpec, ForeignKeySpec, RelationSpec, create_backend",
         "from dclassql.runtime.datasource import open_sqlite_connection",
     }
 
@@ -85,12 +86,6 @@ class DataSourceConfig:
         return self.name or self.provider
 
 
-@dataclass(slots=True)
-class ForeignKeySpec:
-    local_columns: tuple[str, ...]
-    remote_model: type[Any]
-    remote_columns: tuple[str, ...]
-    backref: str | None
 """
 
 
@@ -203,13 +198,15 @@ def _build_relation_entries(info: ModelInfo, model_infos: Mapping[str, ModelInfo
             module_expr = "__name__"
         else:
             module_expr = repr(target_model.__module__)
+        table_class_name = f"{target_model.__name__}Table"
         entries.append(
             {
                 "name": relation.name,
-                "table_name": f"{target_model.__name__}Table",
+                "table_name": table_class_name,
                 "many": relation.many,
                 "mapping": mapping,
                 "table_module_expr": module_expr,
+                "table_factory_expr": f"lambda: {table_class_name}",
             }
         )
     return entries
@@ -234,6 +231,21 @@ def _render_table_class(
         f"{indent}datasource = DataSourceConfig(provider={ds.provider!r}, url={ds_url_repr}, name={repr(ds.name)})"
     )
     lines.append(f"{indent}columns: tuple[str, ...] = {_tuple_literal(col.name for col in info.columns)}")
+    lines.append(f"{indent}column_specs: tuple[ColumnSpec, ...] = (")
+    for column in info.columns:
+        lines.append(
+            f"{indent*2}ColumnSpec("
+            f"name={column.name!r}, "
+            f"optional={column.optional}, "
+            f"auto_increment={column.auto_increment}, "
+            f"has_default={column.has_default}, "
+            f"has_default_factory={column.has_default_factory}"
+            f"),"
+        )
+    lines.append(f"{indent})")
+    lines.append(
+        f"{indent}column_specs_by_name: Mapping[str, ColumnSpec] = MappingProxyType({{spec.name: spec for spec in column_specs}})"
+    )
     auto_increment = tuple(col.name for col in info.columns if col.auto_increment)
     if auto_increment:
         lines.append(f"{indent}auto_increment_columns: tuple[str, ...] = {_tuple_literal(auto_increment)}")
@@ -266,8 +278,9 @@ def _render_table_class(
         for entry in relation_entries:
             mapping_literal = _tuple_literal(entry["mapping"])
             module_expr = entry["table_module_expr"]
+            factory_expr = entry["table_factory_expr"]
             lines.append(
-                f"{indent*2}RelationSpec(name={entry['name']!r}, table_name={entry['table_name']!r}, table_module={module_expr}, many={entry['many']}, mapping={mapping_literal}),"
+                f"{indent*2}RelationSpec(name={entry['name']!r}, table_name={entry['table_name']!r}, table_module={module_expr}, many={entry['many']}, mapping={mapping_literal}, table_factory={factory_expr}),"
             )
         lines.append(f"{indent})")
     else:
