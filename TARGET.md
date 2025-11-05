@@ -75,8 +75,8 @@ class UserTable:
         self,
         *,
         where: UserWhereDict | None = None,
-        include: dict[TUserIncludeCol, bool] | None = None,
-        order_by: Sequence[tuple[TUserSortableCol, Literal['asc', 'desc']]] | None = None,
+        include: UserIncludeDict | None = None,
+        order_by: UserOrderByDict | None = None,
         take: int | None = None,
         skip: int | None = None,
     ) -> list[User]: ...
@@ -84,8 +84,8 @@ class UserTable:
         self,
         *,
         where: UserWhereDict | None = None,
-        include: dict[TUserIncludeCol, bool] | None = None,
-        order_by: Sequence[tuple[TUserSortableCol, Literal['asc', 'desc']]] | None = None,
+        include: UserIncludeDict | None = None,
+        order_by: UserOrderByDict | None = None,
         skip: int | None = None,
     ) -> User | None: ...
 ```
@@ -102,6 +102,7 @@ class UserTable:
     - [x] 运行时查询和插入等功能
 - [x] 命令行接口包括: `typed-db -m {model py file} push-db`、`typed-db -m {model py file} generate`, model py file 默认名为`model.py`
 - [x] 惰性 n+1 查询关联表
+- [x] 使用 jinja 生成代码
 
 # 设计
 
@@ -111,8 +112,8 @@ class UserTable:
 - 使用 fake self 机制获取主键、索引、外键、唯键等信息
 - 不依赖 fastlite, 只依赖 sqlite-utils
 - 初期仅支持 `insert` / `insert_many` / `find_many` / `find_first` 的代码生成. Insert 支持 dataclass 与 TypedDict 两种结构, WhereDict 会独立生成并把所有列标注为可选
-- 每个模型模块通过模块级 `__datasource__ = {"provider": ..., "url": ...}` 指定数据源(目前仅支持 sqlite), 代码生成时会按 provider 分组构建表与客户端, `GeneratedClient` 在初始化时需要提供 `{provider: connection}` 的映射
-- 生成结果包含 `DataSourceConfig`、`ForeignKeySpec` 等元信息, 以及 `T{Name}IncludeCol`/`T{Name}SortableCol` 字面量类型别名、`*Insert` dataclass、`*InsertDict` 与 `*WhereDict` TypedDict 组合、具体的 `*Table` 表访问类以及聚合的 `GeneratedClient`
+- 每个模型模块通过模块级 `__datasource__ = {"provider": ..., "url": ...}` 指定数据源(目前仅支持 sqlite), 代码生成时会按 provider 分组构建表与客户端, 生成的 `Client` 在初始化时需要提供 `{provider: connection}` 的映射
+- 生成结果包含 `DataSourceConfig`、`ForeignKeySpec` 等元信息, 以及 `T{Name}IncludeCol`/`T{Name}SortableCol` 字面量类型别名、`*Insert` dataclass、`*InsertDict`、`*WhereDict`、`*IncludeDict` 与 `*OrderByDict` TypedDict 组合、具体的 `*Table` 表访问类以及聚合的 `Client`
 - 每个 model 文件里需要写明数据源, 不同的 model 可以有不同的数据源. 在后面调用时按数据源分组使用. model 文件下可以定义模块变量 __datasource__ = {'provider': xxx, 'url': xxx}, 像 Prisma 一样, 提供器是数据库, url是连接url
     - 未来会支持其他数据库, 现在只关注 sqlite
     - 未来会支持从环境变量, 现在先不管
@@ -199,4 +200,4 @@ class UserBook:
 
 ```
 
-生成的客户端中, 还会包含 `GeneratedClient` 类, 构造时把所有表的 `*Table` 实例挂到蛇形命名的属性上, 方便业务方直接调用。
+生成的客户端中, 还会包含 `Client` 类, 构造时把所有表的 `*Table` 实例挂到蛇形命名的属性上, 方便业务方直接调用。
