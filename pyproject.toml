@@ -20,6 +20,7 @@ classifiers = [
 urls = { "Homepage" = "https://github.com/myuanz/dataclassql" }
 requires-python = ">=3.12"
 dependencies = [
+    "jinja2>=3.1.6",
     "pypika>=0.48.9",
 ]
 
