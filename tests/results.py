@@ -1,21 +1,17 @@
 
 from __future__ import annotations
 
-
 from dataclasses import dataclass, field
+from types import MappingProxyType
+from typing import Any, Literal, Mapping, Sequence, TypedDict, cast, NotRequired
+
+import sqlite3
+
 from dclassql.db_pool import BaseDBPool, save_local
 from dclassql.runtime.backends import BackendProtocol, ColumnSpec, ForeignKeySpec, RelationSpec, create_backend
 from dclassql.runtime.datasource import open_sqlite_connection
-from types import MappingProxyType
-import sqlite3
-
-
 from datetime import datetime
-from test_codegen import Address, BirthDay, Book, User, UserBook
-
-
-from typing import Any, Literal, Mapping, NotRequired, Sequence, TypedDict, cast
-
+from tests.test_codegen import Address, BirthDay, Book, User, UserBook
 
 
 @dataclass(slots=True)
@@ -27,6 +23,12 @@ class DataSourceConfig:
     @property
     def key(self) -> str:
         return self.name or self.provider
+
+
+
+
+
+
 
 
 
@@ -94,6 +96,11 @@ class AddressTable:
         return self._backend.find_first(self, where=where, include=cast(Mapping[str, bool] | None, include), order_by=order_by, skip=skip)
 
 
+
+
+
+
+
 TBirthDayIncludeCol = Literal['User']
 TBirthDaySortableCol = Literal['user_id', 'date']
 
@@ -153,6 +160,11 @@ class BirthDayTable:
         return self._backend.find_first(self, where=where, include=cast(Mapping[str, bool] | None, include), order_by=order_by, skip=skip)
 
 
+
+
+
+
+
 TBookIncludeCol = Literal['UserBook']
 TBookSortableCol = Literal['id', 'name']
 
@@ -203,6 +215,11 @@ class BookTable:
 
     def find_first(self, *, where: BookWhereDict | None = None, include: dict[TBookIncludeCol, bool] | None = None, order_by: Sequence[tuple[TBookSortableCol, Literal['asc', 'desc']]] | None = None, skip: int | None = None) -> Book | None:
         return self._backend.find_first(self, where=where, include=cast(Mapping[str, bool] | None, include), order_by=order_by, skip=skip)
+
+
+
+
+
 
 
 TUserIncludeCol = Literal['Address', 'BirthDay', 'UserBook']
@@ -265,6 +282,11 @@ class UserTable:
 
     def find_first(self, *, where: UserWhereDict | None = None, include: dict[TUserIncludeCol, bool] | None = None, order_by: Sequence[tuple[TUserSortableCol, Literal['asc', 'desc']]] | None = None, skip: int | None = None) -> User | None:
         return self._backend.find_first(self, where=where, include=cast(Mapping[str, bool] | None, include), order_by=order_by, skip=skip)
+
+
+
+
+
 
 
 TUserBookIncludeCol = Literal['Book', 'User']
@@ -337,7 +359,6 @@ class UserBookTable:
         return self._backend.find_first(self, where=where, include=cast(Mapping[str, bool] | None, include), order_by=order_by, skip=skip)
 
 
-
 class Client(BaseDBPool):
     datasources = {
         'sqlite': DataSourceConfig(provider='sqlite', url='sqlite:///analytics.db', name=None),
@@ -369,7 +390,6 @@ class Client(BaseDBPool):
             if hasattr(backend, 'close') and callable(getattr(backend, 'close')):
                 backend.close()
             delattr(cls._local, '_backend_sqlite')
-
 
 
 
