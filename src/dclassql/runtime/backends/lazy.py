@@ -300,7 +300,7 @@ def ensure_lazy_state[
 ](
     instance: Any,
     attribute: str,
-    backend: BackendProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+    backend: BackendProtocol,
     table_cls: type[Any],
     mapping: tuple[tuple[str, str], ...],
     many: bool,

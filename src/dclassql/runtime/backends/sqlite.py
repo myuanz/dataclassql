@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import sqlite3
 import threading
-from typing import Any, Literal, Mapping, Sequence, cast, overload
+from typing import Any, Mapping, Sequence
 
 from pypika.dialects import SQLLiteQuery
+from pypika.queries import QueryBuilder
 
 from dclassql.typing import IncludeT, InsertT, ModelT, OrderByT, WhereT
 
 from .base import BackendBase
-from .protocols import BackendProtocol, ConnectionFactory, TableProtocol
+from .protocols import ConnectionFactory, TableProtocol
 
 
 class SQLiteBackend(BackendBase):
@@ -50,21 +51,7 @@ class SQLiteBackend(BackendBase):
         if not column_names:
             raise ValueError("Insert payload cannot be empty")
 
-        params_matrix = [[payload.get(column) for column in column_names] for payload in payloads]
-        table_name = table.model.__name__
-        sql_table = self.table_cls(table_name)
-        insert_query = (
-            self.query_cls.into(sql_table)
-            .columns(*column_names)
-            .insert(*(self._new_parameter() for _ in column_names))
-        )
-        sql = self._render_query(insert_query)
-
-        pk_columns = list(table.primary_key)
-        if not pk_columns:
-            raise ValueError(f"Table {table_name} does not define primary key")
-        auto_increment = {spec.name for spec in table.column_specs if spec.auto_increment}
-
+        sql_table = self.table_cls(table.model.__name__)
         results: list[ModelT] = []
         step = batch_size if batch_size and batch_size > 0 else len(payloads)
         start = 0
@@ -72,58 +59,30 @@ class SQLiteBackend(BackendBase):
         while start < len(payloads):
             end = min(start + step, len(payloads))
             subset_payloads = payloads[start:end]
-            subset_params = params_matrix[start:end]
-            if not subset_params:
-                start = end
-                continue
-            cursor = connection.executemany(sql, [tuple(param) for param in subset_params])
+            if not subset_payloads:
+                break
+            insert_query: QueryBuilder = self.query_cls.into(sql_table).columns(*column_names)
+            params: list[Any] = []
+            for payload in subset_payloads:
+                insert_query = insert_query.insert(*(self._new_parameter() for _ in column_names))
+                params.extend(payload.get(column) for column in column_names)
+            sql = self._render_query(insert_query)
+            sql_with_returning = self._append_returning(sql, [spec.name for spec in table.column_specs])
+            cursor = connection.execute(sql_with_returning, tuple(params))
+            try:
+                rows = cursor.fetchall()
+            finally:
+                cursor.close()
+            if len(rows) != len(subset_payloads):
+                raise RuntimeError("Inserted rows mismatch returning rows")
             connection.commit()
-            generated_start: int | None = None
-            if len(pk_columns) == 1 and pk_columns[0] in auto_increment:
-                last_rowid_result = connection.execute("SELECT last_insert_rowid()").fetchone()
-                if last_rowid_result is None or last_rowid_result[0] is None:
-                    raise RuntimeError("Unable to determine lastrowid for bulk insert")
-                last_id = int(last_rowid_result[0])
-                generated_start = last_id - len(subset_payloads) + 1
-
-            for offset, payload in enumerate(subset_payloads):
-                pk_filter: dict[str, object] = {}
-                for pk in pk_columns:
-                    value = payload.get(pk)
-                    if value is None and generated_start is not None and pk == pk_columns[0]:
-                        value = generated_start + offset
-                        payload[pk] = value
-                    if value is None:
-                        raise ValueError(f"Primary key column '{pk}' is null after insert")
-                    pk_filter[pk] = value
-                instance = self._fetch_single(table, pk_filter, include=None)
+            include_map: Mapping[str, bool] = {}
+            for row in rows:
+                instance = self._row_to_model(table, row, include_map)
                 self._invalidate_backrefs(table, instance)
                 results.append(instance)
             start = end
         return results
-
-    def _resolve_primary_key(
-        self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
-        payload: Mapping[str, object],
-        cursor: Any,
-    ) -> dict[str, object]:
-        primary_key = getattr(table, "primary_key", ())
-        if not primary_key:
-            raise ValueError(f"Table {table.model.__name__} does not define primary key")
-        auto_increment = {spec.name for spec in table.column_specs if spec.auto_increment}
-        mutable_payload = dict(payload)
-        pk_filter: dict[str, object] = {}
-        for pk in primary_key:
-            value = mutable_payload.get(pk)
-            if value is None and pk in auto_increment:
-                value = cursor.lastrowid
-                mutable_payload[pk] = value
-            if value is None:
-                raise ValueError(f"Primary key column '{pk}' is null after insert")
-            pk_filter[pk] = value
-        return pk_filter
-
     def _fetch_all(self, sql: str, params: Sequence[Any]) -> list[sqlite3.Row]:
         cursor = self._execute(sql, params)
         return cursor.fetchall()
@@ -167,4 +126,3 @@ class SQLiteBackend(BackendBase):
             connection.close()
             delattr(self._local, "connection")
         self._clear_identity_map()
-

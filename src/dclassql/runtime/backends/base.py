@@ -9,6 +9,7 @@ from pypika import Query, Table
 from pypika.enums import Order
 from pypika.terms import Parameter
 from pypika.queries import QueryBuilder
+from pypika.utils import format_quotes
 
 from dclassql.typing import IncludeT, InsertT, ModelT, OrderByT, WhereT
 
@@ -45,9 +46,20 @@ class BackendBase(BackendProtocol, ABC):
             .insert(*(self._new_parameter() for _ in column_names))
         )
         sql = self._render_query(insert_query)
-        cursor = self._execute(sql, params)
-        pk_filter = self._resolve_primary_key(table, payload, cursor)
-        result = self._fetch_single(table, pk_filter, include=None)
+        returning_columns = [spec.name for spec in table.column_specs]
+        sql_with_returning = self._append_returning(sql, returning_columns)
+        cursor = self._execute(sql_with_returning, params, auto_commit=False)
+        connection = getattr(cursor, "connection", None)
+        row: Any | None = None
+        try:
+            row = cursor.fetchone()
+            if row is None:
+                raise RuntimeError("Inserted row not returned by backend")
+            if connection is not None:
+                connection.commit()
+        finally:
+            cursor.close()
+        result = self._row_to_model(table, row, include_map={})
         self._invalidate_backrefs(table, result)
         return result
 
@@ -278,23 +290,17 @@ class BackendBase(BackendProtocol, ABC):
     def _new_parameter(self) -> Parameter:
         return self.parameter_cls(self.parameter_token)
 
-    def _resolve_primary_key(
-        self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
-        payload: Mapping[str, object],
-        cursor: Any,
-    ) -> dict[str, object]:
-        _ = cursor
-        pk_filter: dict[str, object] = {}
-        primary_key = table.primary_key
-        if not primary_key:
-            raise ValueError(f"Table {table.model.__name__} does not define primary key")
-        for pk in primary_key:
-            value = payload.get(pk)
-            if value is None:
-                raise ValueError(f"Primary key column '{pk}' is null after insert")
-            pk_filter[pk] = value
-        return pk_filter
+    def _append_returning(self, sql: str, columns: Sequence[str]) -> str:
+        trimmed = sql.rstrip()
+        if trimmed.endswith(';'):
+            trimmed = trimmed[:-1]
+        if not columns:
+            raise RuntimeError("RETURNING requires at least one column")
+        if self.quote_char:
+            column_sql = ", ".join(format_quotes(column, self.quote_char) for column in columns)
+        else:
+            column_sql = ", ".join(columns)
+        return f"{trimmed} RETURNING {column_sql};"
 
     @abstractmethod
     def _fetch_all(self, sql: str, params: Sequence[Any]) -> Sequence[Any]:
