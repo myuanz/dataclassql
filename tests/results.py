@@ -8,6 +8,7 @@ from typing_extensions import TypedDict
 from dclassql import DataSourceConfig
 from dclassql.db_pool import BaseDBPool, save_local
 from dclassql.runtime.backends import BackendProtocol, ColumnSpec, ForeignKeySpec, RelationSpec
+from dclassql.runtime.backends.protocols import TableProtocol
 from dclassql.runtime.datasource import open_sqlite_connection
 
 from datetime import datetime
@@ -91,7 +92,7 @@ class AddressOrderByDict(TypedDict, total=False, closed=True):
     location: Literal['asc', 'desc']
     user_id: Literal['asc', 'desc']
 
-class AddressTable:
+class AddressTable(TableProtocol):
     model = Address
     insert_model = AddressInsert
     table_name: str = 'Address'
@@ -180,7 +181,7 @@ class BirthDayOrderByDict(TypedDict, total=False, closed=True):
     user_id: Literal['asc', 'desc']
     date: Literal['asc', 'desc']
 
-class BirthDayTable:
+class BirthDayTable(TableProtocol):
     model = BirthDay
     insert_model = BirthDayInsert
     table_name: str = 'BirthDay'
@@ -269,7 +270,7 @@ class BookOrderByDict(TypedDict, total=False, closed=True):
     id: Literal['asc', 'desc']
     name: Literal['asc', 'desc']
 
-class BookTable:
+class BookTable(TableProtocol):
     model = Book
     insert_model = BookInsert
     table_name: str = 'Book'
@@ -374,7 +375,7 @@ class UserOrderByDict(TypedDict, total=False, closed=True):
     email: Literal['asc', 'desc']
     last_login: Literal['asc', 'desc']
 
-class UserTable:
+class UserTable(TableProtocol):
     model = User
     insert_model = UserInsert
     table_name: str = 'User'
@@ -470,7 +471,7 @@ class UserBookOrderByDict(TypedDict, total=False, closed=True):
     book_id: Literal['asc', 'desc']
     created_at: Literal['asc', 'desc']
 
-class UserBookTable:
+class UserBookTable(TableProtocol):
     model = UserBook
     insert_model = UserBookInsert
     table_name: str = 'UserBook'

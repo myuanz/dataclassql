@@ -5,6 +5,7 @@ from collections.abc import Mapping as ABCMapping, Sequence as ABCSequence
 from typing import Any, Mapping, Protocol, Sequence
 
 from pypika import Query, Table
+from pypika.queries import QueryBuilder
 from pypika.terms import Criterion, ExistsCriterion, Parameter
 
 from dclassql.typing import IncludeT, InsertT, ModelT, OrderByT, WhereT
@@ -274,7 +275,7 @@ class WhereCompiler:
     def _relation_subquery(
         self,
         relation: RelationSpec,
-    ) -> tuple[Query, Table, TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT]]:
+    ) -> tuple[QueryBuilder, Table, TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT]]:
         table_cls = self._resolve_relation_table_cls(relation)
         remote_instance = table_cls(self._backend)
         remote_table = Table(remote_instance.table_name)

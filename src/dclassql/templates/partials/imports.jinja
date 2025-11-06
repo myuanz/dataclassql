@@ -8,6 +8,7 @@ from typing_extensions import TypedDict
 from dclassql import DataSourceConfig
 from dclassql.db_pool import BaseDBPool, save_local
 from dclassql.runtime.backends import BackendProtocol, ColumnSpec, ForeignKeySpec, RelationSpec
+from dclassql.runtime.backends.protocols import TableProtocol
 from dclassql.runtime.datasource import open_sqlite_connection
 
 {% if module_imports %}

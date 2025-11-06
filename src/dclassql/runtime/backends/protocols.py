@@ -11,13 +11,7 @@ from .metadata import ColumnSpec, ForeignKeySpec, RelationSpec
 ConnectionFactory = Callable[[], sqlite3.Connection]
 
 @runtime_checkable
-class TableProtocol[
-    ModelT,
-    InsertT,
-    WhereT: Mapping[str, object],
-    IncludeT: Mapping[str, bool],
-    OrderByT: Mapping[str, Literal['asc', 'desc']],
-](Protocol):
+class TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT](Protocol):
     def __init__(self, backend: BackendProtocol) -> None: ...
 
     model: type[ModelT]

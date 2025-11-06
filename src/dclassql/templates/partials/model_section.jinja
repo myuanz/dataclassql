@@ -54,7 +54,7 @@ class {{ order_by_dict_class }}(TypedDict, total=False, closed=True):
     pass
 {% endif %}
 
-class {{ table_class }}:
+class {{ table_class }}(TableProtocol):
     model = {{ name }}
     insert_model = {{ insert_class }}
     table_name: str = {{ model.table_name_literal }}
