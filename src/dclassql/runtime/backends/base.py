@@ -46,7 +46,7 @@ class BackendBase(BackendProtocol, ABC):
         insert_query: QueryBuilder = (
             self.query_cls.into(sql_table)
             .columns(*column_names)
-            .insert(*(self._new_parameter() for _ in column_names))
+            .insert(*(self.new_parameter() for _ in column_names))
         )
         sql = self._render_query(insert_query)
         returning_columns = [spec.name for spec in table.column_specs]
@@ -299,7 +299,7 @@ class BackendBase(BackendProtocol, ABC):
     def _render_query(self, query: QueryBuilder) -> str:
         return query.get_sql(quote_char=self.quote_char) + ';'
 
-    def _new_parameter(self) -> Parameter:
+    def new_parameter(self) -> Parameter:
         return self.parameter_cls(self.parameter_token)
 
     def _append_returning(self, sql: str, columns: Sequence[str]) -> str:
@@ -324,11 +324,6 @@ class BackendBase(BackendProtocol, ABC):
         criterion = compiler.compile(where)
         return criterion, compiler.params
 
-    def _new_bound_parameter(self, params: list[object], value: object) -> Parameter:
-        parameter = self._new_parameter()
-        params.append(value)
-        return parameter
- 
     def _log_sql(self, sql: str, params: Sequence[object] | None) -> None:
         if not self._echo_sql:
             return

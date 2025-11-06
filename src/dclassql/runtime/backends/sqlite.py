@@ -65,7 +65,7 @@ class SQLiteBackend(BackendBase):
             insert_query: QueryBuilder = self.query_cls.into(sql_table).columns(*column_names)
             params: list[Any] = []
             for payload in subset_payloads:
-                insert_query = insert_query.insert(*(self._new_parameter() for _ in column_names))
+                insert_query = insert_query.insert(*(self.new_parameter() for _ in column_names))
                 params.extend(payload.get(column) for column in column_names)
             sql = self._render_query(insert_query)
             sql_with_returning = self._append_returning(sql, [spec.name for spec in table.column_specs])

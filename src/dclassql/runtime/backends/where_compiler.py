@@ -3,7 +3,7 @@ from __future__ import annotations
 import importlib
 from collections.abc import Mapping as ABCMapping
 from collections.abc import Sequence as ABCSequence
-from typing import Literal, Mapping, Protocol, Sequence, TypeAlias
+from typing import Mapping, Sequence
 
 from pypika import Query, Table
 from pypika.queries import QueryBuilder
@@ -12,10 +12,6 @@ from pypika.terms import Criterion, ExistsCriterion, Field, Parameter
 from dclassql.typing import IncludeT, InsertT, ModelT, OrderByT, WhereT
 
 from .protocols import BackendProtocol, RelationSpec, TableProtocol
-
-
-class WhereBackend(BackendProtocol, Protocol):
-    def _new_bound_parameter(self, params: list[object], value: object) -> Parameter: ...
 
 
 def combine_and(criteria: Sequence[Criterion | None]) -> Criterion | None:
@@ -41,7 +37,7 @@ def combine_or(criteria: Sequence[Criterion | None]) -> Criterion | None:
 class WhereCompiler:
     def __init__(
         self,
-        backend: WhereBackend,
+        backend: BackendProtocol,
         table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
         sql_table: Table,
     ) -> None:
@@ -49,8 +45,8 @@ class WhereCompiler:
         self._table = table
         self._sql_table = sql_table
         self.params: list[object] = []
-        self._relation_map = {
-            relation.name: relation for relation in table.relations
+        self._relation_map: dict[str, RelationSpec[TableProtocol]] = {
+            relation.name: relation for relation in getattr(table, "relations", ())
         }
 
     def compile(self, where: Mapping[str, object]) -> Criterion | None:
@@ -126,8 +122,7 @@ class WhereCompiler:
     def _compile_direct(self, field: Field, value: object) -> Criterion:
         if value is None:
             return field.isnull()
-        parameter = self._backend._new_bound_parameter(self.params, value)
-        return field == parameter
+        return field == self._bind_value(value)
 
     def _compile_filter(self, field: Field, filters: Mapping[str, object]) -> Criterion | None:
         criteria: list[Criterion | None] = []
@@ -144,26 +139,22 @@ class WhereCompiler:
             values = self._ensure_sequence(operand, label="IN")
             if not values:
                 return (field == field).negate()
-            params = tuple(self._backend._new_bound_parameter(self.params, item) for item in values)
+            params = tuple(self._bind_value(item) for item in values)
             return field.isin(params)
         if operator == "NOT_IN":
             values = self._ensure_sequence(operand, label="NOT_IN")
             if not values:
                 return field == field
-            params = tuple(self._backend._new_bound_parameter(self.params, item) for item in values)
+            params = tuple(self._bind_value(item) for item in values)
             return field.notin(params)
         if operator == "LT":
-            parameter = self._backend._new_bound_parameter(self.params, operand)
-            return field < parameter
+            return field < self._bind_value(operand)
         if operator == "LTE":
-            parameter = self._backend._new_bound_parameter(self.params, operand)
-            return field <= parameter
+            return field <= self._bind_value(operand)
         if operator == "GT":
-            parameter = self._backend._new_bound_parameter(self.params, operand)
-            return field > parameter
+            return field > self._bind_value(operand)
         if operator == "GTE":
-            parameter = self._backend._new_bound_parameter(self.params, operand)
-            return field >= parameter
+            return field >= self._bind_value(operand)
         if operator == "CONTAINS":
             text = self._ensure_string(operand, operator)
             return self._apply_like(field, f"%{text}%")
@@ -192,9 +183,14 @@ class WhereCompiler:
         raise TypeError(f"{operator} expects a string operand")
 
     def _apply_like(self, field: Field, pattern: str) -> Criterion:
-        parameter = self._backend._new_bound_parameter(self.params, pattern)
+        parameter = self._bind_value(pattern)
         # pypika 的 Field.like 允许 Term 参数, 但类型标注仅接受 str
         return field.like(parameter)  # type: ignore[arg-type]
+
+    def _bind_value(self, value: object) -> Parameter:
+        parameter = self._backend.new_parameter()
+        self.params.append(value)
+        return parameter
 
     def _compile_relation(
         self,

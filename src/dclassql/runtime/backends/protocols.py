@@ -3,6 +3,9 @@ from __future__ import annotations
 import sqlite3
 from typing import Callable, Literal, Mapping, Protocol, Sequence, runtime_checkable
 
+from pypika import Query, Table
+from pypika.terms import Parameter
+
 from dclassql.model_inspector import DataSourceConfig
 from dclassql.typing import IncludeT, InsertT, ModelT, OrderByT, WhereT
 
@@ -29,6 +32,12 @@ class TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT](Protocol):
 
 @runtime_checkable
 class BackendProtocol(Protocol):
+    quote_char: str
+    parameter_token: str
+    query_cls: type[Query]
+    table_cls: type[Table]
+    parameter_cls: type[Parameter]
+
     def insert(
         self,
         table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
@@ -69,3 +78,5 @@ class BackendProtocol(Protocol):
     def execute_raw(self, sql: str, params: Sequence[object] | None = None, auto_commit: bool = True) -> int: ...
 
     def escape_identifier(self, name: str) -> str: ...
+
+    def new_parameter(self) -> Parameter: ...
