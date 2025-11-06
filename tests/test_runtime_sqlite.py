@@ -246,26 +246,26 @@ def test_where_filters_support_scalar_operations(tmp_path: Path):
         ]
     )
 
-    contains_results = user_table.find_many(where={"name": {"contains": "li"}}, order_by={"name": "asc"})
+    contains_results = user_table.find_many(where={"name": {"CONTAINS": "li"}}, order_by={"name": "asc"})
     assert [row.name for row in contains_results] == ["Alice", "Charlie"]
 
     and_results = user_table.find_many(
         where={
             "AND": [
-                {"name": {"starts_with": "A"}},
-                {"email": {"equals": "alice@example.com"}},
+                    {"name": {"STARTS_WITH": "A"}},
+                    {"email": {"EQ": "alice@example.com"}},
             ]
         }
     )
     assert [row.name for row in and_results] == ["Alice"]
 
-    or_results = user_table.find_many(where={"OR": [{"name": {"equals": "Alice"}}, {"name": {"equals": "Bob"}}]}, order_by={"name": "asc"})
+    or_results = user_table.find_many(where={"OR": [{"name": {"EQ": "Alice"}}, {"name": {"EQ": "Bob"}}]}, order_by={"name": "asc"})
     assert [row.name for row in or_results] == ["Alice", "Bob"]
 
-    in_results = user_table.find_many(where={"id": {"in_": [1, 3]}}, order_by={"id": "asc"})
+    in_results = user_table.find_many(where={"id": {"IN": [1, 3]}}, order_by={"id": "asc"})
     assert [row.name for row in in_results] == ["Alice", "Charlie"]
 
-    not_results = user_table.find_many(where={"name": {"not_": "Alice"}}, order_by={"name": "asc"})
+    not_results = user_table.find_many(where={"name": {"NOT": "Alice"}}, order_by={"name": "asc"})
     assert [row.name for row in not_results] == ["Bob", "Charlie"]
 
     null_results = user_table.find_many(where={"email": None})
@@ -335,6 +335,7 @@ def test_lazy_relations(tmp_path: Path):
         client = ClientClass()
 
         client.lazy_user.insert({"id": 1, "name": "Alice"})
+        client.lazy_user.insert({"id": 2, "name": "Bob"})
         client.lazy_birth_day.insert({"user_id": 1, "date": datetime(1990, 1, 1)})
         client.lazy_address.insert({"id": 1, "user_id": 1, "location": "Home"})
 
@@ -384,6 +385,54 @@ def test_lazy_relations(tmp_path: Path):
 
         with pytest.raises(TypeError):
             eager(user_again.addresses)
+
+        users_with_birthday = client.lazy_user.find_many(
+            where={"birthday": {"IS_NOT": None}},
+            order_by={"id": "asc"},
+        )
+        assert [user.id for user in users_with_birthday] == [1]
+
+        users_without_birthday = client.lazy_user.find_many(
+            where={"birthday": {"IS": None}},
+            order_by={"id": "asc"},
+        )
+        assert [user.id for user in users_without_birthday] == [2]
+
+        users_exact_birthday = client.lazy_user.find_many(
+            where={"birthday": {"IS": {"date": {"EQ": datetime(1990, 1, 1)}}}},
+            order_by={"id": "asc"},
+        )
+        assert [user.id for user in users_exact_birthday] == [1]
+
+        users_not_specific_birthday = client.lazy_user.find_many(
+            where={"birthday": {"IS_NOT": {"date": {"EQ": datetime(1990, 1, 1)}}}},
+            order_by={"id": "asc"},
+        )
+        assert [user.id for user in users_not_specific_birthday] == [2]
+
+        users_with_some_address = client.lazy_user.find_many(
+            where={"addresses": {"SOME": {"location": {"EQ": "Home"}}}},
+            order_by={"id": "asc"},
+        )
+        assert [user.id for user in users_with_some_address] == [1]
+
+        users_without_office = client.lazy_user.find_many(
+            where={"addresses": {"NONE": {"location": {"EQ": "Office"}}}},
+            order_by={"id": "asc"},
+        )
+        assert [user.id for user in users_without_office] == [1, 2]
+
+        users_without_any_address = client.lazy_user.find_many(
+            where={"addresses": {"NONE": None}},
+            order_by={"id": "asc"},
+        )
+        assert [user.id for user in users_without_any_address] == [2]
+
+        users_address_every_contains = client.lazy_user.find_many(
+            where={"addresses": {"EVERY": {"location": {"CONTAINS": "o"}}}},
+            order_by={"id": "asc"},
+        )
+        assert [user.id for user in users_address_every_contains] == [1, 2]
 
     finally:
         if ClientClass is not None:

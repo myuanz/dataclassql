@@ -140,6 +140,13 @@ def test_generate_client_matches_expected_shape() -> None:
     assert 'StringFilter' in namespace
     assert 'IntFilter' in namespace
     assert 'DateTimeFilter' in namespace
+    relation_filter_names = [
+        'UserAddressesRelationFilter',
+        'UserBirthdayRelationFilter',
+        'UserBooksRelationFilter',
+    ]
+    for filter_name in relation_filter_names:
+        assert filter_name in namespace
 
     backend_protocol = namespace['BackendProtocol']
 
@@ -167,6 +174,8 @@ def test_generate_client_matches_expected_shape() -> None:
     assert set(insert_dict_hints.keys()).issubset(set(where_hints.keys()))
     logical_keys = {'AND', 'OR', 'NOT'}
     assert logical_keys <= where_hints.keys()
+    for relation_name in ('addresses', 'birthday', 'books'):
+        assert relation_name in where_hints
 
     def _flatten_union(tp: Any) -> set[Any]:
         origin = get_origin(tp)
@@ -184,6 +193,14 @@ def test_generate_client_matches_expected_shape() -> None:
         expected_args = _flatten_union(expected_hint)
         expected_args.discard(type(None))
         assert expected_args <= got_args
+
+    relation_hint_expectations = {
+        'addresses': namespace['UserAddressesRelationFilter'],
+        'birthday': namespace['UserBirthdayRelationFilter'],
+        'books': namespace['UserBooksRelationFilter'],
+    }
+    for relation_name, relation_type in relation_hint_expectations.items():
+        assert where_hints[relation_name] is relation_type
 
     insert_hints = get_type_hints(user_table_cls.insert, globalns=namespace, localns=namespace)
     insert_data_type = insert_hints['data']

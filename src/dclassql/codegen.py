@@ -71,6 +71,12 @@ class RelationRender:
 
 
 @dataclass(slots=True)
+class RelationFilterRender:
+    name: str
+    fields: tuple[TypedDictFieldSpec, ...]
+
+
+@dataclass(slots=True)
 class ScalarFilterRender:
     name: str
     fields: tuple[TypedDictFieldSpec, ...]
@@ -84,6 +90,7 @@ class ModelRenderContext:
     insert_fields: tuple[InsertFieldSpec, ...]
     typed_dict_fields: tuple[TypedDictFieldSpec, ...]
     where_fields: tuple[WhereFieldSpec, ...]
+    relation_filters: tuple[RelationFilterRender, ...]
     column_specs: tuple[ColumnSpecRender, ...]
     foreign_keys: tuple[ForeignKeyRender, ...]
     relation_entries: tuple[RelationRender, ...]
@@ -167,7 +174,7 @@ def generate_client(models: Sequence[type[Any]]) -> GeneratedModule:
     ]
 
     client_context = _build_client_context(model_infos)
-    exports = _collect_exports(model_infos)
+    exports = _collect_exports(model_contexts)
     scalar_filters = filter_registry.render_definitions()
 
     template = _get_environment().get_template(_TEMPLATE_NAME)
@@ -221,6 +228,24 @@ def _build_model_context(
         if filter_name is not None and filter_name not in annotation:
             annotation = f"{annotation} | {filter_name}"
         where_fields.append(WhereFieldSpec(name=col.name, annotation=annotation))
+
+    relation_filters: list[RelationFilterRender] = []
+    for relation in info.relations:
+        filter_name = f"{name}{_to_pascal_case(relation.name)}RelationFilter"
+        remote_where_dict = f"{relation.target.__name__}WhereDict"
+        if relation.many:
+            fields = (
+                TypedDictFieldSpec(name="SOME", annotation=f"{remote_where_dict} | None"),
+                TypedDictFieldSpec(name="NONE", annotation=f"{remote_where_dict} | None"),
+                TypedDictFieldSpec(name="EVERY", annotation=remote_where_dict),
+            )
+        else:
+            fields = (
+                TypedDictFieldSpec(name="IS", annotation=f"{remote_where_dict} | None"),
+                TypedDictFieldSpec(name="IS_NOT", annotation=f"{remote_where_dict} | None"),
+            )
+        relation_filters.append(RelationFilterRender(name=filter_name, fields=fields))
+        where_fields.append(WhereFieldSpec(name=relation.name, annotation=filter_name))
 
     renderer.require_typing("Sequence")
     where_dict_name = f"{name}WhereDict"
@@ -282,6 +307,7 @@ def _build_model_context(
         insert_fields=tuple(insert_fields),
         typed_dict_fields=tuple(typed_dict_fields),
         where_fields=tuple(where_fields),
+        relation_filters=tuple(relation_filters),
         column_specs=tuple(column_specs),
         foreign_keys=tuple(foreign_keys),
         relation_entries=tuple(relation_entries),
@@ -337,9 +363,10 @@ def _build_client_context(model_infos: Mapping[str, ModelInfo]) -> ClientContext
     )
 
 
-def _collect_exports(model_infos: Mapping[str, ModelInfo]) -> list[str]:
+def _collect_exports(model_contexts: Sequence[ModelRenderContext]) -> list[str]:
     exports: list[str] = ["DataSourceConfig", "ForeignKeySpec", "Client"]
-    for name in sorted(model_infos.keys()):
+    for context in model_contexts:
+        name = context.name
         exports.extend(
             [
                 f"T{name}IncludeCol",
@@ -352,6 +379,8 @@ def _collect_exports(model_infos: Mapping[str, ModelInfo]) -> list[str]:
                 f"{name}Table",
             ]
         )
+        for relation_filter in context.relation_filters:
+            exports.append(relation_filter.name)
     return exports
 
 
@@ -467,6 +496,11 @@ def _strip_optional_annotation(annotation: str) -> str:
 def _camel_to_snake(name: str) -> str:
     pattern = re.compile(r"(?<!^)(?=[A-Z])")
     return pattern.sub("_", name).lower()
+
+
+def _to_pascal_case(value: str) -> str:
+    parts = re.split(r"[^0-9a-zA-Z]+", value)
+    return "".join(part[:1].upper() + part[1:] for part in parts if part)
 
 
 @dataclass(slots=True)

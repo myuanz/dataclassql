@@ -31,6 +31,12 @@ class {{ insert_class }}:
 class {{ insert_dict_class }}(TypedDict, closed=True):
 {{ macros.typed_dict_fields(model.typed_dict_fields)|indent(4, True) }}
 
+{% for relation_filter in model.relation_filters %}
+class {{ relation_filter.name }}(TypedDict, total=False, closed=True):
+{{ macros.typed_dict_fields(relation_filter.fields)|indent(4, True) }}
+
+{% endfor %}
+
 class {{ where_dict_class }}(TypedDict, total=False, closed=True):
 {{ macros.where_fields(model.where_fields)|indent(4, True) }}
 

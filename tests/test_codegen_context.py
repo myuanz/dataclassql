@@ -36,12 +36,14 @@ def test_model_context_shapes_insert_and_typeddict_sections() -> None:
     assert typed_id_field.annotation.startswith("NotRequired[")
 
     where_names = {field.name for field in address_ctx.where_fields}
-    assert {"id", "location", "user_id", "AND", "OR", "NOT"} <= where_names
+    assert {"id", "location", "user_id", "AND", "OR", "NOT", "user"} <= where_names
 
     assert any(spec.auto_increment for spec in address_ctx.column_specs)
     assert "NotRequired" in renderer.typing_names
     relation_names = sorted(rel.name for rel in address_ctx.model_info.relations)
     assert relation_names == ["user"]
+    relation_filter_names = [flt.name for flt in address_ctx.relation_filters]
+    assert relation_filter_names == ["AddressUserRelationFilter"]
     column_names = [col.name for col in address_ctx.model_info.columns]
     assert column_names == ["id", "location", "user_id"]
 
@@ -65,9 +67,13 @@ def test_client_context_binds_models_to_datasource_backends() -> None:
 
 
 def test_collect_exports_includes_expected_symbols() -> None:
-    model_infos, _, _ = _prepare_context([User, Address, BirthDay])
+    model_infos, renderer, registry = _prepare_context([User, Address, BirthDay])
+    contexts = [
+        _build_model_context(model_infos[name], renderer, model_infos, registry)
+        for name in sorted(model_infos.keys())
+    ]
 
-    exports = _collect_exports(model_infos)
+    exports = _collect_exports(contexts)
 
     assert "Client" in exports
     assert "DataSourceConfig" in exports
@@ -77,3 +83,4 @@ def test_collect_exports_includes_expected_symbols() -> None:
         assert f"T{name}IncludeCol" in exports
         assert f"{name}IncludeDict" in exports
         assert f"{name}OrderByDict" in exports
+    assert "UserAddressesRelationFilter" in exports

@@ -67,10 +67,17 @@ class AddressInsertDict(TypedDict, closed=True):
     user_id: int
 
 
+class AddressUserRelationFilter(TypedDict, total=False, closed=True):
+    IS: UserWhereDict | None
+    IS_NOT: UserWhereDict | None
+
+
+
 class AddressWhereDict(TypedDict, total=False, closed=True):
     id: int | None | IntFilter
     location: str | None | StringFilter
     user_id: int | None | IntFilter
+    user: AddressUserRelationFilter
     AND: AddressWhereDict | Sequence[AddressWhereDict]
     OR: Sequence[AddressWhereDict]
     NOT: AddressWhereDict | Sequence[AddressWhereDict]
@@ -151,9 +158,16 @@ class BirthDayInsertDict(TypedDict, closed=True):
     date: datetime
 
 
+class BirthDayUserRelationFilter(TypedDict, total=False, closed=True):
+    IS: UserWhereDict | None
+    IS_NOT: UserWhereDict | None
+
+
+
 class BirthDayWhereDict(TypedDict, total=False, closed=True):
     user_id: int | None | IntFilter
     date: datetime | None | DateTimeFilter
+    user: BirthDayUserRelationFilter
     AND: BirthDayWhereDict | Sequence[BirthDayWhereDict]
     OR: Sequence[BirthDayWhereDict]
     NOT: BirthDayWhereDict | Sequence[BirthDayWhereDict]
@@ -232,9 +246,17 @@ class BookInsertDict(TypedDict, closed=True):
     name: str
 
 
+class BookUsersRelationFilter(TypedDict, total=False, closed=True):
+    SOME: UserBookWhereDict | None
+    NONE: UserBookWhereDict | None
+    EVERY: UserBookWhereDict
+
+
+
 class BookWhereDict(TypedDict, total=False, closed=True):
     id: int | None | IntFilter
     name: str | None | StringFilter
+    users: BookUsersRelationFilter
     AND: BookWhereDict | Sequence[BookWhereDict]
     OR: Sequence[BookWhereDict]
     NOT: BookWhereDict | Sequence[BookWhereDict]
@@ -310,11 +332,32 @@ class UserInsertDict(TypedDict, closed=True):
     last_login: datetime
 
 
+class UserBirthdayRelationFilter(TypedDict, total=False, closed=True):
+    IS: BirthDayWhereDict | None
+    IS_NOT: BirthDayWhereDict | None
+
+
+class UserAddressesRelationFilter(TypedDict, total=False, closed=True):
+    SOME: AddressWhereDict | None
+    NONE: AddressWhereDict | None
+    EVERY: AddressWhereDict
+
+
+class UserBooksRelationFilter(TypedDict, total=False, closed=True):
+    SOME: UserBookWhereDict | None
+    NONE: UserBookWhereDict | None
+    EVERY: UserBookWhereDict
+
+
+
 class UserWhereDict(TypedDict, total=False, closed=True):
     id: int | None | IntFilter
     name: str | None | StringFilter
     email: str | None | StringFilter
     last_login: datetime | None | DateTimeFilter
+    birthday: UserBirthdayRelationFilter
+    addresses: UserAddressesRelationFilter
+    books: UserBooksRelationFilter
     AND: UserWhereDict | Sequence[UserWhereDict]
     OR: Sequence[UserWhereDict]
     NOT: UserWhereDict | Sequence[UserWhereDict]
@@ -396,10 +439,23 @@ class UserBookInsertDict(TypedDict, closed=True):
     created_at: datetime
 
 
+class UserBookUserRelationFilter(TypedDict, total=False, closed=True):
+    IS: UserWhereDict | None
+    IS_NOT: UserWhereDict | None
+
+
+class UserBookBookRelationFilter(TypedDict, total=False, closed=True):
+    IS: BookWhereDict | None
+    IS_NOT: BookWhereDict | None
+
+
+
 class UserBookWhereDict(TypedDict, total=False, closed=True):
     user_id: int | None | IntFilter
     book_id: int | None | IntFilter
     created_at: datetime | None | DateTimeFilter
+    user: UserBookUserRelationFilter
+    book: UserBookBookRelationFilter
     AND: UserBookWhereDict | Sequence[UserBookWhereDict]
     OR: Sequence[UserBookWhereDict]
     NOT: UserBookWhereDict | Sequence[UserBookWhereDict]
@@ -518,6 +574,7 @@ __all__ = (
     "AddressInsertDict",
     "AddressWhereDict",
     "AddressTable",
+    "AddressUserRelationFilter",
     "TBirthDayIncludeCol",
     "TBirthDaySortableCol",
     "BirthDayIncludeDict",
@@ -526,6 +583,7 @@ __all__ = (
     "BirthDayInsertDict",
     "BirthDayWhereDict",
     "BirthDayTable",
+    "BirthDayUserRelationFilter",
     "TBookIncludeCol",
     "TBookSortableCol",
     "BookIncludeDict",
@@ -534,6 +592,7 @@ __all__ = (
     "BookInsertDict",
     "BookWhereDict",
     "BookTable",
+    "BookUsersRelationFilter",
     "TUserIncludeCol",
     "TUserSortableCol",
     "UserIncludeDict",
@@ -542,6 +601,9 @@ __all__ = (
     "UserInsertDict",
     "UserWhereDict",
     "UserTable",
+    "UserBirthdayRelationFilter",
+    "UserAddressesRelationFilter",
+    "UserBooksRelationFilter",
     "TUserBookIncludeCol",
     "TUserBookSortableCol",
     "UserBookIncludeDict",
@@ -550,4 +612,6 @@ __all__ = (
     "UserBookInsertDict",
     "UserBookWhereDict",
     "UserBookTable",
+    "UserBookUserRelationFilter",
+    "UserBookBookRelationFilter",
 )

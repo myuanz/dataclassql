@@ -8,7 +8,7 @@ from weakref import ReferenceType, ref
 
 from pypika import Query, Table
 from pypika.enums import Order
-from pypika.terms import Parameter
+from pypika.terms import Criterion, Parameter
 from pypika.queries import QueryBuilder
 from pypika.utils import format_quotes
 
@@ -16,6 +16,7 @@ from dclassql.typing import IncludeT, InsertT, ModelT, OrderByT, WhereT
 
 from .lazy import ensure_lazy_state, finalize_lazy_state, reset_lazy_backref
 from .protocols import BackendProtocol, RelationSpec, TableProtocol
+from .where_compiler import WhereCompiler
 
 
 class BackendBase(BackendProtocol, ABC):
@@ -83,15 +84,10 @@ class BackendBase(BackendProtocol, ABC):
         params: list[Any] = []
 
         if where:
-            for column, value in where.items():
-                if column not in table.column_specs_by_name:
-                    raise KeyError(f"Unknown column '{column}' in where clause")
-                field = sql_table.field(column)
-                if value is None:
-                    select_query = select_query.where(field.isnull())
-                else:
-                    select_query = select_query.where(field == self._new_parameter())
-                    params.append(value)
+            criterion, where_params = self._compile_where(table, sql_table, where)
+            if criterion is not None:
+                select_query = select_query.where(criterion)
+                params.extend(where_params)
 
         if order_by:
             for column, direction in order_by.items():
@@ -316,3 +312,18 @@ class BackendBase(BackendProtocol, ABC):
         else:
             column_sql = ", ".join(columns)
         return f"{trimmed} RETURNING {column_sql};"
+
+    def _compile_where(
+        self,
+        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        sql_table: Table,
+        where: Mapping[str, object],
+    ) -> tuple[Criterion | None, list[object]]:
+        compiler = WhereCompiler(self, table, sql_table)
+        criterion = compiler.compile(where)
+        return criterion, compiler.params
+
+    def _new_bound_parameter(self, params: list[object], value: object) -> Parameter:
+        parameter = self._new_parameter()
+        params.append(value)
+        return parameter
