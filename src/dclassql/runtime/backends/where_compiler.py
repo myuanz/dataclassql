@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import importlib
 from collections.abc import Mapping as ABCMapping
-from collections.abc import Sequence as ABCSequence
 from typing import Mapping, Sequence
 
 from pypika import Query, Table
@@ -10,6 +9,7 @@ from pypika.queries import QueryBuilder
 from pypika.terms import Criterion, ExistsCriterion, Field, Parameter
 
 from dclassql.typing import IncludeT, InsertT, ModelT, OrderByT, WhereT
+from dclassql.utils.ensure import ensure_sequence, ensure_string
 
 from .protocols import BackendProtocol, RelationSpec, TableProtocol
 
@@ -98,7 +98,7 @@ class WhereCompiler:
                 raise TypeError(f"{label} expects a sequence of filters")
             groups.append(self._compile_group(value))
             return groups
-        entries = self._ensure_sequence(value, label=label)
+        entries = ensure_sequence(value, label=label)
         for idx, entry in enumerate(entries):
             if not isinstance(entry, ABCMapping):
                 raise TypeError(f"{label}[{idx}] must be a mapping")
@@ -136,13 +136,13 @@ class WhereCompiler:
         if operator == "EQ":
             return self._compile_direct(field, operand)
         if operator == "IN":
-            values = self._ensure_sequence(operand, label="IN")
+            values = ensure_sequence(operand, label="IN")
             if not values:
                 return (field == field).negate()
             params = tuple(self._bind_value(item) for item in values)
             return field.isin(params)
         if operator == "NOT_IN":
-            values = self._ensure_sequence(operand, label="NOT_IN")
+            values = ensure_sequence(operand, label="NOT_IN")
             if not values:
                 return field == field
             params = tuple(self._bind_value(item) for item in values)
@@ -156,13 +156,13 @@ class WhereCompiler:
         if operator == "GTE":
             return field >= self._bind_value(operand)
         if operator == "CONTAINS":
-            text = self._ensure_string(operand, operator)
+            text = ensure_string(operand, operator=operator)
             return self._apply_like(field, f"%{text}%")
         if operator == "STARTS_WITH":
-            text = self._ensure_string(operand, operator)
+            text = ensure_string(operand, operator=operator)
             return self._apply_like(field, f"{text}%")
         if operator == "ENDS_WITH":
-            text = self._ensure_string(operand, operator)
+            text = ensure_string(operand, operator=operator)
             return self._apply_like(field, f"%{text}")
         if operator == "NOT":
             if isinstance(operand, ABCMapping):
@@ -171,16 +171,6 @@ class WhereCompiler:
                 compiled = self._compile_direct(field, operand)
             return compiled.negate() if compiled is not None else None
         raise ValueError(f"Unsupported filter operator '{operator}'")
-
-    def _ensure_sequence(self, value: object, *, label: str) -> list[object]:
-        if isinstance(value, ABCSequence) and not isinstance(value, (str, bytes)):
-            return list(value)
-        raise TypeError(f"{label} expects a sequence of values")
-
-    def _ensure_string(self, value: object, operator: str) -> str:
-        if isinstance(value, str):
-            return value
-        raise TypeError(f"{operator} expects a string operand")
 
     def _apply_like(self, field: Field, pattern: str) -> Criterion:
         parameter = self._bind_value(pattern)

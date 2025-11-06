@@ -8,6 +8,7 @@ from pypika.dialects import SQLLiteQuery
 from pypika.queries import QueryBuilder
 
 from dclassql.typing import IncludeT, InsertT, ModelT, OrderByT, WhereT
+from dclassql.utils.ensure import ensure_sqlite_row_factory
 
 from .base import BackendBase
 from .protocols import ConnectionFactory, TableProtocol
@@ -27,7 +28,7 @@ class SQLiteBackend(BackendBase):
         elif isinstance(source, sqlite3.Connection):
             self._factory = None
             self._connection = source
-            self._ensure_row_factory(self._connection)
+            ensure_sqlite_row_factory(self._connection)
             self._local = threading.local()
         elif callable(source):
             self._factory = source
@@ -83,7 +84,7 @@ class SQLiteBackend(BackendBase):
     def _acquire_connection(self) -> sqlite3.Connection:
         if self._factory is None:
             assert self._connection is not None
-            self._ensure_row_factory(self._connection)
+            ensure_sqlite_row_factory(self._connection)
             return self._connection
 
         connection = getattr(self._local, "connection", None)
@@ -91,14 +92,9 @@ class SQLiteBackend(BackendBase):
             connection = self._factory()
             if not isinstance(connection, sqlite3.Connection):
                 raise TypeError("SQLite backend factory must return sqlite3.Connection")
-            self._ensure_row_factory(connection)
+            ensure_sqlite_row_factory(connection)
             self._local.connection = connection
         return connection
-
-    @staticmethod
-    def _ensure_row_factory(connection: sqlite3.Connection) -> None:
-        if connection.row_factory is None:
-            connection.row_factory = sqlite3.Row
 
     def close(self) -> None:
         if self._factory is None:

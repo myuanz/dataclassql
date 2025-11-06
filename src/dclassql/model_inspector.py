@@ -6,6 +6,7 @@ from types import UnionType
 from typing import Annotated, Any, Iterable, Mapping, Sequence, get_args, get_origin, get_type_hints
 
 from .table_spec import Col, TableInfo
+from .utils.ensure import ensure_col_sequence
 
 
 @dataclass(slots=True)
@@ -345,8 +346,8 @@ def _iterate_results(results: Any) -> Iterable[Any]:
 
 
 def _determine_direction(model: type[Any], comparison: ForeignKeyComparison) -> tuple[list[Col], list[Col]]:
-    left_cols = _ensure_sequence(comparison.left)
-    right_cols = _ensure_sequence(comparison.right)
+    left_cols = ensure_col_sequence(comparison.left)
+    right_cols = ensure_col_sequence(comparison.right)
     left_local = all(col.table is model for col in left_cols)
     right_local = all(col.table is model for col in right_cols)
     if left_local and not right_local:
@@ -354,14 +355,6 @@ def _determine_direction(model: type[Any], comparison: ForeignKeyComparison) -> 
     if right_local and not left_local:
         return right_cols, left_cols
     raise ValueError("Unable to determine foreign key direction")
-
-
-def _ensure_sequence(value: Col | tuple[Col, ...]) -> list[Col]:
-    if isinstance(value, Col):
-        return [value]
-    return list(value)
-
-
 def _module_datasource(module: Any | None) -> DataSourceConfig:
     if module is None:
         raise ValueError("Model module is not available while resolving datasource")
