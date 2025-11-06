@@ -49,17 +49,9 @@ class BackendBase(BackendProtocol, ABC):
         sql = self._render_query(insert_query)
         returning_columns = [spec.name for spec in table.column_specs]
         sql_with_returning = self._append_returning(sql, returning_columns)
-        cursor = self._execute(sql_with_returning, params, auto_commit=False)
-        connection = getattr(cursor, "connection", None)
-        row: Any | None = None
-        try:
-            row = cursor.fetchone()
-            if row is None:
-                raise RuntimeError("Inserted row not returned by backend")
-            if connection is not None:
-                connection.commit()
-        finally:
-            cursor.close()
+
+        row = self.query_raw(sql_with_returning, params, auto_commit=True)[0]
+
         result = self._row_to_model(table, row, include_map={})
         self._invalidate_backrefs(table, result)
         return result
@@ -116,7 +108,7 @@ class BackendBase(BackendProtocol, ABC):
             select_query = select_query.limit(take)
 
         sql = self._render_query(select_query)
-        rows = self._fetch_all(sql, params)
+        rows = self.query_raw(sql, params)
         include_map = include or {}
         return [self._row_to_model(table, row, include_map) for row in rows]
 
@@ -204,6 +196,12 @@ class BackendBase(BackendProtocol, ABC):
         if not results:
             raise RuntimeError("Inserted row could not be reloaded")
         return results[0]
+
+    def query_raw(self, sql: str, params: Sequence[object] | None = None, auto_commit: bool = False) -> Sequence[object]:
+        raise NotImplementedError
+
+    def execute_raw(self, sql: str, params: Sequence[object] | None = None, auto_commit: bool = True) -> int:
+        raise NotImplementedError
 
     def _invalidate_backrefs(
         self,
@@ -313,11 +311,3 @@ class BackendBase(BackendProtocol, ABC):
         else:
             column_sql = ", ".join(columns)
         return f"{trimmed} RETURNING {column_sql};"
-
-    @abstractmethod
-    def _fetch_all(self, sql: str, params: Sequence[Any]) -> Sequence[Any]:
-        raise NotImplementedError
-
-    @abstractmethod
-    def _execute(self, sql: str, params: Sequence[Any], *, auto_commit: bool = True) -> Any:
-        raise NotImplementedError

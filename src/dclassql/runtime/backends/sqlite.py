@@ -83,16 +83,6 @@ class SQLiteBackend(BackendBase):
                 results.append(instance)
             start = end
         return results
-    def _fetch_all(self, sql: str, params: Sequence[Any]) -> list[sqlite3.Row]:
-        cursor = self._execute(sql, params)
-        return cursor.fetchall()
-
-    def _execute(self, sql: str, params: Sequence[Any], *, auto_commit: bool = True) -> sqlite3.Cursor:
-        connection = self._acquire_connection()
-        cursor = connection.execute(sql, tuple(params))
-        if auto_commit:
-            connection.commit()
-        return cursor
 
     def _acquire_connection(self) -> sqlite3.Connection:
         if self._factory is None:
@@ -126,3 +116,27 @@ class SQLiteBackend(BackendBase):
             connection.close()
             delattr(self._local, "connection")
         self._clear_identity_map()
+
+    def query_raw(self, sql: str, params: Sequence[object] | None = None, auto_commit: bool = False) -> Sequence[object]:
+        connection = self._acquire_connection()
+        cursor = connection.execute(sql, params or ())
+
+        try:
+            rows = cursor.fetchall()
+
+            if auto_commit:
+                connection.commit()
+        finally:
+            cursor.close()
+        return rows
+
+    def execute_raw(self, sql: str, params: Sequence[object] | None = None, auto_commit: bool = True) -> int:
+        connection = self._acquire_connection()
+        cursor = connection.execute(sql, params or ())
+        try:
+            affected = cursor.rowcount
+            if auto_commit:
+                connection.commit()
+        finally:
+            cursor.close()
+        return affected

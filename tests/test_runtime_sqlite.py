@@ -95,6 +95,34 @@ def test_find_returns_distinct_instances(tmp_path: Path):
     client.__class__.close_all()
 
 
+def test_backend_raw_queries(tmp_path: Path):
+    db_path = tmp_path / "runtime.db"
+    _prepare_database(db_path)
+    _, client = _build_client()
+    backend = client.runtime_user._backend
+
+    inserted = backend.execute_raw(
+        'INSERT INTO "RuntimeUser" (id, name, email) VALUES (?, ?, ?)',
+        (1, "Alice", None),
+    )
+    assert inserted == 1
+
+    rows = backend.query_raw('SELECT id, name, email FROM "RuntimeUser" WHERE id = ?', (1,))
+    assert isinstance(rows, list)
+    assert rows[0]["name"] == "Alice"
+
+    updated = backend.execute_raw(
+        'UPDATE "RuntimeUser" SET name = ? WHERE id = ?',
+        ("Alicia", 1),
+    )
+    assert updated == 1
+
+    total_rows = backend.query_raw('SELECT COUNT(1) as c FROM "RuntimeUser"')
+    assert total_rows[0]["c"] == 1
+
+    client.__class__.close_all()
+
+
 def test_insert_many_utilises_backend(tmp_path: Path):
     db_path = tmp_path / "runtime.db"
     _prepare_database(db_path)
@@ -140,14 +168,15 @@ def test_backend_thread_local(tmp_path: Path):
     _prepare_database(db_path)
     namespace, client = _build_client()
     user_table = client.runtime_user
-    InsertModel = namespace["RuntimeUserInsert"]
 
-    user_table.insert(InsertModel(id=None, name="Eve", email=None))
+    r = user_table.insert({'name': "Eve", 'email': None})
+    print(f'{r=}')
 
     def worker() -> int | None:
         other_client = namespace["Client"]()
         try:
             record = other_client.runtime_user.find_first(order_by={"name": "asc"})
+            print(f'{record=}')
             return record.id if record else None
         finally:
             other_client.__class__.close_all()
@@ -159,6 +188,7 @@ def test_backend_thread_local(tmp_path: Path):
         thread_result = future.result()
 
     main_record = user_table.find_first(order_by={"name": "asc"})
+    print(f'{thread_result=}')
     assert main_record is not None
     assert thread_result is not None
     client.__class__.close_all()
