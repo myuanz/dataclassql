@@ -18,6 +18,7 @@ source = { editable = "." }
 dependencies = [
     { name = "jinja2" },
     { name = "pypika" },
+    { name = "typing-extensions" },
 ]
 
 [package.dev-dependencies]
@@ -30,6 +31,7 @@ dev = [
 requires-dist = [
     { name = "jinja2", specifier = ">=3.1.6" },
     { name = "pypika", specifier = ">=0.48.9" },
+    { name = "typing-extensions", specifier = ">=4.12.2" },
 ]
 
 [package.metadata.requires-dev]
