@@ -203,6 +203,11 @@ class BackendBase(BackendProtocol, ABC):
     def execute_raw(self, sql: str, params: Sequence[object] | None = None, auto_commit: bool = True) -> int:
         raise NotImplementedError
 
+    def escape_identifier(self, name: str) -> str:
+        if self.quote_char:
+            return format_quotes(name, self.quote_char)
+        raise ValueError("Backend does not support identifier quoting without a quote character set")
+
     def _invalidate_backrefs(
         self,
         table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],

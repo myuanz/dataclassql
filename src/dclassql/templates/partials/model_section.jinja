@@ -51,6 +51,7 @@ class {{ order_by_dict_class }}(TypedDict, total=False, closed=True):
 class {{ table_class }}:
     model = {{ name }}
     insert_model = {{ insert_class }}
+    table_name: str = {{ model.table_name_literal }}
     datasource = {{ model.datasource_expr }}
 {{ macros.column_specs(model.column_specs)|indent(4, True) }}
     column_specs_by_name: Mapping[str, ColumnSpec] = MappingProxyType({spec.name: spec for spec in column_specs})
@@ -62,6 +63,9 @@ class {{ table_class }}:
 
     def __init__(self, backend: {{ backend_signature }}) -> None:
         self._backend = backend
+
+    def __str__(self) -> str:
+        return self._backend.escape_identifier(self.table_name)
 
     def insert(self, data: {{ insert_class }} | {{ insert_dict_class }}) -> {{ name }}:
         return self._backend.insert(self, data)
@@ -82,4 +86,3 @@ class {{ table_class }}:
             where=where, include=include, order_by=order_by, 
             skip=skip
         )
-

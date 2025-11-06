@@ -57,6 +57,7 @@ class AddressOrderByDict(TypedDict, total=False, closed=True):
 class AddressTable:
     model = Address
     insert_model = AddressInsert
+    table_name: str = 'Address'
     datasource = DataSourceConfig(provider='sqlite', url='sqlite:///analytics.db', name=None)
     column_specs: tuple[ColumnSpec, ...] = (
         ColumnSpec(name='id', optional=False, auto_increment=True, has_default=False, has_default_factory=False),
@@ -84,6 +85,9 @@ class AddressTable:
     def __init__(self, backend: BackendProtocol) -> None:
         self._backend = backend
 
+    def __str__(self) -> str:
+        return self._backend.escape_identifier(self.table_name)
+
     def insert(self, data: AddressInsert | AddressInsertDict) -> Address:
         return self._backend.insert(self, data)
 
@@ -103,7 +107,6 @@ class AddressTable:
             where=where, include=include, order_by=order_by, 
             skip=skip
         )
-
 TBirthDayIncludeCol = Literal['user']
 TBirthDaySortableCol = Literal['user_id', 'date']
 
@@ -133,6 +136,7 @@ class BirthDayOrderByDict(TypedDict, total=False, closed=True):
 class BirthDayTable:
     model = BirthDay
     insert_model = BirthDayInsert
+    table_name: str = 'BirthDay'
     datasource = DataSourceConfig(provider='sqlite', url='sqlite:///analytics.db', name=None)
     column_specs: tuple[ColumnSpec, ...] = (
         ColumnSpec(name='user_id', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
@@ -159,6 +163,9 @@ class BirthDayTable:
     def __init__(self, backend: BackendProtocol) -> None:
         self._backend = backend
 
+    def __str__(self) -> str:
+        return self._backend.escape_identifier(self.table_name)
+
     def insert(self, data: BirthDayInsert | BirthDayInsertDict) -> BirthDay:
         return self._backend.insert(self, data)
 
@@ -178,7 +185,6 @@ class BirthDayTable:
             where=where, include=include, order_by=order_by, 
             skip=skip
         )
-
 TBookIncludeCol = Literal['users']
 TBookSortableCol = Literal['id', 'name']
 
@@ -208,6 +214,7 @@ class BookOrderByDict(TypedDict, total=False, closed=True):
 class BookTable:
     model = Book
     insert_model = BookInsert
+    table_name: str = 'Book'
     datasource = DataSourceConfig(provider='sqlite', url='sqlite:///analytics.db', name=None)
     column_specs: tuple[ColumnSpec, ...] = (
         ColumnSpec(name='id', optional=False, auto_increment=True, has_default=False, has_default_factory=False),
@@ -226,6 +233,9 @@ class BookTable:
 
     def __init__(self, backend: BackendProtocol) -> None:
         self._backend = backend
+
+    def __str__(self) -> str:
+        return self._backend.escape_identifier(self.table_name)
 
     def insert(self, data: BookInsert | BookInsertDict) -> Book:
         return self._backend.insert(self, data)
@@ -246,7 +256,6 @@ class BookTable:
             where=where, include=include, order_by=order_by, 
             skip=skip
         )
-
 TUserIncludeCol = Literal['addresses', 'birthday', 'books']
 TUserSortableCol = Literal['id', 'name', 'email', 'last_login']
 
@@ -286,6 +295,7 @@ class UserOrderByDict(TypedDict, total=False, closed=True):
 class UserTable:
     model = User
     insert_model = UserInsert
+    table_name: str = 'User'
     datasource = DataSourceConfig(provider='sqlite', url='sqlite:///analytics.db', name=None)
     column_specs: tuple[ColumnSpec, ...] = (
         ColumnSpec(name='id', optional=False, auto_increment=True, has_default=False, has_default_factory=False),
@@ -309,6 +319,9 @@ class UserTable:
     def __init__(self, backend: BackendProtocol) -> None:
         self._backend = backend
 
+    def __str__(self) -> str:
+        return self._backend.escape_identifier(self.table_name)
+
     def insert(self, data: UserInsert | UserInsertDict) -> User:
         return self._backend.insert(self, data)
 
@@ -328,7 +341,6 @@ class UserTable:
             where=where, include=include, order_by=order_by, 
             skip=skip
         )
-
 TUserBookIncludeCol = Literal['book', 'user']
 TUserBookSortableCol = Literal['user_id', 'book_id', 'created_at']
 
@@ -363,6 +375,7 @@ class UserBookOrderByDict(TypedDict, total=False, closed=True):
 class UserBookTable:
     model = UserBook
     insert_model = UserBookInsert
+    table_name: str = 'UserBook'
     datasource = DataSourceConfig(provider='sqlite', url='sqlite:///analytics.db', name=None)
     column_specs: tuple[ColumnSpec, ...] = (
         ColumnSpec(name='user_id', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
@@ -397,6 +410,9 @@ class UserBookTable:
     def __init__(self, backend: BackendProtocol) -> None:
         self._backend = backend
 
+    def __str__(self) -> str:
+        return self._backend.escape_identifier(self.table_name)
+
     def insert(self, data: UserBookInsert | UserBookInsertDict) -> UserBook:
         return self._backend.insert(self, data)
 
@@ -416,7 +432,6 @@ class UserBookTable:
             where=where, include=include, order_by=order_by, 
             skip=skip
         )
-
 class Client(BaseDBPool):
     datasources = {
         'sqlite': DataSourceConfig(provider='sqlite', url='sqlite:///analytics.db', name=None),

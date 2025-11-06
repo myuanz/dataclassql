@@ -73,6 +73,7 @@ class RelationRender:
 class ModelRenderContext:
     name: str
     datasource_expr: str
+    table_name_literal: str
     insert_fields: tuple[InsertFieldSpec, ...]
     typed_dict_fields: tuple[TypedDictFieldSpec, ...]
     where_fields: tuple[WhereFieldSpec, ...]
@@ -253,6 +254,7 @@ def _build_model_context(
     return ModelRenderContext(
         name=name,
         datasource_expr=datasource_expr,
+        table_name_literal=repr(name),
         insert_fields=tuple(insert_fields),
         typed_dict_fields=tuple(typed_dict_fields),
         where_fields=tuple(where_fields),

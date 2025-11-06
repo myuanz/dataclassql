@@ -95,6 +95,18 @@ def test_find_returns_distinct_instances(tmp_path: Path):
     client.__class__.close_all()
 
 
+def test_table_str_uses_backend_quotes(tmp_path: Path):
+    db_path = tmp_path / "runtime.db"
+    _prepare_database(db_path)
+    _, client = _build_client()
+
+    table = client.runtime_user
+    assert table.table_name == "RuntimeUser"
+    assert str(table) == '"RuntimeUser"'
+
+    client.__class__.close_all()
+
+
 def test_backend_raw_queries(tmp_path: Path):
     db_path = tmp_path / "runtime.db"
     _prepare_database(db_path)
