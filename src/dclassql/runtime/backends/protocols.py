@@ -24,7 +24,7 @@ class TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT](Protocol):
     indexes: tuple[tuple[str, ...], ...]
     unique_indexes: tuple[tuple[str, ...], ...]
     foreign_keys: tuple[ForeignKeySpec, ...]
-    relations: tuple[RelationSpec[BackendProtocol], ...]
+    relations: tuple[RelationSpec[TableProtocol], ...]
 
 
 @runtime_checkable

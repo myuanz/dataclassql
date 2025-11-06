@@ -1,19 +1,20 @@
 from __future__ import annotations
 
 import importlib
-from collections.abc import Mapping as ABCMapping, Sequence as ABCSequence
-from typing import Any, Mapping, Protocol, Sequence
+from collections.abc import Mapping as ABCMapping
+from collections.abc import Sequence as ABCSequence
+from typing import Literal, Mapping, Protocol, Sequence, TypeAlias
 
 from pypika import Query, Table
 from pypika.queries import QueryBuilder
-from pypika.terms import Criterion, ExistsCriterion, Parameter
+from pypika.terms import Criterion, ExistsCriterion, Field, Parameter
 
 from dclassql.typing import IncludeT, InsertT, ModelT, OrderByT, WhereT
 
-from .protocols import RelationSpec, TableProtocol
+from .protocols import BackendProtocol, RelationSpec, TableProtocol
 
 
-class WhereBackend(Protocol):
+class WhereBackend(BackendProtocol, Protocol):
     def _new_bound_parameter(self, params: list[object], value: object) -> Parameter: ...
 
 
@@ -48,8 +49,8 @@ class WhereCompiler:
         self._table = table
         self._sql_table = sql_table
         self.params: list[object] = []
-        self._relation_map: dict[str, RelationSpec] = {
-            relation.name: relation for relation in getattr(table, "relations", ())
+        self._relation_map = {
+            relation.name: relation for relation in table.relations
         }
 
     def compile(self, where: Mapping[str, object]) -> Criterion | None:
@@ -117,18 +118,18 @@ class WhereCompiler:
         field = self._sql_table.field(column)
         return self._compile_value(field, value)
 
-    def _compile_value(self, field: Any, value: object) -> Criterion | None:
+    def _compile_value(self, field: Field, value: object) -> Criterion | None:
         if isinstance(value, ABCMapping):
             return self._compile_filter(field, value)
         return self._compile_direct(field, value)
 
-    def _compile_direct(self, field: Any, value: object) -> Criterion:
+    def _compile_direct(self, field: Field, value: object) -> Criterion:
         if value is None:
             return field.isnull()
         parameter = self._backend._new_bound_parameter(self.params, value)
         return field == parameter
 
-    def _compile_filter(self, field: Any, filters: Mapping[str, object]) -> Criterion | None:
+    def _compile_filter(self, field: Field, filters: Mapping[str, object]) -> Criterion | None:
         criteria: list[Criterion | None] = []
         for key, operand in filters.items():
             if not isinstance(key, str):
@@ -136,7 +137,7 @@ class WhereCompiler:
             criteria.append(self._compile_operator(field, key.upper(), operand))
         return combine_and(criteria)
 
-    def _compile_operator(self, field: Any, operator: str, operand: object) -> Criterion | None:
+    def _compile_operator(self, field: Field, operator: str, operand: object) -> Criterion | None:
         if operator == "EQ":
             return self._compile_direct(field, operand)
         if operator == "IN":
@@ -165,16 +166,13 @@ class WhereCompiler:
             return field >= parameter
         if operator == "CONTAINS":
             text = self._ensure_string(operand, operator)
-            parameter = self._backend._new_bound_parameter(self.params, f"%{text}%")
-            return field.like(parameter)
+            return self._apply_like(field, f"%{text}%")
         if operator == "STARTS_WITH":
             text = self._ensure_string(operand, operator)
-            parameter = self._backend._new_bound_parameter(self.params, f"{text}%")
-            return field.like(parameter)
+            return self._apply_like(field, f"{text}%")
         if operator == "ENDS_WITH":
             text = self._ensure_string(operand, operator)
-            parameter = self._backend._new_bound_parameter(self.params, f"%{text}")
-            return field.like(parameter)
+            return self._apply_like(field, f"%{text}")
         if operator == "NOT":
             if isinstance(operand, ABCMapping):
                 compiled = self._compile_filter(field, operand)
@@ -193,12 +191,25 @@ class WhereCompiler:
             return value
         raise TypeError(f"{operator} expects a string operand")
 
-    def _compile_relation(self, relation: RelationSpec, value: object) -> Criterion | None:
+    def _apply_like(self, field: Field, pattern: str) -> Criterion:
+        parameter = self._backend._new_bound_parameter(self.params, pattern)
+        # pypika 的 Field.like 允许 Term 参数, 但类型标注仅接受 str
+        return field.like(parameter)  # type: ignore[arg-type]
+
+    def _compile_relation(
+        self,
+        relation: RelationSpec[TableProtocol],
+        value: object,
+    ) -> Criterion | None:
         if relation.many:
             return self._compile_relation_many(relation, value)
         return self._compile_relation_single(relation, value)
 
-    def _compile_relation_single(self, relation: RelationSpec, value: object) -> Criterion | None:
+    def _compile_relation_single(
+        self,
+        relation: RelationSpec[TableProtocol],
+        value: object,
+    ) -> Criterion | None:
         if not isinstance(value, ABCMapping):
             if value is None:
                 return self._relation_is(relation, None)
@@ -214,7 +225,11 @@ class WhereCompiler:
                 raise ValueError(f"Unsupported relation operator '{raw_key}' for relation '{relation.name}'")
         return combine_and(criteria)
 
-    def _compile_relation_many(self, relation: RelationSpec, value: object) -> Criterion | None:
+    def _compile_relation_many(
+        self,
+        relation: RelationSpec[TableProtocol],
+        value: object,
+    ) -> Criterion | None:
         if not isinstance(value, ABCMapping):
             raise TypeError("Collection relation filter expects a mapping")
         criteria: list[Criterion | None] = []
@@ -230,7 +245,7 @@ class WhereCompiler:
                 raise ValueError(f"Unsupported relation operator '{raw_key}' for relation '{relation.name}'")
         return combine_and(criteria)
 
-    def _relation_is(self, relation: RelationSpec, operand: object) -> Criterion:
+    def _relation_is(self, relation: RelationSpec[TableProtocol], operand: object) -> Criterion:
         query, remote_table, remote_instance = self._relation_subquery(relation)
         if operand is None:
             return ExistsCriterion(query).negate()
@@ -241,7 +256,7 @@ class WhereCompiler:
             query = query.where(criterion)
         return ExistsCriterion(query)
 
-    def _relation_is_not(self, relation: RelationSpec, operand: object) -> Criterion:
+    def _relation_is_not(self, relation: RelationSpec[TableProtocol], operand: object) -> Criterion:
         query, remote_table, remote_instance = self._relation_subquery(relation)
         if operand is None:
             return ExistsCriterion(query)
@@ -252,7 +267,11 @@ class WhereCompiler:
             query = query.where(criterion)
         return ExistsCriterion(query).negate()
 
-    def _relation_every(self, relation: RelationSpec, operand: object) -> Criterion | None:
+    def _relation_every(
+        self,
+        relation: RelationSpec[TableProtocol],
+        operand: object,
+    ) -> Criterion | None:
         if not isinstance(operand, ABCMapping):
             raise TypeError("EVERY operand must be a mapping")
         query, remote_table, remote_instance = self._relation_subquery(relation)
@@ -262,7 +281,7 @@ class WhereCompiler:
         query = query.where(criterion.negate())
         return ExistsCriterion(query).negate()
 
-    def _relation_exists(self, relation: RelationSpec, operand: object) -> Criterion:
+    def _relation_exists(self, relation: RelationSpec[TableProtocol], operand: object) -> Criterion:
         query, remote_table, remote_instance = self._relation_subquery(relation)
         if operand is not None:
             if not isinstance(operand, ABCMapping):
@@ -274,7 +293,7 @@ class WhereCompiler:
 
     def _relation_subquery(
         self,
-        relation: RelationSpec,
+        relation: RelationSpec[TableProtocol],
     ) -> tuple[QueryBuilder, Table, TableProtocol]:
         table_cls = self._resolve_relation_table_cls(relation)
         remote_instance = table_cls(self._backend)
@@ -284,18 +303,21 @@ class WhereCompiler:
             query = query.where(remote_table.field(target_column) == self._sql_table.field(owner_column))
         return query, remote_table, remote_instance
 
-    def _resolve_relation_table_cls(self, relation: RelationSpec) -> type:
+    def _resolve_relation_table_cls(self, relation: RelationSpec[TableProtocol]) -> type[TableProtocol]:
         if relation.table_factory is not None:
             return relation.table_factory()
-        module_name = relation.table_module or getattr(self._table, "__module__", None)
+        module_name = relation.table_module
         if module_name is None:
             raise RuntimeError(f"Cannot resolve table module for relation '{relation.name}'")
         module = importlib.import_module(module_name)
-        return getattr(module, relation.table_name)
+        table_cls = getattr(module, relation.table_name)
+        if not isinstance(table_cls, type):
+            raise TypeError(f"Relation table '{relation.table_name}' must be a class")
+        return table_cls
 
     def _compile_remote_filter(
         self,
-        relation: RelationSpec,
+        relation: RelationSpec[TableProtocol],
         operand: Mapping[str, object],
         remote_table: Table,
         remote_instance: TableProtocol,
