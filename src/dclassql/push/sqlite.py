@@ -17,8 +17,8 @@ TYPE_MAP: Mapping[type[Any], str] = {
     bool: "INTEGER",
     float: "REAL",
     str: "TEXT",
-    datetime: "TEXT",
-    date: "TEXT",
+    datetime: "datetime",
+    date: "date",
     bytes: "BLOB",
 }
 
