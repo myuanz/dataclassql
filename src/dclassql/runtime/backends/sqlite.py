@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
-from typing import Any, Mapping, Sequence
+from typing import Any, Literal, Mapping, Sequence, overload
 
 from pypika.dialects import SQLLiteQuery
 from pypika.queries import QueryBuilder
@@ -16,13 +16,14 @@ from .protocols import ConnectionFactory, TableProtocol
 class SQLiteBackend(BackendBase):
     query_cls = SQLLiteQuery
 
-    def __init__(self, source: sqlite3.Connection | ConnectionFactory | "SQLiteBackend") -> None:
-        super().__init__()
+    def __init__(self, source: sqlite3.Connection | ConnectionFactory | "SQLiteBackend", *, echo_sql: bool = False) -> None:
+        super().__init__(echo_sql=echo_sql)
         if isinstance(source, SQLiteBackend):
             self._factory: ConnectionFactory | None = source._factory
             self._connection: sqlite3.Connection | None = source._connection
             self._local = source._local
             self._identity_map = source._identity_map
+            self._echo_sql = source._echo_sql
         elif isinstance(source, sqlite3.Connection):
             self._factory = None
             self._connection = source
@@ -68,14 +69,9 @@ class SQLiteBackend(BackendBase):
                 params.extend(payload.get(column) for column in column_names)
             sql = self._render_query(insert_query)
             sql_with_returning = self._append_returning(sql, [spec.name for spec in table.column_specs])
-            cursor = connection.execute(sql_with_returning, tuple(params))
-            try:
-                rows = cursor.fetchall()
-            finally:
-                cursor.close()
+            rows = self._execute_sql(connection, sql_with_returning, params, fetch=True, auto_commit=True)
             if len(rows) != len(subset_payloads):
                 raise RuntimeError("Inserted rows mismatch returning rows")
-            connection.commit()
             include_map: Mapping[str, bool] = {}
             for row in rows:
                 instance = self._row_to_model(table, row, include_map)
@@ -119,24 +115,54 @@ class SQLiteBackend(BackendBase):
 
     def query_raw(self, sql: str, params: Sequence[object] | None = None, auto_commit: bool = False) -> Sequence[object]:
         connection = self._acquire_connection()
-        cursor = connection.execute(sql, params or ())
+        return self._execute_sql(connection, sql, params, fetch=True, auto_commit=auto_commit)
 
+    def execute_raw(self, sql: str, params: Sequence[object] | None = None, auto_commit: bool = True) -> int:
+        connection = self._acquire_connection()
+        result = self._execute_sql(connection, sql, params, fetch=False, auto_commit=auto_commit)
+        return result
+
+
+    @overload
+    def _execute_sql(
+        self,
+        connection: sqlite3.Connection,
+        sql: str,
+        params: Sequence[object] | None,
+        *,
+        fetch: Literal[True],
+        auto_commit: bool,
+    ) -> Sequence[sqlite3.Row]: ...
+    @overload
+    def _execute_sql(
+        self,
+        connection: sqlite3.Connection,
+        sql: str,
+        params: Sequence[object] | None,
+        *,
+        fetch: Literal[False],
+        auto_commit: bool,
+    ) -> int: ...
+
+    def _execute_sql(
+        self,
+        connection: sqlite3.Connection,
+        sql: str,
+        params: Sequence[object] | None,
+        *,
+        fetch: bool,
+        auto_commit: bool,
+    ) -> Sequence[sqlite3.Row] | int:
+        parameters = tuple(params) if params is not None else ()
+        self._log_sql(sql, parameters)
+        cursor = connection.execute(sql, parameters)
         try:
-            rows = cursor.fetchall()
-
+            if fetch:
+                rows = cursor.fetchall()
+            else:
+                rows = cursor.rowcount
             if auto_commit:
                 connection.commit()
         finally:
             cursor.close()
         return rows
-
-    def execute_raw(self, sql: str, params: Sequence[object] | None = None, auto_commit: bool = True) -> int:
-        connection = self._acquire_connection()
-        cursor = connection.execute(sql, params or ())
-        try:
-            affected = cursor.rowcount
-            if auto_commit:
-                connection.commit()
-        finally:
-            cursor.close()
-        return affected

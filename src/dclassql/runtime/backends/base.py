@@ -26,8 +26,9 @@ class BackendBase(BackendProtocol, ABC):
     table_cls: type[Table] = Table
     parameter_cls: type[Parameter] = Parameter
 
-    def __init__(self) -> None:
+    def __init__(self, *, echo_sql: bool = False) -> None:
         self._identity_map: dict[tuple[type[Any], tuple[Any, ...]], list[ReferenceType[object]]] = {}
+        self._echo_sql = echo_sql
 
     def insert(
         self,
@@ -327,3 +328,12 @@ class BackendBase(BackendProtocol, ABC):
         parameter = self._new_parameter()
         params.append(value)
         return parameter
+ 
+    def _log_sql(self, sql: str, params: Sequence[object] | None) -> None:
+        if not self._echo_sql:
+            return
+        if params is None:
+            display_params = []
+        else:
+            display_params = list(params)
+        print(f"[dclassql] SQL: {sql} | params={display_params}")

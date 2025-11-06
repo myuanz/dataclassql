@@ -131,7 +131,8 @@ def test_generate_client_matches_expected_shape() -> None:
         'sqlite': data_source_config(provider='sqlite', url='sqlite:///analytics.db', name=None)
     }
     init_hints = get_type_hints(generated_client.__init__, globalns=namespace, localns=namespace)
-    assert set(init_hints.keys()) == {"return"}
+    assert set(init_hints.keys()) == {"return", "echo_sql"}
+    assert init_hints["echo_sql"] == bool
     assert init_hints["return"] is type(None)
 
     user_insert_cls = namespace['UserInsert']

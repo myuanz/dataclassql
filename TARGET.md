@@ -103,6 +103,13 @@ class UserTable:
 - [x] 命令行接口包括: `typed-db -m {model py file} push-db`、`typed-db -m {model py file} generate`, model py file 默认名为`model.py`
 - [x] 惰性 n+1 查询关联表
 - [x] 使用 jinja 生成代码
+- [x] rich filter, 类似 Prisma 的过滤器, 可以写 find_first(where={'or': {'a': {'eq': 1}, 'other_relation': {'is': {'name': '2'}}}})
+  - [x] 标量过滤器
+  - [x] 逻辑组合
+  - [ ] json过滤器
+  - [x] 关系过滤器
+- [x] echo sql 模式
+- [ ] 多个数据源文件的客户端
 
 # 设计
 
@@ -118,16 +125,6 @@ class UserTable:
     - 未来会支持其他数据库, 现在只关注 sqlite
     - 未来会支持从环境变量, 现在先不管
 - 相关sql使用`pypika`生成
-
-# 迭代节奏: Prisma 风格 where 过滤
-- **阶段 1**: 标量字段过滤与逻辑组合  
-  - 为基础字段生成 `*Filter` 类型, 支持 `eq`/`lt`/`lte`/`gt`/`gte`/`contains`/`starts_with`/`ends_with`/`in`/`not_in`/`not` 等操作符  
-  - `WhereDict` 支持 `AND`/`OR`/`NOT`, 运行时解析为 `pypika` 条件
-- **阶段 2**: 集合/JSON 字段操作符与大小写模式  
-  - 列表/JSON 支持 `has`/`has_some`/`has_every`/`is_empty`, 字符串过滤扩展 `mode="insensitive"` 等选项
-- **阶段 3**: 关系过滤  
-  - 实现 `is`/`is_not` (一对一) 与 `some`/`none`/`every` (一对多)  
-  - 子查询/EXISTS 组合以保持懒加载兼容
 
 ## 期待的样例
 

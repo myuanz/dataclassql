@@ -1,21 +1,24 @@
 class Client(BaseDBPool):
+    _echo_sql: bool = False
     datasources = {
 {% for item in client.datasource_items %}        {{ item.key_repr }}: DataSourceConfig(provider={{ item.provider_repr }}, url={{ item.url_repr }}, name={{ item.name_repr }}),
 {% endfor %}    }
 
 {% for method in client.backend_methods %}    @classmethod
     @save_local
-    def {{ method.method_name }}(cls) -> BackendProtocol:
+    def {{ method.method_name }}(cls, *, echo_sql: bool | None = None) -> BackendProtocol:
         config = cls.datasources[{{ method.key_repr }}]
+        backend_echo = cls._echo_sql if echo_sql is None else echo_sql
         if config.provider == 'sqlite':
             from dclassql.runtime.backends.sqlite import SQLiteBackend
             conn = open_sqlite_connection(config.url)
             cls._setup_sqlite_db(conn)
-            return SQLiteBackend(conn)
+            return SQLiteBackend(conn, echo_sql=backend_echo)
         raise ValueError(f"Unsupported provider '{config.provider}' for datasource {{ method.key_repr }}")
 
-{% endfor %}    def __init__(self) -> None:
-{% for binding in client.model_bindings %}        self.{{ binding.attr_name }} = {{ binding.model_name }}Table(self.{{ binding.backend_method }}())
+{% endfor %}    def __init__(self, *, echo_sql: bool = False) -> None:
+        self._echo_sql = echo_sql
+{% for binding in client.model_bindings %}        self.{{ binding.attr_name }} = {{ binding.model_name }}Table(self.{{ binding.backend_method }}(echo_sql=echo_sql))
 {% endfor %}
 
     @classmethod

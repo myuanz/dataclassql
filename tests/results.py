@@ -531,27 +531,30 @@ class UserBookTable:
             skip=skip
         )
 class Client(BaseDBPool):
+    _echo_sql: bool = False
     datasources = {
         'sqlite': DataSourceConfig(provider='sqlite', url='sqlite:///analytics.db', name=None),
     }
 
     @classmethod
     @save_local
-    def _backend_sqlite(cls) -> BackendProtocol:
+    def _backend_sqlite(cls, *, echo_sql: bool | None = None) -> BackendProtocol:
         config = cls.datasources['sqlite']
+        backend_echo = cls._echo_sql if echo_sql is None else echo_sql
         if config.provider == 'sqlite':
             from dclassql.runtime.backends.sqlite import SQLiteBackend
             conn = open_sqlite_connection(config.url)
             cls._setup_sqlite_db(conn)
-            return SQLiteBackend(conn)
+            return SQLiteBackend(conn, echo_sql=backend_echo)
         raise ValueError(f"Unsupported provider '{config.provider}' for datasource 'sqlite'")
 
-    def __init__(self) -> None:
-        self.address = AddressTable(self._backend_sqlite())
-        self.birth_day = BirthDayTable(self._backend_sqlite())
-        self.book = BookTable(self._backend_sqlite())
-        self.user = UserTable(self._backend_sqlite())
-        self.user_book = UserBookTable(self._backend_sqlite())
+    def __init__(self, *, echo_sql: bool = False) -> None:
+        self._echo_sql = echo_sql
+        self.address = AddressTable(self._backend_sqlite(echo_sql=echo_sql))
+        self.birth_day = BirthDayTable(self._backend_sqlite(echo_sql=echo_sql))
+        self.book = BookTable(self._backend_sqlite(echo_sql=echo_sql))
+        self.user = UserTable(self._backend_sqlite(echo_sql=echo_sql))
+        self.user_book = UserBookTable(self._backend_sqlite(echo_sql=echo_sql))
 
     @classmethod
     def close_all(cls, verbose: bool = False) -> None:
