@@ -1,6 +1,6 @@
 [project]
 name = "dclassql"
-version = "0.1.4"
+version = "0.1.5"
 description = "A type-safe ORM generator for Python, creating fully type-hinted database clients from plain dataclass definitions."
 readme = "README.md"
 authors = [
