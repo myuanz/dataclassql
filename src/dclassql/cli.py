@@ -8,16 +8,24 @@ import sys
 import warnings
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Sequence
+from typing import Any, Callable, Literal, Sequence
 
 from .codegen import generate_client
+from .model_inspector import ModelInfo, inspect_models
 from .push import db_push
+from .push.base import ExistingColumn, SchemaDiff, SchemaPlan
 from .runtime.datasource import open_sqlite_connection
 
 
 DEFAULT_MODEL_FILE = "model.py"
 GENERATED_CLIENT_FILENAME = "client.py"
 GENERATED_MODELS_DIRNAME = "generated_models"
+
+ConfirmRebuildMode = Literal["auto", "prompt"]
+ConfirmCallback = Callable[
+    [ModelInfo, SchemaPlan, tuple[ExistingColumn, ...] | None, SchemaDiff],
+    bool,
+]
 
 
 def load_module(module_path: Path) -> ModuleType:
@@ -98,12 +106,57 @@ def collect_models(module: ModuleType) -> list[type[Any]]:
     return models
 
 
-def push_database(models: Sequence[type[Any]]) -> None:
-    from .model_inspector import inspect_models
+def _describe_schema_diff(info: ModelInfo, diff: SchemaDiff) -> str:
+    datasource_key = getattr(info.datasource, "key", None)
+    prefix = f"[{datasource_key}] " if datasource_key else ""
+    parts: list[str] = [f"{prefix}模型 {info.model.__name__} 需要重建表"]
+    if diff.added:
+        added = ", ".join(f"+{column.name}:{column.type_sql}" for column in diff.added)
+        parts.append(f"新增列: {added}")
+    if diff.removed:
+        removed = ", ".join(f"-{column.name}:{column.type_sql}" for column in diff.removed)
+        parts.append(f"删除列: {removed}")
+    if diff.changed:
+        changed = ", ".join(
+            f"~{change.name}({'; '.join(change.reasons)})" for change in diff.changed
+        )
+        parts.append(f"变更列: {changed}")
+    return "; ".join(parts)
 
+
+def _build_confirm_callback(mode: ConfirmRebuildMode) -> ConfirmCallback:
+    def confirm(
+        info: ModelInfo,
+        _plan: SchemaPlan,
+        _existing: tuple[ExistingColumn, ...] | None,
+        diff: SchemaDiff,
+    ) -> bool:
+        summary = _describe_schema_diff(info, diff)
+        sys.stdout.write(summary + "\n")
+        if mode == "auto":
+            sys.stdout.write("已根据 --confirm-rebuild=auto 自动确认。\n")
+            return True
+        while True:
+            response = input("确认重建该表? [y/N]: ").strip().lower()
+            if response in {"y", "yes"}:
+                return True
+            if response in {"", "n", "no"}:
+                return False
+            sys.stdout.write("请输入 y 或 n。\n")
+
+    return confirm
+
+
+def push_database(
+    models: Sequence[type[Any]],
+    *,
+    sync_indexes: bool = False,
+    confirm_mode: ConfirmRebuildMode | None = None,
+) -> None:
     model_infos = inspect_models(models)
     connections: dict[str, Any] = {}
     opened: list[Any] = []
+    confirm_callback = _build_confirm_callback(confirm_mode) if confirm_mode else None
     try:
         for info in model_infos.values():
             config = info.datasource
@@ -115,7 +168,12 @@ def push_database(models: Sequence[type[Any]]) -> None:
             connection = open_sqlite_connection(config.url)
             connections[key] = connection
             opened.append(connection)
-        db_push(models, connections)
+        db_push(
+            models,
+            connections,
+            sync_indexes=sync_indexes,
+            confirm_rebuild=confirm_callback,
+        )
     finally:
         for conn in opened:
             try:
@@ -140,10 +198,15 @@ def command_generate(module_path: Path) -> None:
     sys.stdout.write(f"Client written to {output_path}\n")
 
 
-def command_push_db(module_path: Path) -> None:
+def command_push_db(
+    module_path: Path,
+    *,
+    sync_indexes: bool,
+    confirm_mode: ConfirmRebuildMode | None,
+) -> None:
     module = load_module(module_path)
     models = collect_models(module)
-    push_database(models)
+    push_database(models, sync_indexes=sync_indexes, confirm_mode=confirm_mode)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -161,7 +224,24 @@ def build_parser() -> argparse.ArgumentParser:
     generate_parser.set_defaults(handler=lambda args: command_generate(args.module))
 
     push_parser = subparsers.add_parser("push-db", help="Apply schema and indexes to configured databases")
-    push_parser.set_defaults(handler=lambda args: command_push_db(args.module))
+    push_parser.add_argument(
+        "--sync-indexes",
+        action="store_true",
+        help="Drop extra indexes and create missing ones to match model definitions",
+    )
+    push_parser.add_argument(
+        "--confirm-rebuild",
+        choices=("auto", "prompt"),
+        default=None,
+        help="auto: 自动确认所有重建; prompt: 交互式逐表确认",
+    )
+    push_parser.set_defaults(
+        handler=lambda args: command_push_db(
+            args.module,
+            sync_indexes=args.sync_indexes,
+            confirm_mode=args.confirm_rebuild,
+        )
+    )
 
     return parser
 

@@ -88,3 +88,86 @@ def test_push_db_command_creates_schema(tmp_path: Path) -> None:
         assert count == 1
     finally:
         conn.close()
+
+
+def test_push_db_command_confirms_rebuild_auto(tmp_path: Path) -> None:
+    db_path = tmp_path / "auto.sqlite"
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            'CREATE TABLE "User" ("id" INTEGER PRIMARY KEY AUTOINCREMENT,"name" TEXT NOT NULL)'
+        )
+    finally:
+        conn.close()
+
+    module_path = write_model(tmp_path, db_path, name="auto")
+    exit_code = main(["-m", str(module_path), "push-db", "--confirm-rebuild", "auto"])
+    assert exit_code == 0
+
+    conn = sqlite3.connect(db_path)
+    try:
+        columns = conn.execute('PRAGMA table_info("User")').fetchall()
+    finally:
+        conn.close()
+
+    column_names = [name for (_cid, name, *_rest) in columns]
+    assert column_names == ["id", "name", "email", "created_at"]
+
+
+def test_push_db_command_prompt_rebuild_abort(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    db_path = tmp_path / "prompt.sqlite"
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            'CREATE TABLE "User" ("id" INTEGER PRIMARY KEY AUTOINCREMENT,"name" TEXT NOT NULL)'
+        )
+    finally:
+        conn.close()
+
+    module_path = write_model(tmp_path, db_path, name="prompt")
+    monkeypatch.setattr("builtins.input", lambda _prompt: "n")
+    exit_code = main(["-m", str(module_path), "push-db", "--confirm-rebuild", "prompt"])
+    assert exit_code == 1
+
+    captured = capsys.readouterr()
+    assert "需要重建表" in captured.err
+
+    conn = sqlite3.connect(db_path)
+    try:
+        columns = conn.execute('PRAGMA table_info("User")').fetchall()
+    finally:
+        conn.close()
+
+    column_names = [name for (_cid, name, *_rest) in columns]
+    assert column_names == ["id", "name"]
+
+
+def test_push_db_command_sync_indexes(tmp_path: Path) -> None:
+    db_path = tmp_path / "sync.sqlite"
+    module_path = write_model(tmp_path, db_path, name="sync")
+    assert main(["-m", str(module_path), "push-db"]) == 0
+
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute('CREATE INDEX "idx_User_extra" ON "User" ("created_at", "name")')
+        conn.execute('DROP INDEX "idx_User_name"')
+    finally:
+        conn.close()
+
+    exit_code = main(["-m", str(module_path), "push-db", "--sync-indexes"])
+    assert exit_code == 0
+
+    conn = sqlite3.connect(db_path)
+    try:
+        rows = conn.execute(
+            'SELECT name FROM sqlite_master WHERE type="index" AND tbl_name="User"'
+        ).fetchall()
+    finally:
+        conn.close()
+
+    index_names = {name for (name,) in rows if not name.startswith("sqlite_")}
+    assert index_names == {"idx_User_name", "idx_User_created_at"}
