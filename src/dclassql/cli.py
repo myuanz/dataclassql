@@ -28,11 +28,27 @@ ConfirmCallback = Callable[
 ]
 
 
+def _module_name_from_path(module_path: Path) -> str:
+    candidate = module_path.with_suffix("")
+    cwd = Path.cwd()
+    try:
+        rel = candidate.relative_to(cwd)
+        parts = rel.parts
+    except ValueError:
+        parts = candidate.parts
+    trimmed_parts = list(parts)
+
+    if not trimmed_parts:
+        trimmed_parts = [module_path.stem]
+
+    sanitized_parts = [re.sub(r"[^0-9a-zA-Z_]+", "_", part) or "_" for part in trimmed_parts]
+    return ".".join(sanitized_parts)
+
 def load_module(module_path: Path) -> ModuleType:
     module_path = module_path.resolve()
     if not module_path.exists():
         raise FileNotFoundError(f"Model file '{module_path}' does not exist")
-    module_name = module_path.stem
+    module_name = _module_name_from_path(module_path)
     spec = importlib.util.spec_from_file_location(module_name, module_path)
     if spec is None or spec.loader is None:
         raise ImportError(f"Unable to load module from '{module_path}'")
@@ -256,8 +272,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         handler(args)
         return 0
-    except Exception as exc:  # pragma: no cover - CLI error reporting
-        print(f"Error: {exc}", file=sys.stderr)
+    except Exception:  # pragma: no cover - CLI error reporting
+        import traceback
+        traceback.print_exc(file=sys.stderr)
         return 1
 
 

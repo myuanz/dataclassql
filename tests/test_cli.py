@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
+from enum import Enum
 
 import pytest
 
@@ -32,11 +33,45 @@ class User:
         yield self.created_at
 """
 
+ENUM_MODEL_TEMPLATE = """
+from __future__ import annotations
+
+from dataclasses import dataclass
+from enum import Enum
+
+__datasource__ = {{
+    "provider": "sqlite",
+    "url": "sqlite:///{db_path}",
+    "name": {datasource_name!r},
+}}
+
+class RunStatus(Enum):
+    PENDING = "pending"
+    DONE = "done"
+
+@dataclass
+class RunRecord:
+    id: int
+    status: RunStatus
+"""
+
 
 def write_model(tmp_path: Path, db_path: Path, name: str | None = None) -> Path:
     module_path = tmp_path / DEFAULT_MODEL_FILE
     module_path.write_text(
         MODEL_TEMPLATE.format(
+            db_path=db_path.as_posix(),
+            datasource_name=name if name is not None else "None",
+        ),
+        encoding="utf-8",
+    )
+    return module_path
+
+
+def write_enum_model(tmp_path: Path, db_path: Path, name: str | None = None) -> Path:
+    module_path = tmp_path / "enum_model.py"
+    module_path.write_text(
+        ENUM_MODEL_TEMPLATE.format(
             db_path=db_path.as_posix(),
             datasource_name=name if name is not None else "None",
         ),
@@ -61,6 +96,31 @@ def test_generate_command_outputs_code(tmp_path: Path, capsys: pytest.CaptureFix
     code = target.read_text(encoding="utf-8")
     assert "class Client" in code
     assert "class UserTable" in code
+
+    if backup is None:
+        target.unlink(missing_ok=True)
+    else:
+        target.write_text(backup, encoding="utf-8")
+    if model_target.exists() or model_target.is_symlink():
+        model_target.unlink()
+    if model_init.exists() and not any(
+        p.name != "__init__.py" for p in model_target.parent.glob("*.py")
+    ):
+        model_init.unlink(missing_ok=True)
+
+
+def test_generate_command_rebinds_enum_imports(tmp_path: Path) -> None:
+    db_path = tmp_path / "enum.db"
+    module_path = write_enum_model(tmp_path, db_path, name="enum")
+    target = resolve_generated_path()
+    model_target, import_path = compute_model_target(module_path)
+    model_init = model_target.parent / "__init__.py"
+    backup = target.read_text(encoding="utf-8") if target.exists() else None
+    exit_code = main(["-m", str(module_path), "generate"])
+    assert exit_code == 0
+    code = target.read_text(encoding="utf-8")
+    assert f"from {import_path} import RunRecord" in code
+    assert "from enum_model import RunStatus" in code
 
     if backup is None:
         target.unlink(missing_ok=True)
