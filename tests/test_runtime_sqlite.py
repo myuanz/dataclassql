@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
+from enum import Enum, StrEnum, IntEnum
 
 import pytest
 
@@ -24,6 +25,26 @@ class RuntimeUser:
     id: int
     name: str
     email: str | None
+
+
+class RuntimeState(Enum):
+    ACTIVE = "active"
+    DISABLED = "disabled"
+
+class StrEnumTest(StrEnum):
+    FIRST = "first"
+    SECOND = "second"
+
+class IntEnumTest(IntEnum):
+    ONE = 1
+    TWO = 2
+
+@dataclass
+class RuntimeEnumUser:
+    id: int
+    state: RuntimeState
+    s1: StrEnumTest
+    s2: IntEnumTest
 
 
 def _prepare_database(db_path: Path) -> None:
@@ -439,3 +460,45 @@ def test_lazy_relations(tmp_path: Path):
             ClientClass.close_all()
         sys.modules.pop(generated_module_name, None)
         sys.modules.pop(module_name, None)
+
+
+def test_enum_field_roundtrip(tmp_path: Path) -> None:
+    db_path = tmp_path / "enum_runtime.db"
+    global __datasource__
+    __datasource__ = {"provider": "sqlite", "url": f"sqlite:///{db_path.as_posix()}"}
+
+    conn = open_sqlite_connection(__datasource__["url"])
+    try:
+        db_push([RuntimeEnumUser], {"sqlite": conn})
+        conn.execute('DELETE FROM "RuntimeEnumUser"')
+        conn.commit()
+    finally:
+        conn.close()
+
+    module = generate_client([RuntimeEnumUser])
+    namespace: dict[str, Any] = {}
+    exec(module.code, namespace)
+    client = namespace["Client"]()
+    table = client.runtime_enum_user
+    InsertCls = namespace["RuntimeEnumUserInsert"]
+
+    inserted = table.insert(InsertCls(id=None, state=RuntimeState.ACTIVE, s1=StrEnumTest.SECOND, s2=IntEnumTest.TWO))
+    assert inserted.state is RuntimeState.ACTIVE
+
+    fetched = table.find_first(order_by={"id": "asc"})
+    assert fetched is not None
+    assert fetched.state is RuntimeState.ACTIVE
+    assert isinstance(fetched.state, RuntimeState)
+    assert fetched.s1 is StrEnumTest.SECOND
+    assert isinstance(fetched.s1, StrEnumTest)
+    assert fetched.s2 is IntEnumTest.TWO
+    assert isinstance(fetched.s2, IntEnumTest)
+
+    client.__class__.close_all()
+
+    conn = open_sqlite_connection(__datasource__["url"])
+    try:
+        stored = conn.execute('SELECT state FROM "RuntimeEnumUser" ORDER BY id').fetchone()[0]
+    finally:
+        conn.close()
+    assert stored == RuntimeState.ACTIVE.value

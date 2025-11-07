@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field, is_dataclass
+from dataclasses import dataclass, field
+from enum import Enum
 from types import MappingProxyType
 from typing import Any, Literal, Mapping, Sequence, NotRequired
 from typing_extensions import TypedDict
@@ -12,7 +13,7 @@ from dclassql.runtime.backends.protocols import TableProtocol
 from dclassql.runtime.datasource import open_sqlite_connection
 
 from datetime import datetime
-from tests.test_codegen import Address, BirthDay, Book, User, UserBook
+from tests.test_codegen import Address, BirthDay, Book, User, UserBook, UserStatus, UserType, UserVIPLevel
 
 class DateTimeFilter(TypedDict, total=False, closed=True):
     EQ: datetime | None
@@ -122,13 +123,21 @@ class AddressTable(TableProtocol):
 
     @classmethod
     def serialize_insert(cls, data: AddressInsert | Mapping[str, object]) -> dict[str, object]:
-        column_names = tuple(cls.column_specs_by_name.keys())
         if isinstance(data, Mapping):
-            return data # type: ignore
-        if hasattr(data, "__dict__"):
-            return data.__dict__
-        if is_dataclass(data):
-            return {key: getattr(data, key) for key in column_names if hasattr(data, key)}
+            result: dict[str, object] = {}
+            if 'id' in data:
+                result['id'] = data['id']
+            if 'location' in data:
+                result['location'] = data['location']
+            if 'user_id' in data:
+                result['user_id'] = data['user_id']
+            return result
+        if isinstance(data, AddressInsert):
+            return {
+                'id': data.id,
+                'location': data.location,
+                'user_id': data.user_id,
+            }
         raise TypeError("Unsupported insert payload type for Address")
 
     @classmethod
@@ -230,13 +239,18 @@ class BirthDayTable(TableProtocol):
 
     @classmethod
     def serialize_insert(cls, data: BirthDayInsert | Mapping[str, object]) -> dict[str, object]:
-        column_names = tuple(cls.column_specs_by_name.keys())
         if isinstance(data, Mapping):
-            return data # type: ignore
-        if hasattr(data, "__dict__"):
-            return data.__dict__
-        if is_dataclass(data):
-            return {key: getattr(data, key) for key in column_names if hasattr(data, key)}
+            result: dict[str, object] = {}
+            if 'user_id' in data:
+                result['user_id'] = data['user_id']
+            if 'date' in data:
+                result['date'] = data['date']
+            return result
+        if isinstance(data, BirthDayInsert):
+            return {
+                'user_id': data.user_id,
+                'date': data.date,
+            }
         raise TypeError("Unsupported insert payload type for BirthDay")
 
     @classmethod
@@ -331,13 +345,18 @@ class BookTable(TableProtocol):
 
     @classmethod
     def serialize_insert(cls, data: BookInsert | Mapping[str, object]) -> dict[str, object]:
-        column_names = tuple(cls.column_specs_by_name.keys())
         if isinstance(data, Mapping):
-            return data # type: ignore
-        if hasattr(data, "__dict__"):
-            return data.__dict__
-        if is_dataclass(data):
-            return {key: getattr(data, key) for key in column_names if hasattr(data, key)}
+            result: dict[str, object] = {}
+            if 'id' in data:
+                result['id'] = data['id']
+            if 'name' in data:
+                result['name'] = data['name']
+            return result
+        if isinstance(data, BookInsert):
+            return {
+                'id': data.id,
+                'name': data.name,
+            }
         raise TypeError("Unsupported insert payload type for Book")
 
     @classmethod
@@ -374,7 +393,7 @@ class BookTable(TableProtocol):
             skip=skip
         )
 TUserIncludeCol = Literal['addresses', 'birthday', 'books']
-TUserSortableCol = Literal['id', 'name', 'email', 'last_login']
+TUserSortableCol = Literal['id', 'name', 'email', 'last_login', 'status', 'type', 'vip_level']
 
 @dataclass(slots=True, kw_only=True)
 class UserInsert:
@@ -382,6 +401,9 @@ class UserInsert:
     name: str
     email: str
     last_login: datetime
+    status: UserStatus
+    type: UserType
+    vip_level: UserVIPLevel | None
 
 
 class UserInsertDict(TypedDict, closed=True):
@@ -389,6 +411,9 @@ class UserInsertDict(TypedDict, closed=True):
     name: str
     email: str
     last_login: datetime
+    status: UserStatus
+    type: UserType
+    vip_level: UserVIPLevel | None
 
 
 class UserBirthdayRelationFilter(TypedDict, total=False, closed=True):
@@ -414,6 +439,9 @@ class UserWhereDict(TypedDict, total=False, closed=True):
     name: str | None | StringFilter
     email: str | None | StringFilter
     last_login: datetime | None | DateTimeFilter
+    status: UserStatus | None
+    type: UserType | None | StringFilter
+    vip_level: UserVIPLevel | None | IntFilter
     birthday: UserBirthdayRelationFilter
     addresses: UserAddressesRelationFilter
     books: UserBooksRelationFilter
@@ -432,6 +460,9 @@ class UserOrderByDict(TypedDict, total=False, closed=True):
     name: Literal['asc', 'desc']
     email: Literal['asc', 'desc']
     last_login: Literal['asc', 'desc']
+    status: Literal['asc', 'desc']
+    type: Literal['asc', 'desc']
+    vip_level: Literal['asc', 'desc']
 
 class UserTable(TableProtocol):
     model = User
@@ -443,6 +474,9 @@ class UserTable(TableProtocol):
         ColumnSpec(name='name', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
         ColumnSpec(name='email', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
         ColumnSpec(name='last_login', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
+        ColumnSpec(name='status', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
+        ColumnSpec(name='type', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
+        ColumnSpec(name='vip_level', optional=True, auto_increment=False, has_default=False, has_default_factory=False),
     )
     column_specs_by_name: Mapping[str, ColumnSpec] = MappingProxyType({spec.name: spec for spec in column_specs})
     primary_key: tuple[str, ...] = ('id',)
@@ -459,13 +493,33 @@ class UserTable(TableProtocol):
 
     @classmethod
     def serialize_insert(cls, data: UserInsert | Mapping[str, object]) -> dict[str, object]:
-        column_names = tuple(cls.column_specs_by_name.keys())
         if isinstance(data, Mapping):
-            return data # type: ignore
-        if hasattr(data, "__dict__"):
-            return data.__dict__
-        if is_dataclass(data):
-            return {key: getattr(data, key) for key in column_names if hasattr(data, key)}
+            result: dict[str, object] = {}
+            if 'id' in data:
+                result['id'] = data['id']
+            if 'name' in data:
+                result['name'] = data['name']
+            if 'email' in data:
+                result['email'] = data['email']
+            if 'last_login' in data:
+                result['last_login'] = data['last_login']
+            if 'status' in data:
+                result['status'] = data['status'].value  # type: ignore[attr-defined]
+            if 'type' in data:
+                result['type'] = data['type'].value  # type: ignore[attr-defined]
+            if 'vip_level' in data:
+                result['vip_level'] = (data['vip_level'].value if data['vip_level'] is not None else None)  # type: ignore[attr-defined]
+            return result
+        if isinstance(data, UserInsert):
+            return {
+                'id': data.id,
+                'name': data.name,
+                'email': data.email,
+                'last_login': data.last_login,
+                'status': data.status.value,  # type: ignore[attr-defined]
+                'type': data.type.value,  # type: ignore[attr-defined]
+                'vip_level': (data.vip_level.value if data.vip_level is not None else None),  # type: ignore[attr-defined]
+            }
         raise TypeError("Unsupported insert payload type for User")
 
     @classmethod
@@ -475,6 +529,9 @@ class UserTable(TableProtocol):
         instance.name = row['name'] # type: ignore[attr-defined]
         instance.email = row['email'] # type: ignore[attr-defined]
         instance.last_login = row['last_login'] # type: ignore[attr-defined]
+        instance.status = UserStatus(row['status']) # type: ignore[attr-defined]
+        instance.type = UserType(row['type']) # type: ignore[attr-defined]
+        instance.vip_level = (UserVIPLevel(row['vip_level']) if row['vip_level'] is not None else None) # type: ignore[attr-defined]
         instance.birthday = None # type: ignore[attr-defined]
         instance.addresses = [] # type: ignore[attr-defined]
         instance.books = [] # type: ignore[attr-defined]
@@ -589,13 +646,21 @@ class UserBookTable(TableProtocol):
 
     @classmethod
     def serialize_insert(cls, data: UserBookInsert | Mapping[str, object]) -> dict[str, object]:
-        column_names = tuple(cls.column_specs_by_name.keys())
         if isinstance(data, Mapping):
-            return data # type: ignore
-        if hasattr(data, "__dict__"):
-            return data.__dict__
-        if is_dataclass(data):
-            return {key: getattr(data, key) for key in column_names if hasattr(data, key)}
+            result: dict[str, object] = {}
+            if 'user_id' in data:
+                result['user_id'] = data['user_id']
+            if 'book_id' in data:
+                result['book_id'] = data['book_id']
+            if 'created_at' in data:
+                result['created_at'] = data['created_at']
+            return result
+        if isinstance(data, UserBookInsert):
+            return {
+                'user_id': data.user_id,
+                'book_id': data.book_id,
+                'created_at': data.created_at,
+            }
         raise TypeError("Unsupported insert payload type for UserBook")
 
     @classmethod

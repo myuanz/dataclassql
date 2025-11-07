@@ -72,13 +72,17 @@ class {{ table_class }}(TableProtocol):
 
     @classmethod
     def serialize_insert(cls, data: {{ insert_class }} | Mapping[str, object]) -> dict[str, object]:
-        column_names = tuple(cls.column_specs_by_name.keys())
         if isinstance(data, Mapping):
-            return data # type: ignore
-        if hasattr(data, "__dict__"):
-            return data.__dict__
-        if is_dataclass(data):
-            return {key: getattr(data, key) for key in column_names if hasattr(data, key)}
+            result: dict[str, object] = {}
+{% for column in model.column_specs %}
+            if {{ column.name_repr }} in data:
+                result[{{ column.name_repr }}] = {{ column.mapping_value_expr }}{{ '  # type: ignore[attr-defined]' if column.is_enum else '' }}
+{% endfor %}
+            return result
+        if isinstance(data, {{ insert_class }}):
+            return {
+{% for column in model.column_specs %}                {{ column.name_repr }}: {{ column.insert_value_expr }},{{ '  # type: ignore[attr-defined]' if column.is_enum else '' }}
+{% endfor %}            }
         raise TypeError("Unsupported insert payload type for {{ name }}")
 
     @classmethod

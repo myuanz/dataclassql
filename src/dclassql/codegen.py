@@ -4,6 +4,7 @@ import re
 from collections import defaultdict
 from dataclasses import MISSING, dataclass, field, fields
 from datetime import date, datetime
+from enum import Enum
 from types import UnionType
 from typing import Annotated, Any, Iterable, Mapping, Sequence, Union, get_args, get_origin, Literal
 
@@ -45,11 +46,15 @@ class WhereFieldSpec:
 
 @dataclass(slots=True)
 class ColumnSpecRender:
+    name: str
     name_repr: str
     optional: bool
     auto_increment: bool
     has_default: bool
     has_default_factory: bool
+    mapping_value_expr: str
+    insert_value_expr: str
+    is_enum: bool
 
 
 @dataclass(slots=True)
@@ -214,6 +219,7 @@ def _build_model_context(
 
     insert_fields: list[InsertFieldSpec] = []
     typed_dict_fields: list[TypedDictFieldSpec] = []
+    enum_type_map: dict[str, type[Enum] | None] = {}
     for col in info.columns:
         annotation = _format_insert_annotation(col, renderer)
         default_fragment = _render_default_fragment(name, col)
@@ -232,6 +238,9 @@ def _build_model_context(
         else:
             typed_annotation = annotation
         typed_dict_fields.append(TypedDictFieldSpec(name=col.name, annotation=typed_annotation))
+
+        enum_type = _resolve_enum_class(col.python_type)
+        enum_type_map[col.name] = enum_type
 
     where_fields: list[WhereFieldSpec] = []
     for col in info.columns:
@@ -273,11 +282,15 @@ def _build_model_context(
 
     column_specs = [
         ColumnSpecRender(
+            name=column.name,
             name_repr=repr(column.name),
             optional=column.optional,
             auto_increment=column.auto_increment,
             has_default=column.has_default,
             has_default_factory=column.has_default_factory,
+            mapping_value_expr=_format_mapping_value_expr(column, enum_type_map.get(column.name)),
+            insert_value_expr=_format_insert_value_expr(column, enum_type_map.get(column.name)),
+            is_enum=enum_type_map.get(column.name) is not None,
         )
         for column in info.columns
     ]
@@ -314,7 +327,7 @@ def _build_model_context(
         _tuple_literal(tuple(tuple(idx) for idx in info.unique_indexes)) if info.unique_indexes else "()"
     )
 
-    row_assignments, default_factories = _build_row_assignment_context(info)
+    row_assignments, default_factories = _build_row_assignment_context(info, enum_type_map)
 
     return ModelRenderContext(
         name=name,
@@ -451,9 +464,12 @@ def _build_relation_entries(info: ModelInfo, model_infos: Mapping[str, ModelInfo
     return entries
 
 
-def _build_row_assignment_context(info: ModelInfo) -> tuple[list[RowAssignmentRender], list[DefaultFactoryRender]]:
+def _build_row_assignment_context(
+    info: ModelInfo,
+    enum_type_map: Mapping[str, type[Enum] | None],
+) -> tuple[list[RowAssignmentRender], list[DefaultFactoryRender]]:
     dataclass_fields = fields(info.model)
-    column_names = {column.name for column in info.columns}
+    column_map = {column.name: column for column in info.columns}
     relation_defaults: dict[str, str] = {
         relation.name: "[]" if relation.many else "None" for relation in info.relations
     }
@@ -463,7 +479,8 @@ def _build_row_assignment_context(info: ModelInfo) -> tuple[list[RowAssignmentRe
         assignment_expr, default_factory = _resolve_row_assignment(
             info.model,
             field_obj,
-            column_names,
+            column_map,
+            enum_type_map,
             relation_defaults,
         )
         assignments.append(RowAssignmentRender(field_name=field_obj.name, value_expr=assignment_expr))
@@ -475,12 +492,15 @@ def _build_row_assignment_context(info: ModelInfo) -> tuple[list[RowAssignmentRe
 def _resolve_row_assignment(
     model_cls: type[Any],
     field_obj: Any,
-    column_names: set[str],
+    column_map: Mapping[str, ColumnInfo],
+    enum_type_map: Mapping[str, type[Enum] | None],
     relation_defaults: Mapping[str, str],
 ) -> tuple[str, DefaultFactoryRender | None]:
     name = field_obj.name
-    if name in column_names:
-        return f"row[{name!r}]", None
+    column_info = column_map.get(name)
+    if column_info is not None:
+        enum_type = enum_type_map.get(name)
+        return _column_value_expression(column_info, enum_type), None
     if field_obj.default is not MISSING:
         return f"{model_cls.__name__}.__dataclass_fields__[{name!r}].default", None
     if field_obj.default_factory is not MISSING:
@@ -491,6 +511,34 @@ def _resolve_row_assignment(
     if relation_expr is not None:
         return relation_expr, None
     return _infer_field_fallback(field_obj.type), None
+
+
+def _column_value_expression(column: ColumnInfo, enum_type: type[Enum] | None) -> str:
+    base_expr = f"row[{column.name!r}]"
+    if enum_type is None:
+        return base_expr
+    converter = enum_type.__name__
+    if column.optional:
+        return f"({converter}({base_expr}) if {base_expr} is not None else None)"
+    return f"{converter}({base_expr})"
+
+
+def _format_mapping_value_expr(column: ColumnInfo, enum_type: type[Enum] | None) -> str:
+    if enum_type is None:
+        return f"data[{column.name!r}]"
+    value_expr = f"data[{column.name!r}]"
+    if column.optional:
+        return f"({value_expr}.value if {value_expr} is not None else None)"
+    return f"{value_expr}.value"
+
+
+def _format_insert_value_expr(column: ColumnInfo, enum_type: type[Enum] | None) -> str:
+    if enum_type is None:
+        return f"data.{column.name}"
+    value_expr = f"data.{column.name}"
+    if column.optional:
+        return f"({value_expr}.value if {value_expr} is not None else None)"
+    return f"{value_expr}.value"
 
 
 def _infer_field_fallback(annotation: Any) -> str:
@@ -519,6 +567,13 @@ def _unwrap_annotation(annotation: Any) -> Any:
                 current = args[0]
                 continue
         return current
+
+
+def _resolve_enum_class(annotation: Any) -> type[Enum] | None:
+    target = _unwrap_annotation(annotation)
+    if isinstance(target, type) and issubclass(target, Enum):
+        return target
+    return None
 
 
 def _format_insert_annotation(col: ColumnInfo, renderer: "_TypeRenderer") -> str:

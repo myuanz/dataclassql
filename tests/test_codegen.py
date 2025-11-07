@@ -10,6 +10,7 @@ from dataclasses import dataclass, fields
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, Mapping, NotRequired, get_args, get_origin, get_type_hints
+from enum import Enum, StrEnum, IntEnum
 
 from dclassql.cli import compute_model_target, resolve_generated_path
 from dclassql.codegen import generate_client
@@ -19,6 +20,20 @@ __datasource__ = {
     "provider": "sqlite",
     "url": "sqlite:///analytics.db",
 }
+
+class UserStatus(Enum):
+    ACTIVE = "active"
+    DISABLED = "disabled"
+
+class UserType(StrEnum):
+    ADMIN = "admin"
+    MEMBER = "member"
+    GUEST = "guest"
+
+class UserVIPLevel(IntEnum):
+    LEVEL_1 = 1
+    LEVEL_2 = 2
+    LEVEL_3 = 3
 
 @dataclass
 class Address:
@@ -79,6 +94,10 @@ class User:
     name: str
     email: str
     last_login: datetime
+    status: UserStatus
+    type: UserType
+    vip_level: UserVIPLevel | None
+
     birthday: BirthDay | None
     addresses: list[Address]
     books: list[UserBook]
@@ -125,6 +144,14 @@ def test_generate_client_matches_expected_shape() -> None:
     assert set(get_args(sortable_alias)) == set(column_names)
     expected_ds = data_source_config(provider='sqlite', url='sqlite:///analytics.db', name=None)
     assert user_table_cls.datasource == expected_ds
+    insert_payload = user_table_cls.serialize_insert({
+        "id": None,
+        "name": "A",
+        "email": "a@example.com",
+        "last_login": datetime.now(),
+        "status": namespace["UserStatus"].ACTIVE,
+    })
+    assert insert_payload["status"] == namespace["UserStatus"].ACTIVE.value
 
     ds_mapping = generated_client.datasources
     assert ds_mapping == {
@@ -159,6 +186,9 @@ def test_generate_client_matches_expected_shape() -> None:
     assert set(get_args(insert_hints['id'])) == {int, type(None)}
     assert insert_hints['email'] == user_model_hints['email']
     assert insert_hints['last_login'] == user_model_hints['last_login']
+    assert insert_hints['status'] == user_model_hints['status']
+    assert insert_hints['type'] == user_model_hints['type']
+    assert insert_hints['vip_level'] == user_model_hints['vip_level']
 
     insert_dict_hints = get_type_hints(user_insert_dict, globalns=namespace, localns=namespace)
     insert_dict_hints_extras = get_type_hints(user_insert_dict, globalns=namespace, localns=namespace, include_extras=True)
