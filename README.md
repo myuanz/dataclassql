@@ -8,11 +8,12 @@ DataclassQL 是一个基于 **平凡 dataclass 定义** 的 ORM 生成器, 可�
 
 ## 设计目标
 
-* **最小语法负担**: 模型定义就是合法平凡的 Python dataclass, Python 即 DSL
+* **最小语法负担**: 模型定义仅是合法平凡的 Python dataclass, Python 即 DSL
 * **常用路径简洁**: 常用的定义只需要写少量的代码
+* **静态转换模型**: 类似 C++ 模板, 工具生成静态的序列化、反序列化模型代码, 不会比手写更慢. 这是一个生成例子, 其中包含静态枚举转换和可空字段判断: ![静态序列化示意](./static/static_serialize_and_deserialize.png)
 * **静态类型安全**: 模型定义和生成代码全都类型安全. 本库作为 [prisma client python](https://prisma-client-py.readthedocs.io/en/stable/) 的精神继承者, 致力于完成如下体验: 
 
-![](https://prisma-client-py.readthedocs.io/en/stable/showcase.gif)
+![prisma client python 示例](https://prisma-client-py.readthedocs.io/en/stable/showcase.gif)
 
 ---
 
@@ -69,14 +70,19 @@ DataclassQL 仍在早期开发阶段, 已完成代码生成和 SQLite 支持, �
 ## 一份更长的例子
 
 ```python
-from dataclasses import dataclass
-from datetime import datetime
+class UserStatus(Enum):
+    ACTIVE = "active"
+    DISABLED = "disabled"
 
-__datasource__ = {
-    "provider": "sqlite",
-    "url": "sqlite:///test.db",
-}
+class UserType(StrEnum):
+    ADMIN = "admin"
+    MEMBER = "member"
+    GUEST = "guest"
 
+class UserVIPLevel(IntEnum):
+    LEVEL_1 = 1
+    LEVEL_2 = 2
+    LEVEL_3 = 3
 
 @dataclass
 class Address:
@@ -133,10 +139,14 @@ class UserBook:
 
 @dataclass
 class User:
-    id: int | None
+    id: int
     name: str
     email: str
     last_login: datetime
+    status: UserStatus
+    type: UserType
+    vip_level: UserVIPLevel | None
+
     birthday: BirthDay | None
     addresses: list[Address]
     books: list[UserBook]
