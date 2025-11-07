@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import sys
 from abc import ABC, abstractmethod
-from dataclasses import MISSING, fields, is_dataclass
-from typing import Any, Literal, Mapping, Sequence, Type, cast, get_origin
+from typing import Any, Mapping, Sequence, cast
 from weakref import ReferenceType, ref
 
 from pypika import Query, Table
@@ -35,7 +34,7 @@ class BackendBase(BackendProtocol, ABC):
         table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
         data: InsertT | Mapping[str, object],
     ) -> ModelT:
-        payload = self._normalize_insert_payload(table, data)
+        payload = table.serialize_insert(data)
         if not payload:
             raise ValueError("Insert payload cannot be empty")
 
@@ -54,7 +53,7 @@ class BackendBase(BackendProtocol, ABC):
 
         row = self.query_raw(sql_with_returning, params, auto_commit=True)[0]
 
-        result = self._row_to_model(table, row, include_map={})
+        result = self._materialize_instance(table, row, include_map={})
         self._invalidate_backrefs(table, result)
         return result
 
@@ -107,7 +106,7 @@ class BackendBase(BackendProtocol, ABC):
         sql = self._render_query(select_query)
         rows = self.query_raw(sql, params)
         include_map = include or {}
-        return [self._row_to_model(table, row, include_map) for row in rows]
+        return [self._materialize_instance(table, row, include_map) for row in rows]
 
     def find_first(
         self,
@@ -128,61 +127,6 @@ class BackendBase(BackendProtocol, ABC):
         )
         return results[0] if results else None
 
-    def _normalize_insert_payload(
-        self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
-        data: InsertT | Mapping[str, object],
-    ) -> dict[str, object]:
-        spec_map = table.column_specs_by_name
-        if isinstance(data, Mapping):
-            return {key: data[key] for key in spec_map.keys() if key in data}
-        insert_model = table.insert_model
-        if isinstance(data, insert_model):
-            return {column: getattr(data, column) for column in spec_map.keys() if hasattr(data, column)}
-        if is_dataclass(data):
-            return {column: getattr(data, column) for column in spec_map.keys() if hasattr(data, column)}
-        raise TypeError("Unsupported insert payload type")
-
-    def _row_to_model(
-        self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
-        row: Any,
-        include_map: Mapping[str, bool],
-    ) -> ModelT:
-        key = self._identity_key(table, row)
-        model = table.model
-        if is_dataclass(model):
-            values: dict[str, Any] = {spec.name: row[spec.name] for spec in table.column_specs}
-            instance = model.__new__(model)
-            for field in fields(model):
-                if field.name in values:
-                    value = values[field.name]
-                elif field.default is not MISSING:
-                    value = field.default
-                elif field.default_factory is not MISSING:
-                    value = field.default_factory()
-                else:
-                    origin = get_origin(field.type)
-                    if origin in (list, set, frozenset):
-                        value = origin()
-                    else:
-                        value = None
-                object.__setattr__(instance, field.name, value)
-        else:
-            instance = model(**{spec.name: row[spec.name] for spec in table.column_specs})
-        if key is not None:
-            owners = self._identity_map.get(key)
-            alive_refs: list[ReferenceType[object]] = []
-            if owners is not None:
-                for owner_ref in owners:
-                    if owner_ref() is not None:
-                        alive_refs.append(owner_ref)
-            alive_refs.append(ref(instance))
-            self._identity_map[key] = alive_refs
-        instance = cast(ModelT, instance)
-        self._attach_relations(table, instance, include_map)
-        return instance
-
     def _fetch_single(
         self,
         table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
@@ -194,7 +138,7 @@ class BackendBase(BackendProtocol, ABC):
             raise RuntimeError("Inserted row could not be reloaded")
         return results[0]
 
-    def query_raw(self, sql: str, params: Sequence[object] | None = None, auto_commit: bool = False) -> Sequence[object]:
+    def query_raw(self, sql: str, params: Sequence[object] | None = None, auto_commit: bool = False) -> Sequence[dict[str, object]]:
         raise NotImplementedError
 
     def execute_raw(self, sql: str, params: Sequence[object] | None = None, auto_commit: bool = True) -> int:
@@ -260,6 +204,28 @@ class BackendBase(BackendProtocol, ABC):
                 return None
             values.append(value)
         return (table.model, tuple(values))
+
+    def _materialize_instance(
+        self,
+        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        row: Mapping[str, Any],
+        include_map: Mapping[str, bool],
+    ) -> ModelT:
+        instance = table.deserialize_row(row)
+        key = self._identity_key(table, row)
+        if key is not None:
+            owners = self._identity_map.get(key)
+            alive_refs: list[ReferenceType[object]] = []
+            if owners is not None:
+                for owner_ref in owners:
+                    owner = owner_ref()
+                    if owner is not None:
+                        alive_refs.append(owner_ref)
+            alive_refs.append(ref(instance))
+            self._identity_map[key] = alive_refs
+        instance = cast(ModelT, instance)
+        self._attach_relations(table, instance, include_map)
+        return instance
 
     def _attach_relations(
         self,

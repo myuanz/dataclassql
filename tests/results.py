@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, is_dataclass
 from types import MappingProxyType
 from typing import Any, Literal, Mapping, Sequence, NotRequired
 from typing_extensions import TypedDict
@@ -120,6 +120,26 @@ class AddressTable(TableProtocol):
     )
 
 
+    @classmethod
+    def serialize_insert(cls, data: AddressInsert | Mapping[str, object]) -> dict[str, object]:
+        column_names = tuple(cls.column_specs_by_name.keys())
+        if isinstance(data, Mapping):
+            return data # type: ignore
+        if hasattr(data, "__dict__"):
+            return data.__dict__
+        if is_dataclass(data):
+            return {key: getattr(data, key) for key in column_names if hasattr(data, key)}
+        raise TypeError("Unsupported insert payload type for Address")
+
+    @classmethod
+    def deserialize_row(cls, row: Mapping[str, object]) -> Address:
+        instance = Address.__new__(Address)  # type: ignore[call-arg]
+        instance.id = row['id'] # type: ignore[attr-defined]
+        instance.location = row['location'] # type: ignore[attr-defined]
+        instance.user_id = row['user_id'] # type: ignore[attr-defined]
+        instance.user = None # type: ignore[attr-defined]
+        return instance
+
     def __init__(self, backend: BackendProtocol) -> None:
         self._backend = backend
 
@@ -208,6 +228,25 @@ class BirthDayTable(TableProtocol):
     )
 
 
+    @classmethod
+    def serialize_insert(cls, data: BirthDayInsert | Mapping[str, object]) -> dict[str, object]:
+        column_names = tuple(cls.column_specs_by_name.keys())
+        if isinstance(data, Mapping):
+            return data # type: ignore
+        if hasattr(data, "__dict__"):
+            return data.__dict__
+        if is_dataclass(data):
+            return {key: getattr(data, key) for key in column_names if hasattr(data, key)}
+        raise TypeError("Unsupported insert payload type for BirthDay")
+
+    @classmethod
+    def deserialize_row(cls, row: Mapping[str, object]) -> BirthDay:
+        instance = BirthDay.__new__(BirthDay)  # type: ignore[call-arg]
+        instance.user_id = row['user_id'] # type: ignore[attr-defined]
+        instance.user = None # type: ignore[attr-defined]
+        instance.date = row['date'] # type: ignore[attr-defined]
+        return instance
+
     def __init__(self, backend: BackendProtocol) -> None:
         self._backend = backend
 
@@ -289,6 +328,25 @@ class BookTable(TableProtocol):
         RelationSpec(name='users', table_name='UserBookTable', table_module=__name__, many=True, mapping=(('id', 'book_id'),), table_factory=lambda: UserBookTable),
     )
 
+
+    @classmethod
+    def serialize_insert(cls, data: BookInsert | Mapping[str, object]) -> dict[str, object]:
+        column_names = tuple(cls.column_specs_by_name.keys())
+        if isinstance(data, Mapping):
+            return data # type: ignore
+        if hasattr(data, "__dict__"):
+            return data.__dict__
+        if is_dataclass(data):
+            return {key: getattr(data, key) for key in column_names if hasattr(data, key)}
+        raise TypeError("Unsupported insert payload type for Book")
+
+    @classmethod
+    def deserialize_row(cls, row: Mapping[str, object]) -> Book:
+        instance = Book.__new__(Book)  # type: ignore[call-arg]
+        instance.id = row['id'] # type: ignore[attr-defined]
+        instance.name = row['name'] # type: ignore[attr-defined]
+        instance.users = [] # type: ignore[attr-defined]
+        return instance
 
     def __init__(self, backend: BackendProtocol) -> None:
         self._backend = backend
@@ -399,6 +457,29 @@ class UserTable(TableProtocol):
     )
 
 
+    @classmethod
+    def serialize_insert(cls, data: UserInsert | Mapping[str, object]) -> dict[str, object]:
+        column_names = tuple(cls.column_specs_by_name.keys())
+        if isinstance(data, Mapping):
+            return data # type: ignore
+        if hasattr(data, "__dict__"):
+            return data.__dict__
+        if is_dataclass(data):
+            return {key: getattr(data, key) for key in column_names if hasattr(data, key)}
+        raise TypeError("Unsupported insert payload type for User")
+
+    @classmethod
+    def deserialize_row(cls, row: Mapping[str, object]) -> User:
+        instance = User.__new__(User)  # type: ignore[call-arg]
+        instance.id = row['id'] # type: ignore[attr-defined]
+        instance.name = row['name'] # type: ignore[attr-defined]
+        instance.email = row['email'] # type: ignore[attr-defined]
+        instance.last_login = row['last_login'] # type: ignore[attr-defined]
+        instance.birthday = None # type: ignore[attr-defined]
+        instance.addresses = [] # type: ignore[attr-defined]
+        instance.books = [] # type: ignore[attr-defined]
+        return instance
+
     def __init__(self, backend: BackendProtocol) -> None:
         self._backend = backend
 
@@ -505,6 +586,27 @@ class UserBookTable(TableProtocol):
         RelationSpec(name='book', table_name='BookTable', table_module=__name__, many=False, mapping=(('book_id', 'id'),), table_factory=lambda: BookTable),
     )
 
+
+    @classmethod
+    def serialize_insert(cls, data: UserBookInsert | Mapping[str, object]) -> dict[str, object]:
+        column_names = tuple(cls.column_specs_by_name.keys())
+        if isinstance(data, Mapping):
+            return data # type: ignore
+        if hasattr(data, "__dict__"):
+            return data.__dict__
+        if is_dataclass(data):
+            return {key: getattr(data, key) for key in column_names if hasattr(data, key)}
+        raise TypeError("Unsupported insert payload type for UserBook")
+
+    @classmethod
+    def deserialize_row(cls, row: Mapping[str, object]) -> UserBook:
+        instance = UserBook.__new__(UserBook)  # type: ignore[call-arg]
+        instance.user_id = row['user_id'] # type: ignore[attr-defined]
+        instance.book_id = row['book_id'] # type: ignore[attr-defined]
+        instance.user = None # type: ignore[attr-defined]
+        instance.book = None # type: ignore[attr-defined]
+        instance.created_at = row['created_at'] # type: ignore[attr-defined]
+        return instance
 
     def __init__(self, backend: BackendProtocol) -> None:
         self._backend = backend

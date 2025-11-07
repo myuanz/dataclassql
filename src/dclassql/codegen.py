@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import MISSING, dataclass, field, fields
 from datetime import date, datetime
 from types import UnionType
-from typing import Annotated, Any, Iterable, Mapping, Sequence, get_args, get_origin, Literal
+from typing import Annotated, Any, Iterable, Mapping, Sequence, Union, get_args, get_origin, Literal
 
 from jinja2 import Environment, PackageLoader
 
@@ -53,6 +53,18 @@ class ColumnSpecRender:
 
 
 @dataclass(slots=True)
+class DefaultFactoryRender:
+    var_name: str
+    expression: str
+
+
+@dataclass(slots=True)
+class RowAssignmentRender:
+    field_name: str
+    value_expr: str
+
+
+@dataclass(slots=True)
 class ForeignKeyRender:
     local_columns_literal: str
     remote_model: str
@@ -97,6 +109,8 @@ class ModelRenderContext:
     primary_key_literal: str
     indexes_literal: str
     unique_indexes_literal: str
+    row_assignments: tuple[RowAssignmentRender, ...]
+    default_factories: tuple[DefaultFactoryRender, ...]
     model_info: ModelInfo
 
 
@@ -300,6 +314,8 @@ def _build_model_context(
         _tuple_literal(tuple(tuple(idx) for idx in info.unique_indexes)) if info.unique_indexes else "()"
     )
 
+    row_assignments, default_factories = _build_row_assignment_context(info)
+
     return ModelRenderContext(
         name=name,
         datasource_expr=datasource_expr,
@@ -314,6 +330,8 @@ def _build_model_context(
         primary_key_literal=_tuple_literal(info.primary_key),
         indexes_literal=indexes_literal,
         unique_indexes_literal=unique_indexes_literal,
+        row_assignments=tuple(row_assignments),
+        default_factories=tuple(default_factories),
         model_info=info,
     )
 
@@ -431,6 +449,76 @@ def _build_relation_entries(info: ModelInfo, model_infos: Mapping[str, ModelInfo
             }
         )
     return entries
+
+
+def _build_row_assignment_context(info: ModelInfo) -> tuple[list[RowAssignmentRender], list[DefaultFactoryRender]]:
+    dataclass_fields = fields(info.model)
+    column_names = {column.name for column in info.columns}
+    relation_defaults: dict[str, str] = {
+        relation.name: "[]" if relation.many else "None" for relation in info.relations
+    }
+    assignments: list[RowAssignmentRender] = []
+    default_factories: list[DefaultFactoryRender] = []
+    for field_obj in dataclass_fields:
+        assignment_expr, default_factory = _resolve_row_assignment(
+            info.model,
+            field_obj,
+            column_names,
+            relation_defaults,
+        )
+        assignments.append(RowAssignmentRender(field_name=field_obj.name, value_expr=assignment_expr))
+        if default_factory is not None:
+            default_factories.append(default_factory)
+    return assignments, default_factories
+
+
+def _resolve_row_assignment(
+    model_cls: type[Any],
+    field_obj: Any,
+    column_names: set[str],
+    relation_defaults: Mapping[str, str],
+) -> tuple[str, DefaultFactoryRender | None]:
+    name = field_obj.name
+    if name in column_names:
+        return f"row[{name!r}]", None
+    if field_obj.default is not MISSING:
+        return f"{model_cls.__name__}.__dataclass_fields__[{name!r}].default", None
+    if field_obj.default_factory is not MISSING:
+        var_name = f"_{model_cls.__name__}_{name}_default_factory"
+        expr = f"{model_cls.__name__}.__dataclass_fields__[{name!r}].default_factory"
+        return f"{var_name}()", DefaultFactoryRender(var_name=var_name, expression=expr)
+    relation_expr = relation_defaults.get(name)
+    if relation_expr is not None:
+        return relation_expr, None
+    return _infer_field_fallback(field_obj.type), None
+
+
+def _infer_field_fallback(annotation: Any) -> str:
+    target = _unwrap_annotation(annotation)
+    origin = get_origin(target)
+    candidate = origin or target
+    collection_map: dict[type[Any], str] = {list: "list", set: "set", frozenset: "frozenset"}
+    if isinstance(candidate, type) and candidate in collection_map:
+        return f"{collection_map[candidate]}()"
+    return "None"
+
+
+def _unwrap_annotation(annotation: Any) -> Any:
+    union_origins = (Union, UnionType)
+    current = annotation
+    while True:
+        origin = get_origin(current)
+        if origin is Annotated:
+            args = get_args(current)
+            if args:
+                current = args[0]
+                continue
+        if origin in union_origins:
+            args = [arg for arg in get_args(current) if arg is not type(None)]
+            if len(args) == 1:
+                current = args[0]
+                continue
+        return current
 
 
 def _format_insert_annotation(col: ColumnInfo, renderer: "_TypeRenderer") -> str:

@@ -1,6 +1,6 @@
 # 项目总体目标
 
-本项目致力于做一个类似 Prisma for Python 那样的 ORM 工具(Prisma 的精神继任者), 工具使用前要根据模型定义生成类型安全的客户端代码, 这样项目里可获得在Python本身无法做到的类型标注. 
+本项目致力于做一个类似 Prisma for Python 那样的 ORM 工具(Prisma 的精神继任者), 工具使用前要根据模型定义生成类型安全的客户端代码, 这样项目里可获得在Python本身无法做到的类型标注, 同时生成静态的序列化反序列化代码, 极大缩减反射带来的性能损耗. 
 
 另外, 本项目希望模型定义足够干净, 就像写普通的 dataclass 一样, 而不是起手`from xxx import Col, Field, BaseModel, relationship`, 然后给每个字段写一个`xxx: Annotation[int, yyy] = mapped_column(zzz=t)`. 保证生成模型用的代码在 pyright/mypy 看起来是类型安全复合直觉的
 
@@ -63,6 +63,32 @@ class UserWhereDict(TypedDict, total=False):
     created_at: datetime | None
 
 
+def _User_serializer(data: UserInsert | Mapping[str, object]) -> dict[str, object]:
+    if isinstance(data, UserInsert):
+        data = asdict(data)
+
+    payload = {
+        'id': data['id'] if 'id' in data else None, # 只对自增主键有此待遇
+        'name': data['name'],
+        'email': data['email'],
+        'last_login': data['last_login'],
+        'status': data['status'].value,
+        'vip_level': data['vip_level'].value,
+    }
+    return payload
+
+
+def _User_deserializer(row: Mapping[str, object]) -> User:
+    instance = User(
+        id=row['id'],
+        name=row['name'],
+        email=row['email'],
+        last_login=row['last_login'],
+        status=UserStatus(row['status']),
+        vip_level=UserVipLevel(row['vip_level']),
+    )
+    return instance
+
 class UserTable:
     model = User
     insert_model = UserInsert
@@ -110,6 +136,8 @@ class UserTable:
   - [x] 关系过滤器
 - [x] echo sql 模式
 - [ ] 多个数据源文件的客户端
+- [x] 静态化数据库序列化和反序列化
+- [ ] 枚举字段读写转换, 支持 Python Enum 与数据库值的往返映射
 
 # 设计
 

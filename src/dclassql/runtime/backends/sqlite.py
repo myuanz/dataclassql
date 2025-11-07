@@ -48,7 +48,7 @@ class SQLiteBackend(BackendBase):
         if not items:
             return []
 
-        payloads = [self._normalize_insert_payload(table, item) for item in items]
+        payloads = [table.serialize_insert(item) for item in items]
         column_names = [spec.name for spec in table.column_specs if spec.name in payloads[0]]
         if not column_names:
             raise ValueError("Insert payload cannot be empty")
@@ -75,7 +75,7 @@ class SQLiteBackend(BackendBase):
                 raise RuntimeError("Inserted rows mismatch returning rows")
             include_map: Mapping[str, bool] = {}
             for row in rows:
-                instance = self._row_to_model(table, row, include_map)
+                instance = self._materialize_instance(table, dict(row), include_map)
                 self._invalidate_backrefs(table, instance)
                 results.append(instance)
             start = end
@@ -109,9 +109,9 @@ class SQLiteBackend(BackendBase):
             delattr(self._local, "connection")
         self._clear_identity_map()
 
-    def query_raw(self, sql: str, params: Sequence[object] | None = None, auto_commit: bool = False) -> Sequence[object]:
+    def query_raw(self, sql: str, params: Sequence[object] | None = None, auto_commit: bool = False) -> Sequence[dict[str, object]]:
         connection = self._acquire_connection()
-        return self._execute_sql(connection, sql, params, fetch=True, auto_commit=auto_commit)
+        return [dict(row) for row in self._execute_sql(connection, sql, params, fetch=True, auto_commit=auto_commit)]
 
     def execute_raw(self, sql: str, params: Sequence[object] | None = None, auto_commit: bool = True) -> int:
         connection = self._acquire_connection()

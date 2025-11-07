@@ -23,6 +23,12 @@ class TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT](Protocol):
     datasource: DataSourceConfig
     column_specs: tuple[ColumnSpec, ...]
     column_specs_by_name: Mapping[str, ColumnSpec]
+
+    @classmethod
+    def serialize_insert(cls, data: InsertT | Mapping[str, object]) -> dict[str, object]: ...
+
+    @classmethod
+    def deserialize_row(cls, row: Mapping[str, object]) -> ModelT: ...
     primary_key: tuple[str, ...]
     indexes: tuple[tuple[str, ...], ...]
     unique_indexes: tuple[tuple[str, ...], ...]
@@ -73,7 +79,7 @@ class BackendProtocol(Protocol):
         skip: int | None = None,
     ) -> ModelT | None: ...
 
-    def query_raw(self, sql: str, params: Sequence[object] | None = None, auto_commit: bool = False) -> Sequence[object]: ...
+    def query_raw(self, sql: str, params: Sequence[object] | None = None, auto_commit: bool = False) -> Sequence[dict[str, object]]: ...
 
     def execute_raw(self, sql: str, params: Sequence[object] | None = None, auto_commit: bool = True) -> int: ...
 

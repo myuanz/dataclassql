@@ -66,6 +66,26 @@ class {{ table_class }}(TableProtocol):
     unique_indexes: tuple[tuple[str, ...], ...] = {{ model.unique_indexes_literal }}
 {{ macros.foreign_keys(model.foreign_keys)|indent(4, True) }}
 {{ macros.relations(model.relation_entries)|indent(4, True) }}
+{% if model.default_factories %}
+{% for factory in model.default_factories %}    {{ factory.var_name }} = {{ factory.expression }}
+{% endfor %}{% endif %}
+
+    @classmethod
+    def serialize_insert(cls, data: {{ insert_class }} | Mapping[str, object]) -> dict[str, object]:
+        column_names = tuple(cls.column_specs_by_name.keys())
+        if isinstance(data, Mapping):
+            return data # type: ignore
+        if hasattr(data, "__dict__"):
+            return data.__dict__
+        if is_dataclass(data):
+            return {key: getattr(data, key) for key in column_names if hasattr(data, key)}
+        raise TypeError("Unsupported insert payload type for {{ name }}")
+
+    @classmethod
+    def deserialize_row(cls, row: Mapping[str, object]) -> {{ name }}:
+        instance = {{ name }}.__new__({{ name }})  # type: ignore[call-arg]
+{% for assignment in model.row_assignments %}        instance.{{ assignment.field_name }} = {{ assignment.value_expr }} # type: ignore[attr-defined]
+{% endfor %}        return instance
 
     def __init__(self, backend: {{ backend_signature }}) -> None:
         self._backend = backend
