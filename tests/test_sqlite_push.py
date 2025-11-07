@@ -39,7 +39,7 @@ def test_db_push_creates_table_and_indexes():
     assert create_sql == (
         'CREATE TABLE IF NOT EXISTS "User" '
         '("id" INTEGER PRIMARY KEY AUTOINCREMENT,"name" TEXT NOT NULL,'
-        '"email" TEXT,"created_at" TEXT NOT NULL,UNIQUE ("email"));'
+        '"email" TEXT,"created_at" datetime NOT NULL,UNIQUE ("email"));'
     )
     assert index_entries == [
         ('idx_User_name', 'CREATE INDEX IF NOT EXISTS "idx_User_name" ON "User" ("name");'),
@@ -57,7 +57,7 @@ def test_db_push_creates_table_and_indexes():
     assert table_sql == (
         'CREATE TABLE "User" '
         '("id" INTEGER PRIMARY KEY AUTOINCREMENT,"name" TEXT NOT NULL,'
-        '"email" TEXT,"created_at" TEXT NOT NULL,UNIQUE ("email"))'
+        '"email" TEXT,"created_at" datetime NOT NULL,UNIQUE ("email"))'
     )
     index_sqls = {name: sql for (typ, name, sql) in rows if typ == 'index' and sql}
     assert index_sqls['idx_User_name'] == 'CREATE INDEX "idx_User_name" ON "User" ("name")'
@@ -114,7 +114,7 @@ def test_db_push_rebuilds_table_and_preserves_rows():
     conn.execute(
         'CREATE TABLE "User" '
         '("id" INTEGER PRIMARY KEY AUTOINCREMENT,"name" TEXT NOT NULL,'
-        '"created_at" TEXT NOT NULL)'
+        '"created_at" datetime NOT NULL)'
     )
     conn.execute(
         'INSERT INTO "User" ("name","created_at") VALUES (?, ?)',
@@ -182,7 +182,7 @@ def test_db_push_rebuild_detects_column_type_change():
     conn.execute(
         'CREATE TABLE "User" '
         '("id" INTEGER PRIMARY KEY AUTOINCREMENT,"name" INTEGER NOT NULL,'
-        '"email" TEXT,"created_at" TEXT NOT NULL)'
+        '"email" TEXT,"created_at" datetime NOT NULL)'
     )
 
     def approve(_, __, ___, diff):
