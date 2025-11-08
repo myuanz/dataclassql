@@ -1,7 +1,8 @@
 from dataclasses import dataclass
-from typing import Any, Generator, Iterable, Literal, Mapping, Self, Type, overload
+from typing import Any, Iterable, Mapping, Self, Type, overload
 from weakref import WeakValueDictionary
 from typing import get_args
+from types import GeneratorType
 
 
 @dataclass
@@ -78,6 +79,8 @@ class TableInfo:
 
     @staticmethod
     def _resolve_primary_key(default_pk: KeySpec, value: Any) -> KeySpec:
+        if isinstance(value, GeneratorType):
+            raise TypeError('primary_key() must return a KeySpec or Col(s), not a generator. May be you meant to use "return" instead?')
         if isinstance(value, KeySpec):
             if not value.is_primary:
                 value.primary()

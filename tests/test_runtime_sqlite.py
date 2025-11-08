@@ -203,13 +203,11 @@ def test_backend_thread_local(tmp_path: Path):
     user_table = client.runtime_user
 
     r = user_table.insert({'name': "Eve", 'email': None})
-    print(f'{r=}')
 
     def worker() -> int | None:
         other_client = namespace["Client"]()
         try:
             record = other_client.runtime_user.find_first(order_by={"name": "asc"})
-            print(f'{record=}')
             return record.id if record else None
         finally:
             other_client.__class__.close_all()

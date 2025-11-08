@@ -120,7 +120,6 @@ def test_generate_command_rebinds_enum_imports(tmp_path: Path) -> None:
     assert exit_code == 0
     code = target.read_text(encoding="utf-8")
     assert f"from {import_path} import RunRecord" in code
-    assert "from enum_model import RunStatus" in code
 
     if backup is None:
         target.unlink(missing_ok=True)

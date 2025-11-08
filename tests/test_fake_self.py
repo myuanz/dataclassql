@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
+import pytest
 from dclassql.table_spec import TableInfo, Col
 from dclassql.unwarp import unwarp
 
@@ -83,3 +84,17 @@ def test_primary_key_with_return():
     assert [idx.cols for idx in info.index] == [
         (Col('name', table=A), Col('email', table=A)),
     ]
+
+
+@dataclass
+class GeneratorPK:
+    left_id: int
+    right_id: int
+
+    def primary_key(self):
+        yield (self.left_id, self.right_id)
+
+
+def test_primary_key_generator_tuple_error():
+    with pytest.raises(TypeError, match=r'May be you meant to use "return" instead?'):
+        TableInfo.from_dc(GeneratorPK)
