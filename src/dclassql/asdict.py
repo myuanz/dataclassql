@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import dataclasses as _dataclasses
 from collections.abc import Mapping, Sequence
 from dataclasses import fields, is_dataclass
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from .runtime.backends.lazy import (
     LAZY_RELATION_STATE,
@@ -148,3 +149,37 @@ def _relation_identity(owner: Any, state: LazyRelationState) -> RelationKey | No
 
 
 __all__ = ['RelationPolicy', 'asdict']
+
+
+def _apply_dict_factory(value: Any, dict_factory: Any) -> Any:
+    if isinstance(value, dict):
+        return dict_factory((key, _apply_dict_factory(val, dict_factory)) for key, val in value.items())
+    if isinstance(value, list):
+        return [_apply_dict_factory(item, dict_factory) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_apply_dict_factory(item, dict_factory) for item in value)
+    if isinstance(value, set):
+        return {_apply_dict_factory(item, dict_factory) for item in value}
+    return value
+
+
+def _patch_dataclasses_asdict() -> None:
+    original = getattr(_dataclasses, '_dclassql_original_asdict_inner', None)
+    if original is not None:
+        return
+
+    original_inner = cast(Any, getattr(_dataclasses, '_asdict_inner'))
+
+    def _patched_inner(obj: Any, dict_factory: Any):
+        if obj in LAZY_RELATION_STATE:
+            data = asdict(obj)
+            if dict_factory is dict:
+                return data
+            return _apply_dict_factory(data, dict_factory)
+        return original_inner(obj, dict_factory)
+
+    setattr(_dataclasses, '_asdict_inner', _patched_inner)
+    setattr(_dataclasses, '_dclassql_original_asdict_inner', original_inner)
+
+
+_patch_dataclasses_asdict()

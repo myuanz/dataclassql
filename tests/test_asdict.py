@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict as dataclass_asdict
 from pathlib import Path
 from typing import Any
 
@@ -110,5 +110,7 @@ def test_asdict_handles_lazy_relations(tmp_path: Path) -> None:
     sequence_result = asdict([fetched])
     assert isinstance(sequence_result, list)
     assert sequence_result[0] == keep_result
+
+    assert dataclass_asdict(fetched) == keep_result
 
     client.__class__.close_all()

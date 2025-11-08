@@ -71,8 +71,20 @@ class _LazyProxyBase:
 class _LazyListProxy(_LazyProxyBase, list[Any]):
     __slots__ = ("_lazy_owner", "_lazy_state")
 
-    def __init__(self, owner: Any, state: LazyRelationState) -> None:
+    def __init__(self, owner: Any | Iterable[Any] | None = None, state: LazyRelationState | None = None) -> None:
         super().__init__()
+        if state is None:
+            iterable: Iterable[Any] | None = owner if isinstance(owner, Iterable) else None
+            if iterable is not None:
+                list.__init__(self, iterable)
+            else:
+                list.__init__(self)
+            object.__setattr__(self, "_lazy_owner", None)
+            object.__setattr__(self, "_lazy_state", None)
+            return
+        if owner is None:
+            raise TypeError("owner is required when state is provided")
+        list.__init__(self)
         object.__setattr__(self, "_lazy_owner", owner)
         object.__setattr__(self, "_lazy_state", state)
 
@@ -238,8 +250,11 @@ def _ensure_lazy_single_proxy_class(model_cls: type[Any]) -> type[Any]:
 
 
 def _lazy_resolve(self: Any) -> Any:
-    state = cast(LazyRelationState, object.__getattribute__(self, "_lazy_state"))
+    state = object.__getattribute__(self, "_lazy_state")
     owner = object.__getattribute__(self, "_lazy_owner")
+    if state is None or owner is None:
+        return self
+    state = cast(LazyRelationState, state)
     return resolve_lazy_relation(owner, state)
 
 
