@@ -109,6 +109,6 @@ def test_asdict_handles_lazy_relations(tmp_path: Path) -> None:
 
     sequence_result = asdict([fetched])
     assert isinstance(sequence_result, list)
-    assert sequence_result[0]["name"] == "Alice"
+    assert sequence_result[0] == keep_result
 
     client.__class__.close_all()

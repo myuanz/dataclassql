@@ -9,7 +9,6 @@ from .runtime.backends.lazy import (
     LazyInstance,
     LazyRelationState,
     resolve_lazy_relation,
-    _LazyProxyBase,
 )
 
 RelationPolicy = Literal['skip', 'fetch', 'keep']
@@ -107,18 +106,12 @@ def _convert_relation(
 
         if relation_policy == 'fetch':
             value = resolve_lazy_relation(owner, state)
-        elif state.loaded and not isinstance(state.value, _LazyProxyBase):
+        elif state.loaded:
             value = state.value
         else:
             if relation_policy == 'keep':
                 return [] if state.many else None
             value = resolve_lazy_relation(owner, state)
-
-        if isinstance(value, _LazyProxyBase):
-            if state.many:
-                value = list(value)
-            else:
-                value = value._lazy_resolve()
 
         if value is None:
             return None if not state.many else []
@@ -136,7 +129,7 @@ def _convert_relation(
 
         return _convert_value(value, relation_policy, memo, relation_guard)
     finally:
-        if guard_added:
+        if guard_added and relation_key is not None:
             relation_guard.discard(relation_key)
 
 
