@@ -28,6 +28,9 @@
 class {{ insert_class }}:
 {{ macros.dataclass_fields(model.insert_fields)|indent(4, True) }}
 
+class {{ name }}Dict(TypedDict, closed=True):
+{{ macros.typed_dict_fields(model.dict_fields)|indent(4, True) }}
+
 class {{ insert_dict_class }}(TypedDict, closed=True):
 {{ macros.typed_dict_fields(model.typed_dict_fields)|indent(4, True) }}
 

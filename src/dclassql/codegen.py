@@ -16,6 +16,7 @@ from .model_inspector import ColumnInfo, ModelInfo, inspect_models, DataSourceCo
 @dataclass(slots=True)
 class GeneratedModule:
     code: str
+    asdict_stub: str
     model_names: tuple[str, ...]
 
 
@@ -106,6 +107,7 @@ class ModelRenderContext:
     table_name_literal: str
     insert_fields: tuple[InsertFieldSpec, ...]
     typed_dict_fields: tuple[TypedDictFieldSpec, ...]
+    dict_fields: tuple[TypedDictFieldSpec, ...]
     where_fields: tuple[WhereFieldSpec, ...]
     relation_filters: tuple[RelationFilterRender, ...]
     column_specs: tuple[ColumnSpecRender, ...]
@@ -206,7 +208,8 @@ def generate_client(models: Sequence[type[Any]]) -> GeneratedModule:
     )
     if not code.endswith("\n"):
         code += "\n"
-    return GeneratedModule(code=code, model_names=tuple(sorted(model_infos.keys())))
+    asdict_stub = _render_asdict_stub(model_contexts)
+    return GeneratedModule(code=code, asdict_stub=asdict_stub, model_names=tuple(sorted(model_infos.keys())))
 
 
 def _build_model_context(
@@ -219,6 +222,7 @@ def _build_model_context(
 
     insert_fields: list[InsertFieldSpec] = []
     typed_dict_fields: list[TypedDictFieldSpec] = []
+    dict_field_map: dict[str, str] = {}
     enum_type_map: dict[str, type[Enum] | None] = {}
     for col in info.columns:
         annotation = _format_insert_annotation(col, renderer)
@@ -239,6 +243,8 @@ def _build_model_context(
             typed_annotation = annotation
         typed_dict_fields.append(TypedDictFieldSpec(name=col.name, annotation=typed_annotation))
 
+        dict_field_map[col.name] = renderer.render(col.python_type)
+
         enum_type = _resolve_enum_class(col.python_type)
         enum_type_map[col.name] = enum_type
 
@@ -257,17 +263,17 @@ def _build_model_context(
         filter_name = f"{name}{_to_pascal_case(relation.name)}RelationFilter"
         remote_where_dict = f"{relation.target.__name__}WhereDict"
         if relation.many:
-            fields = (
+            relation_fields = (
                 TypedDictFieldSpec(name="SOME", annotation=f"{remote_where_dict} | None"),
                 TypedDictFieldSpec(name="NONE", annotation=f"{remote_where_dict} | None"),
                 TypedDictFieldSpec(name="EVERY", annotation=remote_where_dict),
             )
         else:
-            fields = (
+            relation_fields = (
                 TypedDictFieldSpec(name="IS", annotation=f"{remote_where_dict} | None"),
                 TypedDictFieldSpec(name="IS_NOT", annotation=f"{remote_where_dict} | None"),
             )
-        relation_filters.append(RelationFilterRender(name=filter_name, fields=fields))
+        relation_filters.append(RelationFilterRender(name=filter_name, fields=relation_fields))
         where_fields.append(WhereFieldSpec(name=relation.name, annotation=filter_name))
 
     renderer.require_typing("Sequence")
@@ -329,12 +335,34 @@ def _build_model_context(
 
     row_assignments, default_factories = _build_row_assignment_context(info, enum_type_map)
 
+    relation_lookup = {relation.name: relation for relation in info.relations}
+    dataclass_fields = fields(info.model)
+    dict_fields: list[TypedDictFieldSpec] = []
+    for field_obj in dataclass_fields:
+        field_name = field_obj.name
+        dict_annotation = dict_field_map.get(field_name)
+        if dict_annotation is not None:
+            dict_fields.append(TypedDictFieldSpec(name=field_name, annotation=dict_annotation))
+            continue
+        relation = relation_lookup.get(field_name)
+        if relation is not None:
+            target_dict = f"{relation.target.__name__}Dict"
+            if relation.many:
+                annotation = f"list[{target_dict}]"
+            else:
+                annotation = f"{target_dict} | None"
+            dict_fields.append(TypedDictFieldSpec(name=field_name, annotation=annotation))
+            continue
+        rendered = renderer.render(field_obj.type)
+        dict_fields.append(TypedDictFieldSpec(name=field_name, annotation=rendered))
+
     return ModelRenderContext(
         name=name,
         datasource_expr=datasource_expr,
         table_name_literal=repr(name),
         insert_fields=tuple(insert_fields),
         typed_dict_fields=tuple(typed_dict_fields),
+        dict_fields=tuple(dict_fields),
         where_fields=tuple(where_fields),
         relation_filters=tuple(relation_filters),
         column_specs=tuple(column_specs),
@@ -404,6 +432,7 @@ def _collect_exports(model_contexts: Sequence[ModelRenderContext]) -> list[str]:
                 f"T{name}SortableCol",
                 f"{name}IncludeDict",
                 f"{name}OrderByDict",
+                f"{name}Dict",
                 f"{name}Insert",
                 f"{name}InsertDict",
                 f"{name}WhereDict",
@@ -413,6 +442,14 @@ def _collect_exports(model_contexts: Sequence[ModelRenderContext]) -> list[str]:
         for relation_filter in context.relation_filters:
             exports.append(relation_filter.name)
     return exports
+
+
+def _render_asdict_stub(model_contexts: Sequence[ModelRenderContext]) -> str:
+    template = _get_environment().get_template("asdict_stub.pyi.jinja")
+    code = template.render(models=tuple(model_contexts))
+    if not code.endswith("\n"):
+        code += "\n"
+    return code
 
 
 def _build_relation_entries(info: ModelInfo, model_infos: Mapping[str, ModelInfo]) -> list[dict[str, Any]]:

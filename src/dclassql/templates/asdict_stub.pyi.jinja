@@ -1,0 +1,27 @@
+from __future__ import annotations
+
+from collections.abc import Sequence
+from typing import Any, Literal, overload
+
+{% if models %}
+from .client import (
+{% for model in models %}    {{ model.name }},
+    {{ model.name }}Dict,
+{% endfor %})
+
+{% endif %}
+RelationPolicy = Literal['skip', 'fetch', 'keep']
+
+{% for model in models %}@overload
+def asdict(value: {{ model.name }}, *, relation_policy: RelationPolicy = 'keep') -> {{ model.name }}Dict: ...
+
+{% endfor %}{% for model in models %}@overload
+def asdict(value: Sequence[{{ model.name }}], *, relation_policy: RelationPolicy = 'keep') -> list[{{ model.name }}Dict]: ...
+
+{% endfor %}@overload
+def asdict(value: Sequence[Any], *, relation_policy: RelationPolicy = 'keep') -> list[Any]: ...
+
+@overload
+def asdict(value: None, *, relation_policy: RelationPolicy = 'keep') -> None: ...
+
+def asdict(value: object, *, relation_policy: RelationPolicy = 'keep') -> Any: ...

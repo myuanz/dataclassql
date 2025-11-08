@@ -63,6 +63,13 @@ class AddressInsert:
     user_id: int
 
 
+class AddressDict(TypedDict, closed=True):
+    id: int
+    location: str
+    user_id: int
+    user: UserDict | None
+
+
 class AddressInsertDict(TypedDict, closed=True):
     id: NotRequired[int]
     location: str
@@ -183,6 +190,12 @@ class BirthDayInsert:
     date: datetime
 
 
+class BirthDayDict(TypedDict, closed=True):
+    user_id: int
+    user: UserDict | None
+    date: datetime
+
+
 class BirthDayInsertDict(TypedDict, closed=True):
     user_id: int
     date: datetime
@@ -295,6 +308,12 @@ class BookInsert:
     name: str
 
 
+class BookDict(TypedDict, closed=True):
+    id: int
+    name: str
+    users: list[UserBookDict]
+
+
 class BookInsertDict(TypedDict, closed=True):
     id: NotRequired[int]
     name: str
@@ -404,6 +423,19 @@ class UserInsert:
     status: UserStatus
     type: UserType
     vip_level: UserVIPLevel | None
+
+
+class UserDict(TypedDict, closed=True):
+    id: int
+    name: str
+    email: str
+    last_login: datetime
+    status: UserStatus
+    type: UserType
+    vip_level: UserVIPLevel | None
+    birthday: BirthDayDict | None
+    addresses: list[AddressDict]
+    books: list[UserBookDict]
 
 
 class UserInsertDict(TypedDict, closed=True):
@@ -569,6 +601,14 @@ TUserBookSortableCol = Literal['user_id', 'book_id', 'created_at']
 class UserBookInsert:
     user_id: int
     book_id: int
+    created_at: datetime
+
+
+class UserBookDict(TypedDict, closed=True):
+    user_id: int
+    book_id: int
+    user: UserDict | None
+    book: BookDict | None
     created_at: datetime
 
 
@@ -741,6 +781,7 @@ __all__ = (
     "TAddressSortableCol",
     "AddressIncludeDict",
     "AddressOrderByDict",
+    "AddressDict",
     "AddressInsert",
     "AddressInsertDict",
     "AddressWhereDict",
@@ -750,6 +791,7 @@ __all__ = (
     "TBirthDaySortableCol",
     "BirthDayIncludeDict",
     "BirthDayOrderByDict",
+    "BirthDayDict",
     "BirthDayInsert",
     "BirthDayInsertDict",
     "BirthDayWhereDict",
@@ -759,6 +801,7 @@ __all__ = (
     "TBookSortableCol",
     "BookIncludeDict",
     "BookOrderByDict",
+    "BookDict",
     "BookInsert",
     "BookInsertDict",
     "BookWhereDict",
@@ -768,6 +811,7 @@ __all__ = (
     "TUserSortableCol",
     "UserIncludeDict",
     "UserOrderByDict",
+    "UserDict",
     "UserInsert",
     "UserInsertDict",
     "UserWhereDict",
@@ -779,6 +823,7 @@ __all__ = (
     "TUserBookSortableCol",
     "UserBookIncludeDict",
     "UserBookOrderByDict",
+    "UserBookDict",
     "UserBookInsert",
     "UserBookInsertDict",
     "UserBookWhereDict",

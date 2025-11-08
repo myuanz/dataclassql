@@ -73,6 +73,10 @@ def resolve_generated_path() -> Path:
     return _find_package_directory() / GENERATED_CLIENT_FILENAME
 
 
+def resolve_asdict_stub_path() -> Path:
+    return _find_package_directory() / "asdict.pyi"
+
+
 def resolve_models_directory() -> Path:
     return _find_package_directory() / GENERATED_MODELS_DIRNAME
 
@@ -211,6 +215,8 @@ def command_generate(module_path: Path) -> None:
     output_path = resolve_generated_path()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(generated.code, encoding="utf-8")
+    asdict_stub_path = resolve_asdict_stub_path()
+    asdict_stub_path.write_text(generated.asdict_stub, encoding="utf-8")
     sys.stdout.write(f"Client written to {output_path}\n")
 
 

@@ -125,6 +125,14 @@ def test_generate_client_matches_expected_shape() -> None:
     exec(code, namespace)
 
     assert module.model_names == ('Address', 'BirthDay', 'Book', 'User', 'UserBook')
+    assert 'class UserDict' in code
+    user_dict = namespace['UserDict']
+    dict_hints = get_type_hints(user_dict, globalns=namespace, localns=namespace)
+    addresses_hint = dict_hints['addresses']
+    assert get_origin(addresses_hint) is list
+    assert get_args(addresses_hint) == (namespace['AddressDict'],)
+    birthday_hint = dict_hints['birthday']
+    assert set(get_args(birthday_hint)) == {namespace['BirthDayDict'], type(None)}
 
     assert 'DataSourceConfig' in namespace['__all__']
 
@@ -198,6 +206,8 @@ def test_generate_client_matches_expected_shape() -> None:
     assert insert_dict_hints['last_login'] == user_model_hints['last_login']
 
     assert getattr(user_insert_dict, '__total__') is True
+
+    assert "def asdict(value: User, *, relation_policy: RelationPolicy = 'keep') -> UserDict" in module.asdict_stub
     assert getattr(user_where_dict, '__total__') is False
     assert user_insert_dict not in user_where_dict.__mro__
 
