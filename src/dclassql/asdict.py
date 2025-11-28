@@ -171,7 +171,14 @@ def _patch_dataclasses_asdict() -> None:
     original_inner = cast(Any, getattr(_dataclasses, '_asdict_inner'))
 
     def _patched_inner(obj: Any, dict_factory: Any):
-        if obj in LAZY_RELATION_STATE:
+        obj_in_state = False
+        try:
+            # some objects may raise exceptions on __hash__/__eq__
+            obj_in_state = obj in LAZY_RELATION_STATE
+        except Exception:
+            pass
+
+        if obj_in_state:
             data = asdict(obj)
             if dict_factory is dict:
                 return data
