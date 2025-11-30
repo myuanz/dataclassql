@@ -247,6 +247,55 @@ def test_find_many_supports_distinct(tmp_path: Path) -> None:
     client.__class__.close_all()
 
 
+def test_delete_returns_removed_row(tmp_path: Path) -> None:
+    db_path = tmp_path / "delete.db"
+    _prepare_database(db_path)
+    namespace, client = _build_client()
+    user_table = client.runtime_user
+    InsertModel = namespace["RuntimeUserInsert"]
+
+    first = user_table.insert(InsertModel(id=None, name="Alice", email=None))
+    user_table.insert({"id": None, "name": "Bob", "email": "bob@example.com"})
+
+    deleted = user_table.delete(where={"id": first.id})
+    assert deleted is not None
+    assert deleted.id == first.id
+    assert user_table.find_first(where={"id": first.id}) is None
+
+    missing = user_table.delete(where={"id": 999})
+    assert missing is None
+    client.__class__.close_all()
+
+
+def test_delete_many_supports_count_and_records(tmp_path: Path) -> None:
+    db_path = tmp_path / "delete_many.db"
+    _prepare_database(db_path)
+    namespace, client = _build_client()
+    user_table = client.runtime_user
+    InsertModel = namespace["RuntimeUserInsert"]
+
+    user_table.insert_many(
+        [
+            InsertModel(id=None, name="Foo", email=None),
+            {"id": None, "name": "Bar", "email": "bar@example.com"},
+            {"id": None, "name": "Baz", "email": "baz@example.com"},
+        ]
+    )
+
+    deleted_count = user_table.delete_many(where={"email": None})
+    assert deleted_count == 1
+
+    remaining_names = [row.name for row in user_table.find_many(order_by={"id": "asc"})]
+    assert remaining_names == ["Bar", "Baz"]
+
+    removed_records = user_table.delete_many(where={"name": {"IN": ["Bar", "Baz"]}}, return_records=True)
+    removed_names = sorted(row.name for row in removed_records)
+    assert removed_names == ["Bar", "Baz"]
+
+    assert user_table.find_first(order_by={"id": "asc"}) is None
+    client.__class__.close_all()
+
+
 def test_find_many_rejects_unknown_columns(tmp_path: Path):
     db_path = tmp_path / "runtime.db"
     _prepare_database(db_path)

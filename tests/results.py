@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
-from typing import Any, Literal, Mapping, Sequence, NotRequired
+from typing import Any, Literal, Mapping, Sequence, NotRequired, overload
 from typing_extensions import TypedDict
 
 from dclassql import DataSourceConfig
@@ -182,6 +182,16 @@ class AddressTable(TableProtocol):
             where=where, include=include, order_by=order_by, distinct=distinct,
             skip=skip
         )
+
+    def delete(self, *, where: AddressWhereDict, include: AddressIncludeDict | None = None) -> Address | None:
+        return self._backend.delete(self, where=where, include=include)
+
+    @overload
+    def delete_many(self, *, where: AddressWhereDict | None = None, return_records: Literal[False] = False) -> int: ...
+    @overload
+    def delete_many(self, *, where: AddressWhereDict | None = None, return_records: Literal[True]) -> list[Address]: ...
+    def delete_many(self, *, where: AddressWhereDict | None = None, return_records: Literal[False, True] = False) -> int | list[Address]:
+        return self._backend.delete_many(self, where=where, return_records=return_records)
 TBirthDayIncludeCol = Literal['user']
 TBirthDaySortableCol = Literal['user_id', 'date']
 TBirthDayDistinctCol = Literal['user_id', 'date']
@@ -301,6 +311,16 @@ class BirthDayTable(TableProtocol):
             where=where, include=include, order_by=order_by, distinct=distinct,
             skip=skip
         )
+
+    def delete(self, *, where: BirthDayWhereDict, include: BirthDayIncludeDict | None = None) -> BirthDay | None:
+        return self._backend.delete(self, where=where, include=include)
+
+    @overload
+    def delete_many(self, *, where: BirthDayWhereDict | None = None, return_records: Literal[False] = False) -> int: ...
+    @overload
+    def delete_many(self, *, where: BirthDayWhereDict | None = None, return_records: Literal[True]) -> list[BirthDay]: ...
+    def delete_many(self, *, where: BirthDayWhereDict | None = None, return_records: Literal[False, True] = False) -> int | list[BirthDay]:
+        return self._backend.delete_many(self, where=where, return_records=return_records)
 TBookIncludeCol = Literal['users']
 TBookSortableCol = Literal['id', 'name']
 TBookDistinctCol = Literal['id', 'name']
@@ -414,6 +434,16 @@ class BookTable(TableProtocol):
             where=where, include=include, order_by=order_by, distinct=distinct,
             skip=skip
         )
+
+    def delete(self, *, where: BookWhereDict, include: BookIncludeDict | None = None) -> Book | None:
+        return self._backend.delete(self, where=where, include=include)
+
+    @overload
+    def delete_many(self, *, where: BookWhereDict | None = None, return_records: Literal[False] = False) -> int: ...
+    @overload
+    def delete_many(self, *, where: BookWhereDict | None = None, return_records: Literal[True]) -> list[Book]: ...
+    def delete_many(self, *, where: BookWhereDict | None = None, return_records: Literal[False, True] = False) -> int | list[Book]:
+        return self._backend.delete_many(self, where=where, return_records=return_records)
 TUserIncludeCol = Literal['addresses', 'birthday', 'books']
 TUserSortableCol = Literal['id', 'name', 'email', 'last_login', 'status', 'type', 'vip_level']
 TUserDistinctCol = Literal['id', 'name', 'email', 'last_login', 'status', 'type', 'vip_level']
@@ -598,6 +628,16 @@ class UserTable(TableProtocol):
             where=where, include=include, order_by=order_by, distinct=distinct,
             skip=skip
         )
+
+    def delete(self, *, where: UserWhereDict, include: UserIncludeDict | None = None) -> User | None:
+        return self._backend.delete(self, where=where, include=include)
+
+    @overload
+    def delete_many(self, *, where: UserWhereDict | None = None, return_records: Literal[False] = False) -> int: ...
+    @overload
+    def delete_many(self, *, where: UserWhereDict | None = None, return_records: Literal[True]) -> list[User]: ...
+    def delete_many(self, *, where: UserWhereDict | None = None, return_records: Literal[False, True] = False) -> int | list[User]:
+        return self._backend.delete_many(self, where=where, return_records=return_records)
 TUserBookIncludeCol = Literal['book', 'user']
 TUserBookSortableCol = Literal['user_id', 'book_id', 'created_at']
 TUserBookDistinctCol = Literal['user_id', 'book_id', 'created_at']
@@ -743,6 +783,16 @@ class UserBookTable(TableProtocol):
             where=where, include=include, order_by=order_by, distinct=distinct,
             skip=skip
         )
+
+    def delete(self, *, where: UserBookWhereDict, include: UserBookIncludeDict | None = None) -> UserBook | None:
+        return self._backend.delete(self, where=where, include=include)
+
+    @overload
+    def delete_many(self, *, where: UserBookWhereDict | None = None, return_records: Literal[False] = False) -> int: ...
+    @overload
+    def delete_many(self, *, where: UserBookWhereDict | None = None, return_records: Literal[True]) -> list[UserBook]: ...
+    def delete_many(self, *, where: UserBookWhereDict | None = None, return_records: Literal[False, True] = False) -> int | list[UserBook]:
+        return self._backend.delete_many(self, where=where, return_records=return_records)
 class Client(BaseDBPool):
     _echo_sql: bool = False
     datasources = {

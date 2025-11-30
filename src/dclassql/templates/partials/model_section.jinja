@@ -122,3 +122,13 @@ class {{ table_class }}(TableProtocol):
             where=where, include=include, order_by=order_by, distinct=distinct,
             skip=skip
         )
+
+    def delete(self, *, where: {{ where_dict_class }}, include: {{ include_dict_class }} | None = None) -> {{ name }} | None:
+        return self._backend.delete(self, where=where, include=include)
+
+    @overload
+    def delete_many(self, *, where: {{ where_dict_class }} | None = None, return_records: Literal[False] = False) -> int: ...
+    @overload
+    def delete_many(self, *, where: {{ where_dict_class }} | None = None, return_records: Literal[True]) -> list[{{ name }}]: ...
+    def delete_many(self, *, where: {{ where_dict_class }} | None = None, return_records: Literal[False, True] = False) -> int | list[{{ name }}]:
+        return self._backend.delete_many(self, where=where, return_records=return_records)

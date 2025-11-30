@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
-from typing import Callable, Literal, Mapping, Protocol, Sequence, runtime_checkable
+from typing import Callable, Literal, Mapping, Protocol, Sequence, overload, runtime_checkable
 
 from pypika import Query, Table
 from pypika.terms import Parameter
@@ -30,6 +30,7 @@ class TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT](Protocol):
     @classmethod
     def deserialize_row(cls, row: Mapping[str, object]) -> ModelT: ...
     primary_key: tuple[str, ...]
+    def primary_values(self, instance: ModelT) -> tuple[object, ...]: ...
     indexes: tuple[tuple[str, ...], ...]
     unique_indexes: tuple[tuple[str, ...], ...]
     foreign_keys: tuple[ForeignKeySpec, ...]
@@ -80,6 +81,32 @@ class BackendProtocol(Protocol):
         distinct: Sequence[str] | str | None = None,
         skip: int | None = None,
     ) -> ModelT | None: ...
+
+    def delete(
+        self,
+        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        *,
+        where: WhereT,
+        include: IncludeT | None = None,
+    ) -> ModelT | None: ...
+
+    @overload
+    def delete_many(
+        self,
+        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        *,
+        where: WhereT | None = None,
+        return_records: Literal[False] = False,
+    ) -> int: ...
+
+    @overload
+    def delete_many(
+        self,
+        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        *,
+        where: WhereT | None = None,
+        return_records: Literal[True],
+    ) -> list[ModelT]: ...
 
     def query_raw(self, sql: str, params: Sequence[object] | None = None, auto_commit: bool = False) -> Sequence[dict[str, object]]: ...
 

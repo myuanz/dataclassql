@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 from abc import ABC, abstractmethod
-from typing import Any, Mapping, Sequence, cast
+from typing import Any, Literal, Mapping, Sequence, cast, overload
 from weakref import ReferenceType, ref
 
 from pypika import Query, Table
@@ -138,6 +138,104 @@ class BackendBase(BackendProtocol, ABC):
         )
         return results[0] if results else None
 
+    def delete(
+        self,
+        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        *,
+        where: WhereT,
+        include: Mapping[str, bool] | None = None,
+    ) -> ModelT | None:
+        primary_key = table.primary_key
+        if not primary_key:
+            raise ValueError("delete requires table.primary_key to be defined")
+
+        target = self.find_first(table, where=where, include=include)
+        if target is None:
+            return None
+
+        pk_values: list[Any] = []
+        for column in primary_key:
+            value = getattr(target, column)
+            pk_values.append(value)
+
+        sql_table = self.table_cls(table.model.__name__)
+        criterion: Criterion | None = None
+        params: list[Any] = []
+        for column, value in zip(primary_key, pk_values):
+            field = sql_table.field(column)
+            cond = field == self.new_parameter()
+            criterion = cond if criterion is None else criterion & cond
+            params.append(value)
+
+        delete_query: QueryBuilder = self.query_cls.from_(sql_table).delete()
+        if criterion is not None:
+            delete_query = delete_query.where(criterion)
+        sql = self._render_query(delete_query)
+        affected = self.execute_raw(sql, params, auto_commit=True)
+        identity_key = (table.model, tuple(pk_values))
+        if affected == 0:
+            self._identity_map.pop(identity_key, None)
+            return None
+        if affected not in (0, 1):
+            raise RuntimeError(f"delete() unexpectedly affected {affected} rows")
+
+        self._identity_map.pop(identity_key, None)
+        return target
+
+    @overload
+    def delete_many(
+        self,
+        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        *,
+        where: WhereT | None = None,
+        return_records: Literal[False] = False,
+    ) -> int: ...
+
+    @overload
+    def delete_many(
+        self,
+        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        *,
+        where: WhereT | None = None,
+        return_records: Literal[True],
+    ) -> list[ModelT]: ...
+
+    def delete_many(
+        self,
+        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        *,
+        where: WhereT | None = None,
+        return_records: Literal[False, True] = False,
+    ) -> int | list[ModelT]:
+        sql_table = self.table_cls(table.model.__name__)
+        delete_query: QueryBuilder = self.query_cls.from_(sql_table).delete()
+        params: list[Any] = []
+
+        if where:
+            criterion, where_params = self._compile_where(table, sql_table, where)
+            if criterion is not None:
+                delete_query = delete_query.where(criterion)
+                params.extend(where_params)
+
+        sql = self._render_query(delete_query)
+        if return_records:
+            sql_with_returning = self._append_returning(sql, [spec.name for spec in table.column_specs])
+            rows = self.query_raw(sql_with_returning, params, auto_commit=True)
+            include_map: Mapping[str, bool] = {}
+            results: list[ModelT] = []
+            for row in rows:
+                instance = self._materialize_instance(table, row, include_map)
+                identity_key = self._identity_key(table, row)
+                if identity_key is not None:
+                    self._identity_map.pop(identity_key, None)
+                results.append(instance)
+            return results
+
+        affected = self.execute_raw(sql, params, auto_commit=True)
+        if affected:
+            self._purge_identity_map(table.model)
+        return affected
+
     def _fetch_single(
         self,
         table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
@@ -272,6 +370,11 @@ class BackendBase(BackendProtocol, ABC):
 
     def _clear_identity_map(self) -> None:
         self._identity_map.clear()
+
+    def _purge_identity_map(self, model: type[Any]) -> None:
+        stale_keys = [key for key in self._identity_map if key[0] is model]
+        for key in stale_keys:
+            self._identity_map.pop(key, None)
 
     def _render_query(self, query: QueryBuilder) -> str:
         return query.get_sql(quote_char=self.quote_char) + ';'

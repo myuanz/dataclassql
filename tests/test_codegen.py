@@ -323,6 +323,27 @@ def test_generate_client_matches_expected_shape() -> None:
     distinct_args_first.discard(type(None))
     assert namespace['TUserDistinctCol'] in distinct_args_first
 
+    delete_hints = get_type_hints(user_table_cls.delete, globalns=namespace, localns=namespace)
+    assert delete_hints['where'] is user_where_dict
+    delete_include_union = delete_hints['include']
+    delete_include_args = set(get_args(delete_include_union))
+    assert type(None) in delete_include_args
+    delete_include_args.remove(type(None))
+    (delete_include_type,) = tuple(delete_include_args)
+    assert delete_include_type is namespace['UserIncludeDict']
+    assert delete_hints['return'] == namespace['User'] | type(None)
+
+    delete_many_hints = get_type_hints(user_table_cls.delete_many, globalns=namespace, localns=namespace)
+    delete_many_where_union = delete_many_hints['where']
+    delete_many_where_args = set(get_args(delete_many_where_union))
+    assert type(None) in delete_many_where_args
+    delete_many_where_args.remove(type(None))
+    (delete_where_dict_type,) = tuple(delete_many_where_args)
+    assert delete_where_dict_type is user_where_dict
+    delete_many_return_records = delete_many_hints['return_records']
+    assert set(get_args(delete_many_return_records)) == {False, True}
+    assert delete_many_hints['return'] == int | list[namespace['User']]
+
 
 def test_generated_client_supports_named_datasources() -> None:
     module_name_primary = "tests.codegen_primary"
