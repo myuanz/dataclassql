@@ -68,6 +68,16 @@ class {{ table_class }}(TableProtocol):
 {{ macros.column_specs(model.column_specs)|indent(4, True) }}
     column_specs_by_name: Mapping[str, ColumnSpec] = MappingProxyType({spec.name: spec for spec in column_specs})
     primary_key: tuple[str, ...] = {{ model.primary_key_literal }}
+{% if model.primary_value_types %}
+    def primary_values(self, instance: {{ name }}) -> tuple[{% for pk_type in model.primary_value_types %}{{ pk_type }}{% if not loop.last %}, {% endif %}{% endfor %}]:
+        return (
+{%- for column in model.model_info.primary_key %}
+            instance.{{ column }},{% endfor %}
+        )
+{% else %}
+    def primary_values(self, instance: {{ name }}) -> tuple[()]:
+        return ()
+{% endif %}
     indexes: tuple[tuple[str, ...], ...] = {{ model.indexes_literal }}
     unique_indexes: tuple[tuple[str, ...], ...] = {{ model.unique_indexes_literal }}
 {{ macros.foreign_keys(model.foreign_keys)|indent(4, True) }}

@@ -116,6 +116,7 @@ class ModelRenderContext:
     primary_key_literal: str
     indexes_literal: str
     unique_indexes_literal: str
+    primary_value_types: tuple[str, ...]
     row_assignments: tuple[RowAssignmentRender, ...]
     default_factories: tuple[DefaultFactoryRender, ...]
     model_info: ModelInfo
@@ -224,6 +225,7 @@ def _build_model_context(
     typed_dict_fields: list[TypedDictFieldSpec] = []
     dict_field_map: dict[str, str] = {}
     enum_type_map: dict[str, type[Enum] | None] = {}
+    column_lookup: dict[str, ColumnInfo] = {col.name: col for col in info.columns}
     for col in info.columns:
         annotation = _format_insert_annotation(col, renderer)
         default_fragment = _render_default_fragment(name, col)
@@ -334,6 +336,13 @@ def _build_model_context(
     )
 
     row_assignments, default_factories = _build_row_assignment_context(info, enum_type_map)
+    primary_value_types: list[str] = []
+    for column_name in info.primary_key:
+        column = column_lookup.get(column_name)
+        if column is None:
+            primary_value_types.append("object")
+            continue
+        primary_value_types.append(renderer.render(column.python_type))
 
     relation_lookup = {relation.name: relation for relation in info.relations}
     dataclass_fields = fields(info.model)
@@ -371,6 +380,7 @@ def _build_model_context(
         primary_key_literal=_tuple_literal(info.primary_key),
         indexes_literal=indexes_literal,
         unique_indexes_literal=unique_indexes_literal,
+        primary_value_types=tuple(primary_value_types),
         row_assignments=tuple(row_assignments),
         default_factories=tuple(default_factories),
         model_info=info,

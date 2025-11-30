@@ -145,23 +145,16 @@ class BackendBase(BackendProtocol, ABC):
         where: WhereT,
         include: Mapping[str, bool] | None = None,
     ) -> ModelT | None:
-        primary_key = table.primary_key
-        if not primary_key:
-            raise ValueError("delete requires table.primary_key to be defined")
-
         target = self.find_first(table, where=where, include=include)
         if target is None:
             return None
 
-        pk_values: list[Any] = []
-        for column in primary_key:
-            value = getattr(target, column)
-            pk_values.append(value)
+        pk_values = table.primary_values(target)
 
         sql_table = self.table_cls(table.model.__name__)
         criterion: Criterion | None = None
         params: list[Any] = []
-        for column, value in zip(primary_key, pk_values):
+        for column, value in zip(table.primary_key, pk_values):
             field = sql_table.field(column)
             cond = field == self.new_parameter()
             criterion = cond if criterion is None else criterion & cond
@@ -172,7 +165,7 @@ class BackendBase(BackendProtocol, ABC):
             delete_query = delete_query.where(criterion)
         sql = self._render_query(delete_query)
         affected = self.execute_raw(sql, params, auto_commit=True)
-        identity_key = (table.model, tuple(pk_values))
+        identity_key = (table.model, pk_values)
         if affected == 0:
             self._identity_map.pop(identity_key, None)
             return None
@@ -218,23 +211,26 @@ class BackendBase(BackendProtocol, ABC):
                 params.extend(where_params)
 
         sql = self._render_query(delete_query)
+        returning_columns = [spec.name for spec in table.column_specs]
+        sql_with_returning = self._append_returning(sql, returning_columns)
+        rows = self.query_raw(sql_with_returning, params, auto_commit=True)
+        include_map: Mapping[str, bool] = {}
+
         if return_records:
-            sql_with_returning = self._append_returning(sql, [spec.name for spec in table.column_specs])
-            rows = self.query_raw(sql_with_returning, params, auto_commit=True)
-            include_map: Mapping[str, bool] = {}
             results: list[ModelT] = []
             for row in rows:
-                instance = self._materialize_instance(table, row, include_map)
                 identity_key = self._identity_key(table, row)
                 if identity_key is not None:
                     self._identity_map.pop(identity_key, None)
+                instance = self._materialize_instance(table, row, include_map)
                 results.append(instance)
             return results
 
-        affected = self.execute_raw(sql, params, auto_commit=True)
-        if affected:
-            self._purge_identity_map(table.model)
-        return affected
+        for row in rows:
+            identity_key = self._identity_key(table, row)
+            if identity_key is not None:
+                self._identity_map.pop(identity_key, None)
+        return len(rows)
 
     def _fetch_single(
         self,

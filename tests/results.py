@@ -113,6 +113,8 @@ class AddressTable(TableProtocol):
     )
     column_specs_by_name: Mapping[str, ColumnSpec] = MappingProxyType({spec.name: spec for spec in column_specs})
     primary_key: tuple[str, ...] = ('id',)
+    def primary_values(self, instance: Address) -> tuple[int]:
+        return (            instance.id,        )
     indexes: tuple[tuple[str, ...], ...] = ()
     unique_indexes: tuple[tuple[str, ...], ...] = ()
     foreign_keys: tuple[ForeignKeySpec, ...] = (
@@ -246,6 +248,8 @@ class BirthDayTable(TableProtocol):
     )
     column_specs_by_name: Mapping[str, ColumnSpec] = MappingProxyType({spec.name: spec for spec in column_specs})
     primary_key: tuple[str, ...] = ('user_id',)
+    def primary_values(self, instance: BirthDay) -> tuple[int]:
+        return (            instance.user_id,        )
     indexes: tuple[tuple[str, ...], ...] = ()
     unique_indexes: tuple[tuple[str, ...], ...] = ()
     foreign_keys: tuple[ForeignKeySpec, ...] = (
@@ -376,6 +380,8 @@ class BookTable(TableProtocol):
     )
     column_specs_by_name: Mapping[str, ColumnSpec] = MappingProxyType({spec.name: spec for spec in column_specs})
     primary_key: tuple[str, ...] = ('id',)
+    def primary_values(self, instance: Book) -> tuple[int]:
+        return (            instance.id,        )
     indexes: tuple[tuple[str, ...], ...] = (('name',),)
     unique_indexes: tuple[tuple[str, ...], ...] = ()
     foreign_keys: tuple[ForeignKeySpec, ...] = ()
@@ -546,6 +552,8 @@ class UserTable(TableProtocol):
     )
     column_specs_by_name: Mapping[str, ColumnSpec] = MappingProxyType({spec.name: spec for spec in column_specs})
     primary_key: tuple[str, ...] = ('id',)
+    def primary_values(self, instance: User) -> tuple[int]:
+        return (            instance.id,        )
     indexes: tuple[tuple[str, ...], ...] = (('name',), ('name', 'email'), ('last_login',),)
     unique_indexes: tuple[tuple[str, ...], ...] = (('name', 'email'),)
     foreign_keys: tuple[ForeignKeySpec, ...] = ()
@@ -706,6 +714,8 @@ class UserBookTable(TableProtocol):
     )
     column_specs_by_name: Mapping[str, ColumnSpec] = MappingProxyType({spec.name: spec for spec in column_specs})
     primary_key: tuple[str, ...] = ('user_id', 'book_id')
+    def primary_values(self, instance: UserBook) -> tuple[int, int]:
+        return (            instance.user_id,            instance.book_id,        )
     indexes: tuple[tuple[str, ...], ...] = (('created_at',),)
     unique_indexes: tuple[tuple[str, ...], ...] = ()
     foreign_keys: tuple[ForeignKeySpec, ...] = (
