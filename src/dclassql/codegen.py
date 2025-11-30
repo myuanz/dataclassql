@@ -101,12 +101,20 @@ class ScalarFilterRender:
 
 
 @dataclass(slots=True)
+class UpsertWhereRender:
+    name: str
+    fields: tuple[TypedDictFieldSpec, ...]
+
+
+@dataclass(slots=True)
 class ModelRenderContext:
     name: str
     datasource_expr: str
     table_name_literal: str
     insert_fields: tuple[InsertFieldSpec, ...]
     typed_dict_fields: tuple[TypedDictFieldSpec, ...]
+    update_fields: tuple[TypedDictFieldSpec, ...]
+    upsert_where_dicts: tuple["UpsertWhereRender", ...]
     dict_fields: tuple[TypedDictFieldSpec, ...]
     where_fields: tuple[WhereFieldSpec, ...]
     relation_filters: tuple[RelationFilterRender, ...]
@@ -223,6 +231,8 @@ def _build_model_context(
 
     insert_fields: list[InsertFieldSpec] = []
     typed_dict_fields: list[TypedDictFieldSpec] = []
+    update_fields: list[TypedDictFieldSpec] = []
+    upsert_where_dicts: list[UpsertWhereRender] = []
     dict_field_map: dict[str, str] = {}
     enum_type_map: dict[str, type[Enum] | None] = {}
     column_lookup: dict[str, ColumnInfo] = {col.name: col for col in info.columns}
@@ -249,6 +259,27 @@ def _build_model_context(
 
         enum_type = _resolve_enum_class(col.python_type)
         enum_type_map[col.name] = enum_type
+
+        update_fields.append(TypedDictFieldSpec(name=col.name, annotation=renderer.render(col.python_type)))
+
+    if info.primary_key:
+        pk_fields: list[TypedDictFieldSpec] = []
+        for pk_col in info.primary_key:
+            col_info = column_lookup.get(pk_col)
+            annotation = renderer.render(col_info.python_type) if col_info else "object"
+            pk_fields.append(TypedDictFieldSpec(name=pk_col, annotation=annotation))
+        upsert_where_dicts.append(UpsertWhereRender(name=f"{name}UpsertWherePK", fields=tuple(pk_fields)))
+
+    if info.unique_indexes:
+        for idx, unique_cols in enumerate(info.unique_indexes, start=1):
+            unique_fields: list[TypedDictFieldSpec] = []
+            for col_name in unique_cols:
+                col_info = column_lookup.get(col_name)
+                annotation = renderer.render(col_info.python_type) if col_info else "object"
+                unique_fields.append(TypedDictFieldSpec(name=col_name, annotation=annotation))
+            upsert_where_dicts.append(
+                UpsertWhereRender(name=f"{name}UpsertWhereUnique{idx}", fields=tuple(unique_fields))
+            )
 
     where_fields: list[WhereFieldSpec] = []
     for col in info.columns:
@@ -371,6 +402,8 @@ def _build_model_context(
         table_name_literal=repr(name),
         insert_fields=tuple(insert_fields),
         typed_dict_fields=tuple(typed_dict_fields),
+        update_fields=tuple(update_fields),
+        upsert_where_dicts=tuple(upsert_where_dicts),
         dict_fields=tuple(dict_fields),
         where_fields=tuple(where_fields),
         relation_filters=tuple(relation_filters),
@@ -446,6 +479,8 @@ def _collect_exports(model_contexts: Sequence[ModelRenderContext]) -> list[str]:
                 f"{name}Dict",
                 f"{name}Insert",
                 f"{name}InsertDict",
+                f"{name}UpdateDict",
+                f"{name}UpsertWhereDict",
                 f"{name}WhereDict",
                 f"{name}Table",
             ]

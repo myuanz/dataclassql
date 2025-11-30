@@ -89,6 +89,23 @@ class UserBook:
 
 
 @dataclass
+class Composite:
+    id1: int
+    id2: int
+    uniq1: str
+    uniq2: str
+    uniq3: str
+    name: str
+
+    def primary_key(self):
+        return self.id1, self.id2
+
+    def unique_index(self):
+        yield (self.uniq1, self.uniq2)
+        yield self.uniq3
+
+
+@dataclass
 class User:
     id: int
     name: str
@@ -112,7 +129,7 @@ class User:
 
 
 def test_generate_client_matches_expected_shape() -> None:
-    module = generate_client([User, Address, BirthDay, Book, UserBook])
+    module = generate_client([User, Address, BirthDay, Book, UserBook, Composite])
     code = module.code
     open('./tests/results.py', 'w', encoding='utf-8').write(code)
 
@@ -124,7 +141,7 @@ def test_generate_client_matches_expected_shape() -> None:
     namespace: dict[str, Any] = {}
     exec(code, namespace)
 
-    assert module.model_names == ('Address', 'BirthDay', 'Book', 'User', 'UserBook')
+    assert module.model_names == ('Address', 'BirthDay', 'Book', 'Composite', 'User', 'UserBook')
     assert 'class UserDict' in code
     user_dict = namespace['UserDict']
     dict_hints = get_type_hints(user_dict, globalns=namespace, localns=namespace)
@@ -135,6 +152,7 @@ def test_generate_client_matches_expected_shape() -> None:
     assert set(get_args(birthday_hint)) == {namespace['BirthDayDict'], type(None)}
 
     assert 'DataSourceConfig' in namespace['__all__']
+    assert 'UserUpdateDict' in namespace['__all__']
 
     data_source_config = namespace['DataSourceConfig']
     generated_client = namespace['Client']
@@ -322,6 +340,31 @@ def test_generate_client_matches_expected_shape() -> None:
     assert type(None) in distinct_args_first
     distinct_args_first.discard(type(None))
     assert namespace['TUserDistinctCol'] in distinct_args_first
+
+    update_hints = get_type_hints(user_table_cls.update, globalns=namespace, localns=namespace)
+    assert update_hints['data'] is namespace['UserUpdateDict']
+    assert update_hints['where'] is user_where_dict
+    assert update_hints['return'] is namespace['User']
+
+    update_many_hints = get_type_hints(user_table_cls.update_many, globalns=namespace, localns=namespace)
+    assert update_many_hints['data'] is namespace['UserUpdateDict']
+    um_where_union = update_many_hints['where']
+    um_where_args = set(get_args(um_where_union))
+    assert type(None) in um_where_args
+    um_where_args.remove(type(None))
+    (um_where_type,) = tuple(um_where_args)
+    assert um_where_type is user_where_dict
+    assert set(get_args(update_many_hints['return_records'])) == {False, True}
+    assert update_many_hints['return'] == int | list[namespace['User']]
+
+    upsert_hints = get_type_hints(user_table_cls.upsert, globalns=namespace, localns=namespace)
+    assert upsert_hints['where'] is namespace['UserUpsertWhereDict']
+    assert upsert_hints['update'] is namespace['UserUpdateDict']
+    upsert_insert_union = upsert_hints['insert']
+    upsert_insert_args = set(get_args(upsert_insert_union))
+    assert namespace['UserInsert'] in upsert_insert_args
+    assert namespace['UserInsertDict'] in upsert_insert_args
+    assert upsert_hints['return'] is namespace['User']
 
     delete_hints = get_type_hints(user_table_cls.delete, globalns=namespace, localns=namespace)
     assert delete_hints['where'] is user_where_dict

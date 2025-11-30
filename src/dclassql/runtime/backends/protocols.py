@@ -7,7 +7,7 @@ from pypika import Query, Table
 from pypika.terms import Parameter
 
 from dclassql.model_inspector import DataSourceConfig
-from dclassql.typing import IncludeT, InsertT, ModelT, OrderByT, WhereT
+from dclassql.typing import IncludeT, InsertT, ModelT, OrderByT, WhereT, UpsertWhereT
 
 from .metadata import ColumnSpec, ForeignKeySpec, RelationSpec
 
@@ -26,6 +26,8 @@ class TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT](Protocol):
 
     @classmethod
     def serialize_insert(cls, data: InsertT | Mapping[str, object]) -> dict[str, object]: ...
+    @classmethod
+    def serialize_update(cls, data: Mapping[str, object]) -> dict[str, object]: ...
 
     @classmethod
     def deserialize_row(cls, row: Mapping[str, object]) -> ModelT: ...
@@ -50,6 +52,23 @@ class BackendProtocol(Protocol):
         table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
         data: InsertT | Mapping[str, object],
     ) -> ModelT: ...
+    def update(
+        self,
+        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        *,
+        data: Mapping[str, object],
+        where: WhereT,
+        include: IncludeT | None = None,
+    ) -> ModelT: ...
+    def upsert(
+        self,
+        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        *,
+        where: UpsertWhereT,
+        update: Mapping[str, object],
+        insert: InsertT | Mapping[str, object],
+        include: IncludeT | None = None,
+    ) -> ModelT: ...
 
     def insert_many(
         self,
@@ -57,6 +76,24 @@ class BackendProtocol(Protocol):
         data: Sequence[InsertT | Mapping[str, object]],
         *,
         batch_size: int | None = None,
+    ) -> list[ModelT]: ...
+    @overload
+    def update_many(
+        self,
+        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        *,
+        data: Mapping[str, object],
+        where: WhereT | None = None,
+        return_records: Literal[False] = False,
+    ) -> int: ...
+    @overload
+    def update_many(
+        self,
+        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        *,
+        data: Mapping[str, object],
+        where: WhereT | None = None,
+        return_records: Literal[True],
     ) -> list[ModelT]: ...
 
     def find_many(

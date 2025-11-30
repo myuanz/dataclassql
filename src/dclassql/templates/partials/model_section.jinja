@@ -11,6 +11,11 @@
 {%- set sortable_alias = 'T' ~ name ~ 'SortableCol' -%}
 {%- set include_relations = info.relations | sort(attribute='name', case_sensitive=True) -%}
 {%- set sortable_columns = info.columns -%}
+{%- set update_dict_class = name ~ 'UpdateDict' -%}
+{%- set upsert_where_alias = name ~ 'UpsertWhereDict' -%}
+{%- set upsert_update_class = update_dict_class -%}
+{%- set upsert_insert_class = insert_class -%}
+{%- set upsert_insert_dict_class = insert_dict_class -%}
 
 {% set backend_signature = 'BackendProtocol' %}
 
@@ -38,6 +43,20 @@ class {{ name }}Dict(TypedDict, closed=True):
 
 class {{ insert_dict_class }}(TypedDict, closed=True):
 {{ macros.typed_dict_fields(model.typed_dict_fields)|indent(4, True) }}
+
+class {{ update_dict_class }}(TypedDict, total=False, closed=True):
+{{ macros.typed_dict_fields(model.update_fields)|indent(4, True) }}
+
+{% for upsert_dict in model.upsert_where_dicts %}
+class {{ upsert_dict.name }}(TypedDict, closed=True):
+{{ macros.typed_dict_fields(upsert_dict.fields)|indent(4, True) }}
+
+{% endfor %}
+{% if model.upsert_where_dicts|length == 1 %}
+{{ upsert_where_alias }} = {{ model.upsert_where_dicts[0].name }}
+{% else %}
+{{ upsert_where_alias }} = {{ model.upsert_where_dicts | map(attribute='name') | join(' | ') }}
+{% endif %}
 
 {% for relation_filter in model.relation_filters %}
 class {{ relation_filter.name }}(TypedDict, total=False, closed=True):
@@ -102,6 +121,12 @@ class {{ table_class }}(TableProtocol):
         raise TypeError("Unsupported insert payload type for {{ name }}")
 
     @classmethod
+    def serialize_update(cls, data: Mapping[str, object]) -> dict[str, object]:
+        if not isinstance(data, Mapping):
+            raise TypeError("Update payload must be a mapping")
+        return cls.serialize_insert(data)
+
+    @classmethod
     def deserialize_row(cls, row: Mapping[str, object]) -> {{ name }}:
         instance = {{ name }}.__new__({{ name }})  # type: ignore[call-arg]
 {% for assignment in model.row_assignments %}        instance.{{ assignment.field_name }} = {{ assignment.value_expr }} # type: ignore[attr-defined]
@@ -118,6 +143,26 @@ class {{ table_class }}(TableProtocol):
 
     def insert_many(self, data: Sequence[{{ insert_class }} | {{ insert_dict_class }}], *, batch_size: int | None = None) -> list[{{ name }}]:
         return self._backend.insert_many(self, data, batch_size=batch_size)
+
+    def update(self, *, data: {{ update_dict_class }}, where: {{ where_dict_class }}, include: {{ include_dict_class }} | None = None) -> {{ name }}:
+        return self._backend.update(self, data=data, where=where, include=include)
+
+    @overload
+    def update_many(self, *, data: {{ update_dict_class }}, where: {{ where_dict_class }} | None = None, return_records: Literal[False] = False) -> int: ...
+    @overload
+    def update_many(self, *, data: {{ update_dict_class }}, where: {{ where_dict_class }} | None = None, return_records: Literal[True]) -> list[{{ name }}]: ...
+    def update_many(self, *, data: {{ update_dict_class }}, where: {{ where_dict_class }} | None = None, return_records: Literal[False, True] = False) -> int | list[{{ name }}]:
+        return self._backend.update_many(self, data=data, where=where, return_records=return_records)
+
+    def upsert(
+        self,
+        *,
+        where: {{ upsert_where_alias }},
+        update: {{ upsert_update_class }},
+        insert: {{ upsert_insert_class }} | {{ upsert_insert_dict_class }},
+        include: {{ include_dict_class }} | None = None,
+    ) -> {{ name }}:
+        return self._backend.upsert(self, where=where, update=update, insert=insert, include=include)
 
     def find_many(self, *, where: {{ where_dict_class }} | None = None, include: {{ include_dict_class }} | None = None, order_by: {{ order_by_dict_class }} | None = None, distinct: {{ distinct_alias }} | Sequence[{{ distinct_alias }}] | None = None, take: int | None = None, skip: int | None = None) -> list[{{ name }}]:
         return self._backend.find_many(

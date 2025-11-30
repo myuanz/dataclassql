@@ -11,7 +11,7 @@ from pypika.terms import Criterion, Parameter
 from pypika.queries import QueryBuilder
 from pypika.utils import format_quotes
 
-from dclassql.typing import IncludeT, InsertT, ModelT, OrderByT, WhereT
+from dclassql.typing import IncludeT, InsertT, ModelT, OrderByT, WhereT, UpsertWhereT
 
 from .lazy import ensure_lazy_state, finalize_lazy_state, reset_lazy_backref
 from .protocols import BackendProtocol, RelationSpec, TableProtocol
@@ -66,6 +66,118 @@ class BackendBase(BackendProtocol, ABC):
     ) -> list[ModelT]:
         _ = batch_size  # 基础实现不做批量优化
         return [self.insert(table, item) for item in data]
+
+    def update(
+        self,
+        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        *,
+        data: Mapping[str, object],
+        where: WhereT,
+        include: Mapping[str, bool] | None = None,
+    ) -> ModelT:
+        payload = table.serialize_update(data)
+        if not payload:
+            raise ValueError("Update payload cannot be empty")
+
+        sql_table = self.table_cls(table.model.__name__)
+        update_query: QueryBuilder = self.query_cls.update(sql_table)
+        params: list[Any] = []
+        for column, value in payload.items():
+            update_query = update_query.set(sql_table.field(column), self.new_parameter())
+            params.append(value)
+
+        criterion, where_params = self._compile_where(table, sql_table, where)
+        if criterion is not None:
+            update_query = update_query.where(criterion)
+            params.extend(where_params)
+
+        sql = self._render_query(update_query)
+        returning_columns = [spec.name for spec in table.column_specs]
+        sql_with_returning = self._append_returning(sql, returning_columns)
+
+        rows = self.query_raw(sql_with_returning, params, auto_commit=True)
+        if len(rows) != 1:
+            raise RuntimeError(f"update() expected exactly 1 row, got {len(rows)}")
+
+        row = rows[0]
+        include_map = include or {}
+        instance = self._materialize_instance(table, row, include_map)
+        identity_key = self._identity_key(table, row)
+        if identity_key is not None:
+            self._identity_map.pop(identity_key, None)
+        self._invalidate_backrefs(table, instance)
+        return instance
+
+    def upsert(
+        self,
+        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        *,
+        where: UpsertWhereT,
+        update: Mapping[str, object],
+        insert: InsertT | Mapping[str, object],
+        include: Mapping[str, bool] | None = None,
+    ) -> ModelT:
+        where_payload = dict(where)
+        conflict_targets: list[tuple[str, ...]] = []
+        if table.primary_key:
+            conflict_targets.append(tuple(table.primary_key))
+        conflict_targets.extend(tuple(idx) for idx in getattr(table, "unique_indexes", ()))
+        if not conflict_targets:
+            raise ValueError("upsert requires primary key or unique index")
+
+        where_keys = set(where_payload.keys())
+        conflict_target: tuple[str, ...] | None = None
+        for target in conflict_targets:
+            if set(target) == where_keys:
+                conflict_target = target
+                break
+        if conflict_target is None:
+            raise ValueError("Upsert where must exactly match primary key or unique index")
+
+        insert_payload = table.serialize_insert(insert)
+        for column in conflict_target:
+            if column not in insert_payload:
+                insert_payload[column] = where_payload[column]
+        if not insert_payload:
+            raise ValueError("Upsert insert payload cannot be empty")
+
+        update_payload = table.serialize_update(update)
+        if not update_payload:
+            raise ValueError("Upsert update payload cannot be empty")
+
+        sql_table = self.table_cls(table.model.__name__)
+        insert_columns = list(insert_payload.keys())
+        params: list[Any] = [insert_payload[column] for column in insert_columns]
+
+        insert_query: QueryBuilder = (
+            self.query_cls.into(sql_table)
+            .columns(*insert_columns)
+            .insert(*(self.new_parameter() for _ in insert_columns))
+        )
+        sql_base = self._render_query(insert_query).rstrip().removesuffix(";")
+
+        conflict_target_sql = ", ".join(self.escape_identifier(col) for col in conflict_target)
+        update_assignments: list[str] = []
+        for column, value in update_payload.items():
+            update_assignments.append(f"{self.escape_identifier(column)} = {self.parameter_token}")
+            params.append(value)
+        update_clause = ", ".join(update_assignments)
+
+        sql = f"{sql_base} ON CONFLICT ({conflict_target_sql}) DO UPDATE SET {update_clause}"
+        returning_columns = [spec.name for spec in table.column_specs]
+        sql_with_returning = self._append_returning(sql, returning_columns)
+        rows = self.query_raw(sql_with_returning, params, auto_commit=True)
+        if len(rows) != 1:
+            raise RuntimeError(f"upsert() expected exactly 1 row, got {len(rows)}")
+
+        row = rows[0]
+        include_map = include or {}
+        instance = self._materialize_instance(table, row, include_map)
+        identity_key = self._identity_key(table, row)
+        if identity_key is not None:
+            self._identity_map.pop(identity_key, None)
+        self._invalidate_backrefs(table, instance)
+        return instance
 
     def find_many(
         self,
@@ -211,6 +323,73 @@ class BackendBase(BackendProtocol, ABC):
                 params.extend(where_params)
 
         sql = self._render_query(delete_query)
+        returning_columns = [spec.name for spec in table.column_specs]
+        sql_with_returning = self._append_returning(sql, returning_columns)
+        rows = self.query_raw(sql_with_returning, params, auto_commit=True)
+        include_map: Mapping[str, bool] = {}
+
+        if return_records:
+            results: list[ModelT] = []
+            for row in rows:
+                identity_key = self._identity_key(table, row)
+                if identity_key is not None:
+                    self._identity_map.pop(identity_key, None)
+                instance = self._materialize_instance(table, row, include_map)
+                results.append(instance)
+            return results
+
+        for row in rows:
+            identity_key = self._identity_key(table, row)
+            if identity_key is not None:
+                self._identity_map.pop(identity_key, None)
+        return len(rows)
+
+    @overload
+    def update_many(
+        self,
+        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        *,
+        data: Mapping[str, object],
+        where: WhereT | None = None,
+        return_records: Literal[False] = False,
+    ) -> int: ...
+
+    @overload
+    def update_many(
+        self,
+        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        *,
+        data: Mapping[str, object],
+        where: WhereT | None = None,
+        return_records: Literal[True],
+    ) -> list[ModelT]: ...
+
+    def update_many(
+        self,
+        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        *,
+        data: Mapping[str, object],
+        where: WhereT | None = None,
+        return_records: Literal[False, True] = False,
+    ) -> int | list[ModelT]:
+        payload = table.serialize_update(data)
+        if not payload:
+            raise ValueError("Update payload cannot be empty")
+
+        sql_table = self.table_cls(table.model.__name__)
+        update_query: QueryBuilder = self.query_cls.update(sql_table)
+        params: list[Any] = []
+        for column, value in payload.items():
+            update_query = update_query.set(sql_table.field(column), self.new_parameter())
+            params.append(value)
+
+        if where:
+            criterion, where_params = self._compile_where(table, sql_table, where)
+            if criterion is not None:
+                update_query = update_query.where(criterion)
+                params.extend(where_params)
+
+        sql = self._render_query(update_query)
         returning_columns = [spec.name for spec in table.column_specs]
         sql_with_returning = self._append_returning(sql, returning_columns)
         rows = self.query_raw(sql_with_returning, params, auto_commit=True)
