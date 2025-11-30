@@ -9,7 +9,7 @@ from collections.abc import Sequence as ABCSequence
 from dataclasses import dataclass, fields
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal, Mapping, NotRequired, get_args, get_origin, get_type_hints
+from typing import Any, Literal, Mapping, NotRequired, Sequence, get_args, get_origin, get_type_hints
 from enum import Enum, StrEnum, IntEnum
 
 from dclassql.cli import compute_model_target, resolve_generated_path
@@ -146,10 +146,14 @@ def test_generate_client_matches_expected_shape() -> None:
     sortable_alias = namespace['TUserSortableCol']
     assert get_origin(sortable_alias) is Literal
 
+    distinct_alias = namespace['TUserDistinctCol']
+    assert get_origin(distinct_alias) is Literal
+
     user_table_cls = namespace['UserTable']
     column_specs = user_table_cls.column_specs
     column_names = tuple(spec.name for spec in column_specs)
     assert set(get_args(sortable_alias)) == set(column_names)
+    assert set(get_args(distinct_alias)) == set(column_names)
     expected_ds = data_source_config(provider='sqlite', url='sqlite:///analytics.db', name=None)
     assert user_table_cls.datasource == expected_ds
     insert_payload = user_table_cls.serialize_insert({
@@ -292,6 +296,18 @@ def test_generate_client_matches_expected_shape() -> None:
         assert get_origin(annotation) is Literal
         assert set(get_args(annotation)) == {'asc', 'desc'}
 
+    distinct_union = find_many_hints['distinct']
+    distinct_args = set(get_args(distinct_union))
+    assert type(None) in distinct_args
+    distinct_args.discard(type(None))
+    assert namespace['TUserDistinctCol'] in distinct_args
+    seq_arg = next(
+        arg
+        for arg in distinct_args
+        if get_origin(arg) in {Sequence, ABCSequence}
+    )
+    assert get_args(seq_arg)[0] is namespace['TUserDistinctCol']
+
     find_first_hints = get_type_hints(user_table_cls.find_first, globalns=namespace, localns=namespace)
     assert find_first_hints['return'] == namespace['User'] | type(None)
     include_union_first = find_first_hints['include']
@@ -300,6 +316,12 @@ def test_generate_client_matches_expected_shape() -> None:
     include_args_first.remove(type(None))
     (include_dict_first,) = tuple(include_args_first)
     assert include_dict_first is namespace['UserIncludeDict']
+
+    distinct_union_first = find_first_hints['distinct']
+    distinct_args_first = set(get_args(distinct_union_first))
+    assert type(None) in distinct_args_first
+    distinct_args_first.discard(type(None))
+    assert namespace['TUserDistinctCol'] in distinct_args_first
 
 
 def test_generated_client_supports_named_datasources() -> None:

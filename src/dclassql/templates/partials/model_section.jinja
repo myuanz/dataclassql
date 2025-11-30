@@ -5,6 +5,7 @@
 {%- set where_dict_class = name ~ 'WhereDict' -%}
 {%- set include_dict_class = name ~ 'IncludeDict' -%}
 {%- set order_by_dict_class = name ~ 'OrderByDict' -%}
+{%- set distinct_alias = 'T' ~ name ~ 'DistinctCol' -%}
 {%- set table_class = name ~ 'Table' -%}
 {%- set include_alias = 'T' ~ name ~ 'IncludeCol' -%}
 {%- set sortable_alias = 'T' ~ name ~ 'SortableCol' -%}
@@ -20,8 +21,10 @@
 {% endif %}
 {% if sortable_columns %}
 {{ sortable_alias }} = Literal[{% for column in sortable_columns %}'{{ column.name }}'{% if not loop.last %}, {% endif %}{% endfor %}]
+{{ distinct_alias }} = Literal[{% for column in sortable_columns %}'{{ column.name }}'{% if not loop.last %}, {% endif %}{% endfor %}]
 {% else %}
 {{ sortable_alias }} = Literal[()]
+{{ distinct_alias }} = Literal[()]
 {% endif %}
 
 @dataclass(slots=True, kw_only=True)
@@ -106,16 +109,16 @@ class {{ table_class }}(TableProtocol):
     def insert_many(self, data: Sequence[{{ insert_class }} | {{ insert_dict_class }}], *, batch_size: int | None = None) -> list[{{ name }}]:
         return self._backend.insert_many(self, data, batch_size=batch_size)
 
-    def find_many(self, *, where: {{ where_dict_class }} | None = None, include: {{ include_dict_class }} | None = None, order_by: {{ order_by_dict_class }} | None = None, take: int | None = None, skip: int | None = None) -> list[{{ name }}]:
+    def find_many(self, *, where: {{ where_dict_class }} | None = None, include: {{ include_dict_class }} | None = None, order_by: {{ order_by_dict_class }} | None = None, distinct: {{ distinct_alias }} | Sequence[{{ distinct_alias }}] | None = None, take: int | None = None, skip: int | None = None) -> list[{{ name }}]:
         return self._backend.find_many(
             self, 
-            where=where, include=include, order_by=order_by, 
+            where=where, include=include, order_by=order_by, distinct=distinct,
             take=take, skip=skip
         )
 
-    def find_first(self, *, where: {{ where_dict_class }} | None = None, include: {{ include_dict_class }} | None = None, order_by: {{ order_by_dict_class }} | None = None, skip: int | None = None) -> {{ name }} | None:
+    def find_first(self, *, where: {{ where_dict_class }} | None = None, include: {{ include_dict_class }} | None = None, order_by: {{ order_by_dict_class }} | None = None, distinct: {{ distinct_alias }} | Sequence[{{ distinct_alias }}] | None = None, skip: int | None = None) -> {{ name }} | None:
         return self._backend.find_first(
             self, 
-            where=where, include=include, order_by=order_by, 
+            where=where, include=include, order_by=order_by, distinct=distinct,
             skip=skip
         )

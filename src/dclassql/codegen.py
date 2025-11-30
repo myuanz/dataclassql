@@ -430,6 +430,7 @@ def _collect_exports(model_contexts: Sequence[ModelRenderContext]) -> list[str]:
             [
                 f"T{name}IncludeCol",
                 f"T{name}SortableCol",
+                f"T{name}DistinctCol",
                 f"{name}IncludeDict",
                 f"{name}OrderByDict",
                 f"{name}Dict",

@@ -74,10 +74,12 @@ class BackendBase(BackendProtocol, ABC):
         where: WhereT | None = None,
         include: Mapping[str, bool] | None = None,
         order_by: Mapping[str, str] | None = None,
+        distinct: Sequence[str] | str | None = None,
         take: int | None = None,
         skip: int | None = None,
     ) -> list[ModelT]:
         sql_table = self.table_cls(table.model.__name__)
+        distinct_columns = self._normalize_distinct(table, distinct)
         select_query = self.query_cls.from_(sql_table).select(
             *[sql_table.field(spec.name) for spec in table.column_specs]
         )
@@ -98,15 +100,22 @@ class BackendBase(BackendProtocol, ABC):
                     raise ValueError("order_by direction must be 'asc' or 'desc'")
                 select_query = select_query.orderby(sql_table.field(column), order=Order[direction_lower])
 
-        if skip is not None:
+        if skip is not None and not distinct_columns:
             select_query = select_query.offset(skip)
-        if take is not None:
+        if take is not None and not distinct_columns:
             select_query = select_query.limit(take)
 
         sql = self._render_query(select_query)
         rows = self.query_raw(sql, params)
+        row_list = list(rows)
+        if distinct_columns:
+            row_list = self._deduplicate_rows(row_list, distinct_columns)
+            if skip:
+                row_list = row_list[skip:]
+            if take is not None:
+                row_list = row_list[:take]
         include_map = include or {}
-        return [self._materialize_instance(table, row, include_map) for row in rows]
+        return [self._materialize_instance(table, row, include_map) for row in row_list]
 
     def find_first(
         self,
@@ -115,6 +124,7 @@ class BackendBase(BackendProtocol, ABC):
         where: WhereT | None = None,
         include: Mapping[str, bool] | None = None,
         order_by: Mapping[str, str] | None = None,
+        distinct: Sequence[str] | str | None = None,
         skip: int | None = None,
     ) -> ModelT | None:
         results = self.find_many(
@@ -122,6 +132,7 @@ class BackendBase(BackendProtocol, ABC):
             where=where,
             include=include,
             order_by=order_by,
+            distinct=distinct,
             take=1,
             skip=skip,
         )
@@ -298,3 +309,37 @@ class BackendBase(BackendProtocol, ABC):
         else:
             display_params = list(params)
         print(f"[dclassql] SQL: {sql} | params={display_params}")
+
+    def _normalize_distinct(
+        self,
+        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        distinct: Sequence[str] | str | None,
+    ) -> tuple[str, ...]:
+        if distinct is None:
+            return ()
+        if isinstance(distinct, str):
+            columns = (distinct,)
+        else:
+            columns = tuple(dict.fromkeys(distinct))
+        if not columns:
+            raise ValueError("distinct requires at least one column")
+        valid_columns = table.column_specs_by_name
+        for column in columns:
+            if column not in valid_columns:
+                raise KeyError(f"Unknown column '{column}' in distinct clause")
+        return columns
+
+    def _deduplicate_rows(
+        self,
+        rows: Sequence[Mapping[str, Any]],
+        columns: tuple[str, ...],
+    ) -> list[Mapping[str, Any]]:
+        seen: set[tuple[Any, ...]] = set()
+        result: list[Mapping[str, Any]] = []
+        for row in rows:
+            key = tuple(row[column] for column in columns)
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(row)
+        return result

@@ -65,6 +65,7 @@ class BackendProtocol(Protocol):
         where: WhereT | None = None,
         include: IncludeT | None = None,
         order_by: OrderByT | None = None,
+        distinct: Sequence[str] | str | None = None,
         take: int | None = None,
         skip: int | None = None,
     ) -> list[ModelT]: ...
@@ -76,6 +77,7 @@ class BackendProtocol(Protocol):
         where: WhereT | None = None,
         include: IncludeT | None = None,
         order_by: OrderByT | None = None,
+        distinct: Sequence[str] | str | None = None,
         skip: int | None = None,
     ) -> ModelT | None: ...
 

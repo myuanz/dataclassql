@@ -55,6 +55,7 @@ class StringFilter(TypedDict, total=False, closed=True):
 
 TAddressIncludeCol = Literal['user']
 TAddressSortableCol = Literal['id', 'location', 'user_id']
+TAddressDistinctCol = Literal['id', 'location', 'user_id']
 
 @dataclass(slots=True, kw_only=True)
 class AddressInsert:
@@ -168,21 +169,22 @@ class AddressTable(TableProtocol):
     def insert_many(self, data: Sequence[AddressInsert | AddressInsertDict], *, batch_size: int | None = None) -> list[Address]:
         return self._backend.insert_many(self, data, batch_size=batch_size)
 
-    def find_many(self, *, where: AddressWhereDict | None = None, include: AddressIncludeDict | None = None, order_by: AddressOrderByDict | None = None, take: int | None = None, skip: int | None = None) -> list[Address]:
+    def find_many(self, *, where: AddressWhereDict | None = None, include: AddressIncludeDict | None = None, order_by: AddressOrderByDict | None = None, distinct: TAddressDistinctCol | Sequence[TAddressDistinctCol] | None = None, take: int | None = None, skip: int | None = None) -> list[Address]:
         return self._backend.find_many(
             self, 
-            where=where, include=include, order_by=order_by, 
+            where=where, include=include, order_by=order_by, distinct=distinct,
             take=take, skip=skip
         )
 
-    def find_first(self, *, where: AddressWhereDict | None = None, include: AddressIncludeDict | None = None, order_by: AddressOrderByDict | None = None, skip: int | None = None) -> Address | None:
+    def find_first(self, *, where: AddressWhereDict | None = None, include: AddressIncludeDict | None = None, order_by: AddressOrderByDict | None = None, distinct: TAddressDistinctCol | Sequence[TAddressDistinctCol] | None = None, skip: int | None = None) -> Address | None:
         return self._backend.find_first(
             self, 
-            where=where, include=include, order_by=order_by, 
+            where=where, include=include, order_by=order_by, distinct=distinct,
             skip=skip
         )
 TBirthDayIncludeCol = Literal['user']
 TBirthDaySortableCol = Literal['user_id', 'date']
+TBirthDayDistinctCol = Literal['user_id', 'date']
 
 @dataclass(slots=True, kw_only=True)
 class BirthDayInsert:
@@ -286,21 +288,22 @@ class BirthDayTable(TableProtocol):
     def insert_many(self, data: Sequence[BirthDayInsert | BirthDayInsertDict], *, batch_size: int | None = None) -> list[BirthDay]:
         return self._backend.insert_many(self, data, batch_size=batch_size)
 
-    def find_many(self, *, where: BirthDayWhereDict | None = None, include: BirthDayIncludeDict | None = None, order_by: BirthDayOrderByDict | None = None, take: int | None = None, skip: int | None = None) -> list[BirthDay]:
+    def find_many(self, *, where: BirthDayWhereDict | None = None, include: BirthDayIncludeDict | None = None, order_by: BirthDayOrderByDict | None = None, distinct: TBirthDayDistinctCol | Sequence[TBirthDayDistinctCol] | None = None, take: int | None = None, skip: int | None = None) -> list[BirthDay]:
         return self._backend.find_many(
             self, 
-            where=where, include=include, order_by=order_by, 
+            where=where, include=include, order_by=order_by, distinct=distinct,
             take=take, skip=skip
         )
 
-    def find_first(self, *, where: BirthDayWhereDict | None = None, include: BirthDayIncludeDict | None = None, order_by: BirthDayOrderByDict | None = None, skip: int | None = None) -> BirthDay | None:
+    def find_first(self, *, where: BirthDayWhereDict | None = None, include: BirthDayIncludeDict | None = None, order_by: BirthDayOrderByDict | None = None, distinct: TBirthDayDistinctCol | Sequence[TBirthDayDistinctCol] | None = None, skip: int | None = None) -> BirthDay | None:
         return self._backend.find_first(
             self, 
-            where=where, include=include, order_by=order_by, 
+            where=where, include=include, order_by=order_by, distinct=distinct,
             skip=skip
         )
 TBookIncludeCol = Literal['users']
 TBookSortableCol = Literal['id', 'name']
+TBookDistinctCol = Literal['id', 'name']
 
 @dataclass(slots=True, kw_only=True)
 class BookInsert:
@@ -398,21 +401,22 @@ class BookTable(TableProtocol):
     def insert_many(self, data: Sequence[BookInsert | BookInsertDict], *, batch_size: int | None = None) -> list[Book]:
         return self._backend.insert_many(self, data, batch_size=batch_size)
 
-    def find_many(self, *, where: BookWhereDict | None = None, include: BookIncludeDict | None = None, order_by: BookOrderByDict | None = None, take: int | None = None, skip: int | None = None) -> list[Book]:
+    def find_many(self, *, where: BookWhereDict | None = None, include: BookIncludeDict | None = None, order_by: BookOrderByDict | None = None, distinct: TBookDistinctCol | Sequence[TBookDistinctCol] | None = None, take: int | None = None, skip: int | None = None) -> list[Book]:
         return self._backend.find_many(
             self, 
-            where=where, include=include, order_by=order_by, 
+            where=where, include=include, order_by=order_by, distinct=distinct,
             take=take, skip=skip
         )
 
-    def find_first(self, *, where: BookWhereDict | None = None, include: BookIncludeDict | None = None, order_by: BookOrderByDict | None = None, skip: int | None = None) -> Book | None:
+    def find_first(self, *, where: BookWhereDict | None = None, include: BookIncludeDict | None = None, order_by: BookOrderByDict | None = None, distinct: TBookDistinctCol | Sequence[TBookDistinctCol] | None = None, skip: int | None = None) -> Book | None:
         return self._backend.find_first(
             self, 
-            where=where, include=include, order_by=order_by, 
+            where=where, include=include, order_by=order_by, distinct=distinct,
             skip=skip
         )
 TUserIncludeCol = Literal['addresses', 'birthday', 'books']
 TUserSortableCol = Literal['id', 'name', 'email', 'last_login', 'status', 'type', 'vip_level']
+TUserDistinctCol = Literal['id', 'name', 'email', 'last_login', 'status', 'type', 'vip_level']
 
 @dataclass(slots=True, kw_only=True)
 class UserInsert:
@@ -581,21 +585,22 @@ class UserTable(TableProtocol):
     def insert_many(self, data: Sequence[UserInsert | UserInsertDict], *, batch_size: int | None = None) -> list[User]:
         return self._backend.insert_many(self, data, batch_size=batch_size)
 
-    def find_many(self, *, where: UserWhereDict | None = None, include: UserIncludeDict | None = None, order_by: UserOrderByDict | None = None, take: int | None = None, skip: int | None = None) -> list[User]:
+    def find_many(self, *, where: UserWhereDict | None = None, include: UserIncludeDict | None = None, order_by: UserOrderByDict | None = None, distinct: TUserDistinctCol | Sequence[TUserDistinctCol] | None = None, take: int | None = None, skip: int | None = None) -> list[User]:
         return self._backend.find_many(
             self, 
-            where=where, include=include, order_by=order_by, 
+            where=where, include=include, order_by=order_by, distinct=distinct,
             take=take, skip=skip
         )
 
-    def find_first(self, *, where: UserWhereDict | None = None, include: UserIncludeDict | None = None, order_by: UserOrderByDict | None = None, skip: int | None = None) -> User | None:
+    def find_first(self, *, where: UserWhereDict | None = None, include: UserIncludeDict | None = None, order_by: UserOrderByDict | None = None, distinct: TUserDistinctCol | Sequence[TUserDistinctCol] | None = None, skip: int | None = None) -> User | None:
         return self._backend.find_first(
             self, 
-            where=where, include=include, order_by=order_by, 
+            where=where, include=include, order_by=order_by, distinct=distinct,
             skip=skip
         )
 TUserBookIncludeCol = Literal['book', 'user']
 TUserBookSortableCol = Literal['user_id', 'book_id', 'created_at']
+TUserBookDistinctCol = Literal['user_id', 'book_id', 'created_at']
 
 @dataclass(slots=True, kw_only=True)
 class UserBookInsert:
@@ -725,17 +730,17 @@ class UserBookTable(TableProtocol):
     def insert_many(self, data: Sequence[UserBookInsert | UserBookInsertDict], *, batch_size: int | None = None) -> list[UserBook]:
         return self._backend.insert_many(self, data, batch_size=batch_size)
 
-    def find_many(self, *, where: UserBookWhereDict | None = None, include: UserBookIncludeDict | None = None, order_by: UserBookOrderByDict | None = None, take: int | None = None, skip: int | None = None) -> list[UserBook]:
+    def find_many(self, *, where: UserBookWhereDict | None = None, include: UserBookIncludeDict | None = None, order_by: UserBookOrderByDict | None = None, distinct: TUserBookDistinctCol | Sequence[TUserBookDistinctCol] | None = None, take: int | None = None, skip: int | None = None) -> list[UserBook]:
         return self._backend.find_many(
             self, 
-            where=where, include=include, order_by=order_by, 
+            where=where, include=include, order_by=order_by, distinct=distinct,
             take=take, skip=skip
         )
 
-    def find_first(self, *, where: UserBookWhereDict | None = None, include: UserBookIncludeDict | None = None, order_by: UserBookOrderByDict | None = None, skip: int | None = None) -> UserBook | None:
+    def find_first(self, *, where: UserBookWhereDict | None = None, include: UserBookIncludeDict | None = None, order_by: UserBookOrderByDict | None = None, distinct: TUserBookDistinctCol | Sequence[TUserBookDistinctCol] | None = None, skip: int | None = None) -> UserBook | None:
         return self._backend.find_first(
             self, 
-            where=where, include=include, order_by=order_by, 
+            where=where, include=include, order_by=order_by, distinct=distinct,
             skip=skip
         )
 class Client(BaseDBPool):
@@ -779,6 +784,7 @@ __all__ = (
     "Client",
     "TAddressIncludeCol",
     "TAddressSortableCol",
+    "TAddressDistinctCol",
     "AddressIncludeDict",
     "AddressOrderByDict",
     "AddressDict",
@@ -789,6 +795,7 @@ __all__ = (
     "AddressUserRelationFilter",
     "TBirthDayIncludeCol",
     "TBirthDaySortableCol",
+    "TBirthDayDistinctCol",
     "BirthDayIncludeDict",
     "BirthDayOrderByDict",
     "BirthDayDict",
@@ -799,6 +806,7 @@ __all__ = (
     "BirthDayUserRelationFilter",
     "TBookIncludeCol",
     "TBookSortableCol",
+    "TBookDistinctCol",
     "BookIncludeDict",
     "BookOrderByDict",
     "BookDict",
@@ -809,6 +817,7 @@ __all__ = (
     "BookUsersRelationFilter",
     "TUserIncludeCol",
     "TUserSortableCol",
+    "TUserDistinctCol",
     "UserIncludeDict",
     "UserOrderByDict",
     "UserDict",
@@ -821,6 +830,7 @@ __all__ = (
     "UserBooksRelationFilter",
     "TUserBookIncludeCol",
     "TUserBookSortableCol",
+    "TUserBookDistinctCol",
     "UserBookIncludeDict",
     "UserBookOrderByDict",
     "UserBookDict",

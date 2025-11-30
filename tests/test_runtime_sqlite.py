@@ -219,9 +219,31 @@ def test_backend_thread_local(tmp_path: Path):
         thread_result = future.result()
 
     main_record = user_table.find_first(order_by={"name": "asc"})
-    print(f'{thread_result=}')
     assert main_record is not None
     assert thread_result is not None
+    client.__class__.close_all()
+
+
+def test_find_many_supports_distinct(tmp_path: Path) -> None:
+    db_path = tmp_path / "distinct.db"
+    _prepare_database(db_path)
+    namespace, client = _build_client()
+    user_table = client.runtime_user
+    InsertModel = namespace["RuntimeUserInsert"]
+
+    user_table.insert(InsertModel(id=None, name="n1", email="shared@example.com"))
+    user_table.insert(InsertModel(id=None, name="n2", email="shared@example.com"))
+    user_table.insert(InsertModel(id=None, name="n3", email="unique@example.com"))
+
+    distinct_users = user_table.find_many(order_by={"id": "asc"}, distinct="email")
+    assert [user.email for user in distinct_users] == ["shared@example.com", "unique@example.com"]
+
+    distinct_second = user_table.find_many(order_by={"id": "asc"}, distinct="email", skip=1)
+    assert [user.email for user in distinct_second] == ["unique@example.com"]
+
+    multi_column = user_table.find_many(distinct=["email", "name"], order_by={"id": "asc"})
+    assert [user.name for user in multi_column] == ["n1", "n2", "n3"]
+
     client.__class__.close_all()
 
 
