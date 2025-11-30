@@ -15,13 +15,15 @@
 {% set backend_signature = 'BackendProtocol' %}
 
 {% if include_relations %}
-{{ include_alias }} = Literal[{% for relation in include_relations %}'{{ relation.name }}'{% if not loop.last %}, {% endif %}{% endfor %}]
+{% set include_names = include_relations | map(attribute='name') | list %}
+{{ include_alias }} = Literal[{{ include_names | map('tojson') | join(', ') }}]
 {% else %}
 {{ include_alias }} = Literal[()]
 {% endif %}
 {% if sortable_columns %}
-{{ sortable_alias }} = Literal[{% for column in sortable_columns %}'{{ column.name }}'{% if not loop.last %}, {% endif %}{% endfor %}]
-{{ distinct_alias }} = Literal[{% for column in sortable_columns %}'{{ column.name }}'{% if not loop.last %}, {% endif %}{% endfor %}]
+{% set col_names = sortable_columns | map(attribute='name') | list %}
+{{ sortable_alias }} = Literal[{{ col_names | map('tojson') | join(', ') }}]
+{{ distinct_alias }} = Literal[{{ col_names | map('tojson') | join(', ') }}]
 {% else %}
 {{ sortable_alias }} = Literal[()]
 {{ distinct_alias }} = Literal[()]
@@ -67,17 +69,9 @@ class {{ table_class }}(TableProtocol):
     datasource = {{ model.datasource_expr }}
 {{ macros.column_specs(model.column_specs)|indent(4, True) }}
     column_specs_by_name: Mapping[str, ColumnSpec] = MappingProxyType({spec.name: spec for spec in column_specs})
-    primary_key: tuple[str, ...] = {{ model.primary_key_literal }}
-{% if model.primary_value_types %}
-    def primary_values(self, instance: {{ name }}) -> tuple[{% for pk_type in model.primary_value_types %}{{ pk_type }}{% if not loop.last %}, {% endif %}{% endfor %}]:
-        return (
-{%- for column in model.model_info.primary_key %}
-            instance.{{ column }},{% endfor %}
-        )
-{% else %}
-    def primary_values(self, instance: {{ name }}) -> tuple[()]:
-        return ()
-{% endif %}
+{% set pk_types = ['str'] * (model.model_info.primary_key | length) %}
+    primary_key: tuple[{{ pk_types | join(', ') }}] = {{ model.primary_key_literal }}
+
     indexes: tuple[tuple[str, ...], ...] = {{ model.indexes_literal }}
     unique_indexes: tuple[tuple[str, ...], ...] = {{ model.unique_indexes_literal }}
 {{ macros.foreign_keys(model.foreign_keys)|indent(4, True) }}
@@ -85,6 +79,12 @@ class {{ table_class }}(TableProtocol):
 {% if model.default_factories %}
 {% for factory in model.default_factories %}    {{ factory.var_name }} = {{ factory.expression }}
 {% endfor %}{% endif %}
+    def primary_values(self, instance: {{ name }}) -> tuple[{{ model.primary_value_types | join(', ') }}]:
+        return (
+            {% for pk in model.model_info.primary_key %}
+            instance.{{ pk }},
+            {% endfor %}
+        )
 
     @classmethod
     def serialize_insert(cls, data: {{ insert_class }} | Mapping[str, object]) -> dict[str, object]:

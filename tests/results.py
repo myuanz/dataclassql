@@ -53,9 +53,9 @@ class StringFilter(TypedDict, total=False, closed=True):
 
 
 
-TAddressIncludeCol = Literal['user']
-TAddressSortableCol = Literal['id', 'location', 'user_id']
-TAddressDistinctCol = Literal['id', 'location', 'user_id']
+TAddressIncludeCol = Literal["user"]
+TAddressSortableCol = Literal["id", "location", "user_id"]
+TAddressDistinctCol = Literal["id", "location", "user_id"]
 
 @dataclass(slots=True, kw_only=True)
 class AddressInsert:
@@ -112,9 +112,8 @@ class AddressTable(TableProtocol):
         ColumnSpec(name='user_id', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
     )
     column_specs_by_name: Mapping[str, ColumnSpec] = MappingProxyType({spec.name: spec for spec in column_specs})
-    primary_key: tuple[str, ...] = ('id',)
-    def primary_values(self, instance: Address) -> tuple[int]:
-        return (            instance.id,        )
+    primary_key: tuple[str] = ('id',)
+
     indexes: tuple[tuple[str, ...], ...] = ()
     unique_indexes: tuple[tuple[str, ...], ...] = ()
     foreign_keys: tuple[ForeignKeySpec, ...] = (
@@ -130,6 +129,10 @@ class AddressTable(TableProtocol):
         RelationSpec(name='user', table_name='UserTable', table_module=__name__, many=False, mapping=(('user_id', 'id'),), table_factory=lambda: UserTable),
     )
 
+    def primary_values(self, instance: Address) -> tuple[int]:
+        return (
+            instance.id,
+        )
 
     @classmethod
     def serialize_insert(cls, data: AddressInsert | Mapping[str, object]) -> dict[str, object]:
@@ -194,9 +197,9 @@ class AddressTable(TableProtocol):
     def delete_many(self, *, where: AddressWhereDict | None = None, return_records: Literal[True]) -> list[Address]: ...
     def delete_many(self, *, where: AddressWhereDict | None = None, return_records: Literal[False, True] = False) -> int | list[Address]:
         return self._backend.delete_many(self, where=where, return_records=return_records)
-TBirthDayIncludeCol = Literal['user']
-TBirthDaySortableCol = Literal['user_id', 'date']
-TBirthDayDistinctCol = Literal['user_id', 'date']
+TBirthDayIncludeCol = Literal["user"]
+TBirthDaySortableCol = Literal["user_id", "date"]
+TBirthDayDistinctCol = Literal["user_id", "date"]
 
 @dataclass(slots=True, kw_only=True)
 class BirthDayInsert:
@@ -247,9 +250,8 @@ class BirthDayTable(TableProtocol):
         ColumnSpec(name='date', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
     )
     column_specs_by_name: Mapping[str, ColumnSpec] = MappingProxyType({spec.name: spec for spec in column_specs})
-    primary_key: tuple[str, ...] = ('user_id',)
-    def primary_values(self, instance: BirthDay) -> tuple[int]:
-        return (            instance.user_id,        )
+    primary_key: tuple[str] = ('user_id',)
+
     indexes: tuple[tuple[str, ...], ...] = ()
     unique_indexes: tuple[tuple[str, ...], ...] = ()
     foreign_keys: tuple[ForeignKeySpec, ...] = (
@@ -265,6 +267,10 @@ class BirthDayTable(TableProtocol):
         RelationSpec(name='user', table_name='UserTable', table_module=__name__, many=False, mapping=(('user_id', 'id'),), table_factory=lambda: UserTable),
     )
 
+    def primary_values(self, instance: BirthDay) -> tuple[int]:
+        return (
+            instance.user_id,
+        )
 
     @classmethod
     def serialize_insert(cls, data: BirthDayInsert | Mapping[str, object]) -> dict[str, object]:
@@ -325,9 +331,9 @@ class BirthDayTable(TableProtocol):
     def delete_many(self, *, where: BirthDayWhereDict | None = None, return_records: Literal[True]) -> list[BirthDay]: ...
     def delete_many(self, *, where: BirthDayWhereDict | None = None, return_records: Literal[False, True] = False) -> int | list[BirthDay]:
         return self._backend.delete_many(self, where=where, return_records=return_records)
-TBookIncludeCol = Literal['users']
-TBookSortableCol = Literal['id', 'name']
-TBookDistinctCol = Literal['id', 'name']
+TBookIncludeCol = Literal["users"]
+TBookSortableCol = Literal["id", "name"]
+TBookDistinctCol = Literal["id", "name"]
 
 @dataclass(slots=True, kw_only=True)
 class BookInsert:
@@ -379,9 +385,8 @@ class BookTable(TableProtocol):
         ColumnSpec(name='name', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
     )
     column_specs_by_name: Mapping[str, ColumnSpec] = MappingProxyType({spec.name: spec for spec in column_specs})
-    primary_key: tuple[str, ...] = ('id',)
-    def primary_values(self, instance: Book) -> tuple[int]:
-        return (            instance.id,        )
+    primary_key: tuple[str] = ('id',)
+
     indexes: tuple[tuple[str, ...], ...] = (('name',),)
     unique_indexes: tuple[tuple[str, ...], ...] = ()
     foreign_keys: tuple[ForeignKeySpec, ...] = ()
@@ -390,6 +395,10 @@ class BookTable(TableProtocol):
         RelationSpec(name='users', table_name='UserBookTable', table_module=__name__, many=True, mapping=(('id', 'book_id'),), table_factory=lambda: UserBookTable),
     )
 
+    def primary_values(self, instance: Book) -> tuple[int]:
+        return (
+            instance.id,
+        )
 
     @classmethod
     def serialize_insert(cls, data: BookInsert | Mapping[str, object]) -> dict[str, object]:
@@ -450,9 +459,9 @@ class BookTable(TableProtocol):
     def delete_many(self, *, where: BookWhereDict | None = None, return_records: Literal[True]) -> list[Book]: ...
     def delete_many(self, *, where: BookWhereDict | None = None, return_records: Literal[False, True] = False) -> int | list[Book]:
         return self._backend.delete_many(self, where=where, return_records=return_records)
-TUserIncludeCol = Literal['addresses', 'birthday', 'books']
-TUserSortableCol = Literal['id', 'name', 'email', 'last_login', 'status', 'type', 'vip_level']
-TUserDistinctCol = Literal['id', 'name', 'email', 'last_login', 'status', 'type', 'vip_level']
+TUserIncludeCol = Literal["addresses", "birthday", "books"]
+TUserSortableCol = Literal["id", "name", "email", "last_login", "status", "type", "vip_level"]
+TUserDistinctCol = Literal["id", "name", "email", "last_login", "status", "type", "vip_level"]
 
 @dataclass(slots=True, kw_only=True)
 class UserInsert:
@@ -551,9 +560,8 @@ class UserTable(TableProtocol):
         ColumnSpec(name='vip_level', optional=True, auto_increment=False, has_default=False, has_default_factory=False),
     )
     column_specs_by_name: Mapping[str, ColumnSpec] = MappingProxyType({spec.name: spec for spec in column_specs})
-    primary_key: tuple[str, ...] = ('id',)
-    def primary_values(self, instance: User) -> tuple[int]:
-        return (            instance.id,        )
+    primary_key: tuple[str] = ('id',)
+
     indexes: tuple[tuple[str, ...], ...] = (('name',), ('name', 'email'), ('last_login',),)
     unique_indexes: tuple[tuple[str, ...], ...] = (('name', 'email'),)
     foreign_keys: tuple[ForeignKeySpec, ...] = ()
@@ -564,6 +572,10 @@ class UserTable(TableProtocol):
         RelationSpec(name='books', table_name='UserBookTable', table_module=__name__, many=True, mapping=(('id', 'user_id'),), table_factory=lambda: UserBookTable),
     )
 
+    def primary_values(self, instance: User) -> tuple[int]:
+        return (
+            instance.id,
+        )
 
     @classmethod
     def serialize_insert(cls, data: UserInsert | Mapping[str, object]) -> dict[str, object]:
@@ -646,9 +658,9 @@ class UserTable(TableProtocol):
     def delete_many(self, *, where: UserWhereDict | None = None, return_records: Literal[True]) -> list[User]: ...
     def delete_many(self, *, where: UserWhereDict | None = None, return_records: Literal[False, True] = False) -> int | list[User]:
         return self._backend.delete_many(self, where=where, return_records=return_records)
-TUserBookIncludeCol = Literal['book', 'user']
-TUserBookSortableCol = Literal['user_id', 'book_id', 'created_at']
-TUserBookDistinctCol = Literal['user_id', 'book_id', 'created_at']
+TUserBookIncludeCol = Literal["book", "user"]
+TUserBookSortableCol = Literal["user_id", "book_id", "created_at"]
+TUserBookDistinctCol = Literal["user_id", "book_id", "created_at"]
 
 @dataclass(slots=True, kw_only=True)
 class UserBookInsert:
@@ -713,9 +725,8 @@ class UserBookTable(TableProtocol):
         ColumnSpec(name='created_at', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
     )
     column_specs_by_name: Mapping[str, ColumnSpec] = MappingProxyType({spec.name: spec for spec in column_specs})
-    primary_key: tuple[str, ...] = ('user_id', 'book_id')
-    def primary_values(self, instance: UserBook) -> tuple[int, int]:
-        return (            instance.user_id,            instance.book_id,        )
+    primary_key: tuple[str, str] = ('user_id', 'book_id')
+
     indexes: tuple[tuple[str, ...], ...] = (('created_at',),)
     unique_indexes: tuple[tuple[str, ...], ...] = ()
     foreign_keys: tuple[ForeignKeySpec, ...] = (
@@ -738,6 +749,11 @@ class UserBookTable(TableProtocol):
         RelationSpec(name='book', table_name='BookTable', table_module=__name__, many=False, mapping=(('book_id', 'id'),), table_factory=lambda: BookTable),
     )
 
+    def primary_values(self, instance: UserBook) -> tuple[int, int]:
+        return (
+            instance.user_id,
+            instance.book_id,
+        )
 
     @classmethod
     def serialize_insert(cls, data: UserBookInsert | Mapping[str, object]) -> dict[str, object]:
