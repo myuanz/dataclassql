@@ -8,6 +8,7 @@ from typing import Any, cast
 
 import pytest
 
+from dclassql import record_sql
 from dclassql.codegen import generate_client
 from dclassql.push import db_push
 from dclassql.runtime.backends.lazy import eager
@@ -79,14 +80,19 @@ def test_lazy_relations(tmp_path):
         client.lazy_birth_day.insert({"user_id": 1, "date": datetime(1990, 1, 1)})
         client.lazy_address.insert({"id": 1, "user_id": 1, "location": "Home"})
 
-        user = client.lazy_user.find_first(order_by={"id": "asc"})
+        with record_sql() as sqls:
+            user = client.lazy_user.find_first(order_by={"id": "asc"})
+        assert sqls == [('SELECT "id","name" FROM "LazyUser" ORDER BY "id" ASC LIMIT 1;', ())]
         user_repr = repr(user)
         assert "<LazyRelationList addresses (lazy)>" in user_repr
         assert f"<LazyRelation {LazyBirthDay.__name__} (lazy)>" in user_repr
 
         birthday_proxy = user.birthday
-        assert isinstance(birthday_proxy, LazyBirthDay)
         assert f"<LazyRelation {LazyBirthDay.__name__} (lazy)>" in repr(birthday_proxy)
+        with record_sql() as sqls:
+            _ = birthday_proxy.date
+        assert sqls == [('SELECT "user_id","date" FROM "LazyBirthDay" WHERE "user_id"=? LIMIT 1;', (1,))]
+        assert isinstance(birthday_proxy, LazyBirthDay)
         assert str(birthday_proxy.date).startswith("1990-01-01")
         birthday_loaded = user.birthday
         assert isinstance(birthday_loaded, LazyBirthDay)
@@ -95,11 +101,21 @@ def test_lazy_relations(tmp_path):
         addresses_proxy = user.addresses
         assert isinstance(addresses_proxy, list)
         assert "<LazyRelationList addresses (lazy)>" in repr(addresses_proxy)
-        assert len(addresses_proxy) == 1
-        assert isinstance(addresses_proxy[0], LazyAddress)
-        assert addresses_proxy[0].location == "Home"
+        with record_sql() as sqls:
+            length = len(addresses_proxy)
+            first_address = addresses_proxy[0]
+        assert sqls == [('SELECT "id","user_id","location" FROM "LazyAddress" WHERE "user_id"=?;', (1,))]
+        assert length == 1
+        assert isinstance(first_address, LazyAddress)
+        assert first_address.location == "Home"
 
-        address = client.lazy_address.find_first(order_by={"id": "asc"})
+        with record_sql() as sqls:
+            address = client.lazy_address.find_first(order_by={"id": "asc"})
+            _ = address.user.name
+        assert sqls == [
+            ('SELECT "id","user_id","location" FROM "LazyAddress" ORDER BY "id" ASC LIMIT 1;', ()),
+            ('SELECT "id","name" FROM "LazyUser" WHERE "id"=? LIMIT 1;', (1,)),
+        ]
         assert isinstance(address.user, LazyUser)
         assert address.user.name == "Alice"
         assert address.user is address.user
@@ -107,10 +123,23 @@ def test_lazy_relations(tmp_path):
         assert isinstance(user_addresses, list)
         assert user_addresses and user_addresses[0].location == "Home"
 
-        included = client.lazy_address.find_many(include={"user": True})
+        with record_sql() as sqls:
+            included = client.lazy_address.find_many(include={"user": True})
+        assert sqls == [
+            ('SELECT "id","user_id","location" FROM "LazyAddress";', ()),
+            ('SELECT "id","name" FROM "LazyUser" WHERE "id"=? LIMIT 1;', (1,)),
+        ]
         assert included[0].user.name == "Alice"
 
-        user_included = client.lazy_user.find_many(include={"addresses": True, "birthday": True})
+        with record_sql() as sqls:
+            user_included = client.lazy_user.find_many(include={"addresses": True, "birthday": True})
+        assert sqls == [
+            ('SELECT "id","name" FROM "LazyUser";', ()),
+            ('SELECT "user_id","date" FROM "LazyBirthDay" WHERE "user_id"=? LIMIT 1;', (1,)),
+            ('SELECT "id","user_id","location" FROM "LazyAddress" WHERE "user_id"=?;', (1,)),
+            ('SELECT "user_id","date" FROM "LazyBirthDay" WHERE "user_id"=? LIMIT 1;', (2,)),
+            ('SELECT "id","user_id","location" FROM "LazyAddress" WHERE "user_id"=?;', (2,)),
+        ]
         first_user = user_included[0]
         assert len(first_user.addresses) == 1
         assert isinstance(first_user.birthday, LazyBirthDay)
@@ -126,52 +155,108 @@ def test_lazy_relations(tmp_path):
         with pytest.raises(TypeError):
             eager(user_again.addresses)
 
-        users_with_birthday = client.lazy_user.find_many(
-            where={"birthday": {"IS_NOT": None}},
-            order_by={"id": "asc"},
-        )
+        with record_sql() as sqls:
+            users_with_birthday = client.lazy_user.find_many(
+                where={"birthday": {"IS_NOT": None}},
+                order_by={"id": "asc"},
+            )
+        assert sqls == [
+            (
+                'SELECT "id","name" FROM "LazyUser" WHERE EXISTS (SELECT 1 FROM "LazyBirthDay" WHERE "LazyBirthDay"."user_id"="LazyUser"."id") ORDER BY "id" ASC;',
+                (),
+            )
+        ]
         assert [user.id for user in users_with_birthday] == [1]
 
-        users_without_birthday = client.lazy_user.find_many(
-            where={"birthday": {"IS": None}},
-            order_by={"id": "asc"},
-        )
+        with record_sql() as sqls:
+            users_without_birthday = client.lazy_user.find_many(
+                where={"birthday": {"IS": None}},
+                order_by={"id": "asc"},
+            )
+        assert sqls == [
+            (
+                'SELECT "id","name" FROM "LazyUser" WHERE NOT EXISTS (SELECT 1 FROM "LazyBirthDay" WHERE "LazyBirthDay"."user_id"="LazyUser"."id") ORDER BY "id" ASC;',
+                (),
+            )
+        ]
         assert [user.id for user in users_without_birthday] == [2]
 
-        users_exact_birthday = client.lazy_user.find_many(
-            where={"birthday": {"IS": {"date": {"EQ": datetime(1990, 1, 1)}}}},
-            order_by={"id": "asc"},
-        )
+        with record_sql() as sqls:
+            users_exact_birthday = client.lazy_user.find_many(
+                where={"birthday": {"IS": {"date": {"EQ": datetime(1990, 1, 1)}}}},
+                order_by={"id": "asc"},
+            )
+        assert sqls == [
+            (
+                'SELECT "id","name" FROM "LazyUser" WHERE EXISTS (SELECT 1 FROM "LazyBirthDay" WHERE "LazyBirthDay"."user_id"="LazyUser"."id" AND "LazyBirthDay"."date"=?) ORDER BY "id" ASC;',
+                (datetime(1990, 1, 1),),
+            )
+        ]
         assert [user.id for user in users_exact_birthday] == [1]
 
-        users_not_specific_birthday = client.lazy_user.find_many(
-            where={"birthday": {"IS_NOT": {"date": {"EQ": datetime(1990, 1, 1)}}}},
-            order_by={"id": "asc"},
-        )
+        with record_sql() as sqls:
+            users_not_specific_birthday = client.lazy_user.find_many(
+                where={"birthday": {"IS_NOT": {"date": {"EQ": datetime(1990, 1, 1)}}}},
+                order_by={"id": "asc"},
+            )
+        assert sqls == [
+            (
+                'SELECT "id","name" FROM "LazyUser" WHERE NOT EXISTS (SELECT 1 FROM "LazyBirthDay" WHERE "LazyBirthDay"."user_id"="LazyUser"."id" AND "LazyBirthDay"."date"=?) ORDER BY "id" ASC;',
+                (datetime(1990, 1, 1),),
+            )
+        ]
         assert [user.id for user in users_not_specific_birthday] == [2]
 
-        users_with_some_address = client.lazy_user.find_many(
-            where={"addresses": {"SOME": {"location": {"EQ": "Home"}}}},
-            order_by={"id": "asc"},
-        )
+        with record_sql() as sqls:
+            users_with_some_address = client.lazy_user.find_many(
+                where={"addresses": {"SOME": {"location": {"EQ": "Home"}}}},
+                order_by={"id": "asc"},
+            )
+        assert sqls == [
+            (
+                'SELECT "id","name" FROM "LazyUser" WHERE EXISTS (SELECT 1 FROM "LazyAddress" WHERE "LazyAddress"."user_id"="LazyUser"."id" AND "LazyAddress"."location"=?) ORDER BY "id" ASC;',
+                ("Home",),
+            )
+        ]
         assert [user.id for user in users_with_some_address] == [1]
 
-        users_without_office = client.lazy_user.find_many(
-            where={"addresses": {"NONE": {"location": {"EQ": "Office"}}}},
-            order_by={"id": "asc"},
-        )
+        with record_sql() as sqls:
+            users_without_office = client.lazy_user.find_many(
+                where={"addresses": {"NONE": {"location": {"EQ": "Office"}}}},
+                order_by={"id": "asc"},
+            )
+        assert sqls == [
+            (
+                'SELECT "id","name" FROM "LazyUser" WHERE NOT EXISTS (SELECT 1 FROM "LazyAddress" WHERE "LazyAddress"."user_id"="LazyUser"."id" AND "LazyAddress"."location"=?) ORDER BY "id" ASC;',
+                ("Office",),
+            )
+        ]
         assert [user.id for user in users_without_office] == [1, 2]
 
-        users_without_any_address = client.lazy_user.find_many(
-            where={"addresses": {"NONE": None}},
-            order_by={"id": "asc"},
-        )
+        with record_sql() as sqls:
+            users_without_any_address = client.lazy_user.find_many(
+                where={"addresses": {"NONE": None}},
+                order_by={"id": "asc"},
+            )
+        assert sqls == [
+            (
+                'SELECT "id","name" FROM "LazyUser" WHERE NOT EXISTS (SELECT 1 FROM "LazyAddress" WHERE "LazyAddress"."user_id"="LazyUser"."id") ORDER BY "id" ASC;',
+                (),
+            )
+        ]
         assert [user.id for user in users_without_any_address] == [2]
 
-        users_address_every_contains = client.lazy_user.find_many(
-            where={"addresses": {"EVERY": {"location": {"CONTAINS": "o"}}}},
-            order_by={"id": "asc"},
-        )
+        with record_sql() as sqls:
+            users_address_every_contains = client.lazy_user.find_many(
+                where={"addresses": {"EVERY": {"location": {"CONTAINS": "o"}}}},
+                order_by={"id": "asc"},
+            )
+        assert sqls == [
+            (
+                'SELECT "id","name" FROM "LazyUser" WHERE NOT EXISTS (SELECT 1 FROM "LazyAddress" WHERE "LazyAddress"."user_id"="LazyUser"."id" AND NOT "LazyAddress"."location" LIKE ?) ORDER BY "id" ASC;',
+                ("%o%",),
+            )
+        ]
         assert [user.id for user in users_address_every_contains] == [1, 2]
 
     finally:

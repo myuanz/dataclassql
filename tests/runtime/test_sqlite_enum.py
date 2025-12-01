@@ -2,10 +2,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .conftest import prepare_database, build_enum_client, RuntimeState, StrEnumTest, IntEnumTest
-from dclassql.runtime.datasource import open_sqlite_connection
+from dclassql import record_sql
 from dclassql.push import db_push
-from .conftest import RuntimeEnumUser
+from dclassql.runtime.datasource import open_sqlite_connection
+
+from .conftest import (
+    IntEnumTest,
+    RuntimeEnumUser,
+    RuntimeState,
+    StrEnumTest,
+    build_enum_client,
+    prepare_database,
+)
 
 
 def test_enum_field_roundtrip(tmp_path: Path) -> None:
@@ -25,10 +33,21 @@ def test_enum_field_roundtrip(tmp_path: Path) -> None:
     table = client.runtime_enum_user
     InsertCls = namespace["RuntimeEnumUserInsert"]
 
-    inserted = table.insert(InsertCls(id=None, state=RuntimeState.ACTIVE, s1=StrEnumTest.SECOND, s2=IntEnumTest.TWO))
+    with record_sql() as sqls:
+        inserted = table.insert(InsertCls(id=None, state=RuntimeState.ACTIVE, s1=StrEnumTest.SECOND, s2=IntEnumTest.TWO))
+    assert sqls == [
+        (
+            'INSERT INTO "RuntimeEnumUser" ("id","state","s1","s2") VALUES (?,?,?,?) RETURNING "id", "state", "s1", "s2";',
+            (None, RuntimeState.ACTIVE.value, StrEnumTest.SECOND.value, IntEnumTest.TWO.value),
+        )
+    ]
     assert inserted.state is RuntimeState.ACTIVE
 
-    fetched = table.find_first(order_by={"id": "asc"})
+    with record_sql() as sqls:
+        fetched = table.find_first(order_by={"id": "asc"})
+    assert sqls == [
+        ('SELECT "id","state","s1","s2" FROM "RuntimeEnumUser" ORDER BY "id" ASC LIMIT 1;', ())
+    ]
     assert fetched is not None
     assert fetched.state is RuntimeState.ACTIVE
     assert isinstance(fetched.state, RuntimeState)
