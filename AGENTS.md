@@ -68,6 +68,7 @@
   - 载入模型后, 为每个 datasource 打开连接 (`runtime.datasource.open_sqlite_connection`)。
   - 调用 `db_push` 应用 schema 与索引。
 - CLI 出错直接抛异常; 统一由 `main()` 捕获并写至 stderr。
+- src/dclassql/client.py 是生成处理的文件, 不要试图直接编辑. 执行 pytest 后就会重建
 
 ## 辅助模块与工具
 - `db_pool.BaseDBPool` + `save_local` 装饰器: 在线程局部缓存数据库连接/对象, 提供 `close_all()` 释放资源。
@@ -82,6 +83,7 @@
   - `test_runtime_sqlite.py`: 集成测试 CRUD、懒加载、线程安全、批量插入与错误分支。
   - `test_cli.py`: 检查 `dql` 命令输出、生成文件与 push-db 功能。
   - `test_typecheck.py`: 调用 `uv run pyright` 验证类型错误能被检测。
+  - 本项目不大, 每次应当使用全量的 pytest, 避免部分测试
 - `tests/results.py` 存放期望的生成代码快照 (持续更新)。
 - 使用 `uv run pyright .` 检查项目类型, 项目不大, 不用特地只检查单独的文件, 每次都检查项目库
 - 完成一个功能点后, 更新 TARGET.md 中的路线图
