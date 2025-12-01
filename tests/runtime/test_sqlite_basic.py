@@ -210,17 +210,32 @@ def test_find_many_supports_distinct(tmp_path: Path) -> None:
 
     with record_sql() as sqls:
         distinct_users = user_table.find_many(order_by={"id": "asc"}, distinct="email")
-    assert sqls == [('SELECT "id","name","email" FROM "RuntimeUser" ORDER BY "id" ASC;', ())]
+    assert sqls == [
+        (
+            'SELECT "__d".* FROM (SELECT "id","name","email",ROW_NUMBER() OVER(PARTITION BY "email" ORDER BY "id" ASC) "rn" FROM "RuntimeUser") "__d" WHERE "__d"."rn"=1 ORDER BY "__d"."id" ASC;',
+            (),
+        )
+    ]
     assert [user.email for user in distinct_users] == ["shared@example.com", "unique@example.com"]
 
     with record_sql() as sqls:
         distinct_second = user_table.find_many(order_by={"id": "asc"}, distinct="email", skip=1)
-    assert sqls == [('SELECT "id","name","email" FROM "RuntimeUser" ORDER BY "id" ASC;', ())]
+    assert sqls == [
+        (
+            'SELECT "__d".* FROM (SELECT "id","name","email",ROW_NUMBER() OVER(PARTITION BY "email" ORDER BY "id" ASC) "rn" FROM "RuntimeUser") "__d" WHERE "__d"."rn"=1 ORDER BY "__d"."id" ASC LIMIT -1 OFFSET 1;',
+            (),
+        )
+    ]
     assert [user.email for user in distinct_second] == ["unique@example.com"]
 
     with record_sql() as sqls:
         multi_column = user_table.find_many(distinct=["email", "name"], order_by={"id": "asc"})
-    assert sqls == [('SELECT "id","name","email" FROM "RuntimeUser" ORDER BY "id" ASC;', ())]
+    assert sqls == [
+        (
+            'SELECT "__d".* FROM (SELECT "id","name","email",ROW_NUMBER() OVER(PARTITION BY "email","name" ORDER BY "id" ASC) "rn" FROM "RuntimeUser") "__d" WHERE "__d"."rn"=1 ORDER BY "__d"."id" ASC;',
+            (),
+        )
+    ]
     assert [user.name for user in multi_column] == ["n1", "n2", "n3"]
 
     client.__class__.close_all()

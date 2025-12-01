@@ -4,7 +4,9 @@ import sqlite3
 import threading
 from typing import Any, Literal, Mapping, Sequence, overload
 
+from pypika import analytics as an
 from pypika.dialects import SQLLiteQuery
+from pypika.enums import Order
 from pypika.queries import QueryBuilder
 
 from dclassql.typing import IncludeT, InsertT, ModelT, OrderByT, WhereT
@@ -117,6 +119,70 @@ class SQLiteBackend(BackendBase):
         connection = self._acquire_connection()
         result = self._execute_sql(connection, sql, params, fetch=False, auto_commit=auto_commit)
         return result
+
+    def find_many(
+        self,
+        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        *,
+        where: WhereT | None = None,
+        include: Mapping[str, bool] | None = None,
+        order_by: Mapping[str, str] | None = None,
+        distinct: Sequence[str] | str | None = None,
+        take: int | None = None,
+        skip: int | None = None,
+    ) -> list[ModelT]:
+        distinct_columns = self._normalize_distinct(table, distinct)
+        if not distinct_columns:
+            return super().find_many(
+                table,
+                where=where,
+                include=include,
+                order_by=order_by,
+                distinct=distinct,
+                take=take,
+                skip=skip,
+            )
+
+        sql_table = self.table_cls(table.model.__name__)
+        # 基础查询不带 order_by，方便后续在窗口与外层统一处理
+        base_query, params = self._build_select_query(table, sql_table, where, None)
+
+        partition_fields = [sql_table.field(col) for col in distinct_columns]
+        order_pairs: list[tuple[Any, Order]] = []
+        if order_by:
+            for col, direction in order_by.items():
+                direction_lower = direction.lower()
+                if direction_lower not in {"asc", "desc"}:
+                    raise ValueError("order_by direction must be 'asc' or 'desc'")
+                order_pairs.append((sql_table.field(col), Order[direction_lower]))
+        else:
+            for col in distinct_columns:
+                order_pairs.append((sql_table.field(col), Order.asc))
+
+        row_number = an.RowNumber().over(*partition_fields)
+        for field, ord_ in order_pairs:
+            row_number = row_number.orderby(field, order=ord_)
+        row_number = row_number.as_("rn")
+        inner_query = base_query.select(row_number)
+        sub = inner_query.as_("__d")
+        outer_query: QueryBuilder = self.query_cls.from_(sub).select(sub.star).where(sub.rn == 1)
+
+        if order_by:
+            for col, direction in order_by.items():
+                direction_lower = direction.lower()
+                outer_query = outer_query.orderby(getattr(sub, col), order=Order[direction_lower])
+
+        if take is not None:
+            outer_query = outer_query.limit(take)
+            if skip is not None:
+                outer_query = outer_query.offset(skip)
+        elif skip is not None:
+            outer_query = outer_query.limit(-1).offset(skip)
+
+        sql = outer_query.get_sql(quote_char=self.quote_char) + ";"
+        rows = self.query_raw(sql, params)
+        include_map = include or {}
+        return [self._materialize_instance(table, row, include_map) for row in rows]
 
 
     @overload

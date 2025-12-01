@@ -193,7 +193,33 @@ class BackendBase(BackendProtocol, ABC):
     ) -> list[ModelT]:
         sql_table = self.table_cls(table.model.__name__)
         distinct_columns = self._normalize_distinct(table, distinct)
-        select_query = self.query_cls.from_(sql_table).select(
+        select_query, params = self._build_select_query(table, sql_table, where, order_by)
+
+        if skip is not None and not distinct_columns:
+            select_query = select_query.offset(skip)
+        if take is not None and not distinct_columns:
+            select_query = select_query.limit(take)
+
+        sql = self._render_query(select_query)
+        rows = self.query_raw(sql, params)
+        row_list = list(rows)
+        if distinct_columns:
+            row_list = self._deduplicate_rows(row_list, distinct_columns)
+            if skip:
+                row_list = row_list[skip:]
+            if take is not None:
+                row_list = row_list[:take]
+        include_map = include or {}
+        return [self._materialize_instance(table, row, include_map) for row in row_list]
+
+    def _build_select_query(
+        self,
+        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        sql_table: Table,
+        where: WhereT | None,
+        order_by: Mapping[str, str] | None,
+    ) -> tuple[QueryBuilder, list[Any]]:
+        select_query: QueryBuilder = self.query_cls.from_(sql_table).select(
             *[sql_table.field(spec.name) for spec in table.column_specs]
         )
         params: list[Any] = []
@@ -213,22 +239,7 @@ class BackendBase(BackendProtocol, ABC):
                     raise ValueError("order_by direction must be 'asc' or 'desc'")
                 select_query = select_query.orderby(sql_table.field(column), order=Order[direction_lower])
 
-        if skip is not None and not distinct_columns:
-            select_query = select_query.offset(skip)
-        if take is not None and not distinct_columns:
-            select_query = select_query.limit(take)
-
-        sql = self._render_query(select_query)
-        rows = self.query_raw(sql, params)
-        row_list = list(rows)
-        if distinct_columns:
-            row_list = self._deduplicate_rows(row_list, distinct_columns)
-            if skip:
-                row_list = row_list[skip:]
-            if take is not None:
-                row_list = row_list[:take]
-        include_map = include or {}
-        return [self._materialize_instance(table, row, include_map) for row in row_list]
+        return select_query, params
 
     def find_first(
         self,
