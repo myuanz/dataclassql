@@ -181,21 +181,19 @@ def generate_client(models: Sequence[type[Any]]) -> GeneratedModule:
     renderer = _TypeRenderer({info.model: name for name, info in model_infos.items()})
     filter_registry = _ScalarFilterRegistry(renderer)
 
-    model_imports: dict[str, set[str]] = defaultdict(set)
+    model_imports: defaultdict[str, set[str]] = defaultdict(set)
     for info in model_infos.values():
-        module = info.model.__module__
-        model_imports.setdefault(module, set()).add(info.model.__name__)
+        model_imports[info.model.__module__].add(info.model.__name__)
 
     model_contexts = [
         _build_model_context(model_infos[name], renderer, model_infos, filter_registry)
         for name in sorted(model_infos.keys())
     ]
 
-    module_imports = renderer.build_imports()
-    combined_imports: dict[str, set[str]] = defaultdict(set)
+    combined_imports: defaultdict[str, set[str]] = defaultdict(set)
     for module, names in model_imports.items():
         combined_imports[module].update(names)
-    for module, names in module_imports.items():
+    for module, names in renderer.module_imports.items():
         combined_imports[module].update(names)
 
     import_blocks = [
@@ -897,7 +895,7 @@ class _ScalarFilterRegistry:
 class _TypeRenderer:
     def __init__(self, model_map: Mapping[type[Any], str]) -> None:
         self._model_map = dict(model_map)
-        self._module_imports: dict[str, set[str]] = defaultdict(set)
+        self._module_imports: defaultdict[str, set[str]] = defaultdict(set) # {module: set of names}
         self._typing_imports: set[str] = set()
 
     def render(self, tp: Any) -> str:
@@ -941,13 +939,14 @@ class _TypeRenderer:
             if tp.__module__ == "builtins":
                 return tp.__name__
             if tp.__module__ == "datetime":
-                self._module_imports.setdefault("datetime", set()).add(tp.__name__)
+                self._module_imports["datetime"].add(tp.__name__)
                 return tp.__name__
-            self._module_imports.setdefault(tp.__module__, set()).add(tp.__qualname__.split(".")[0])
+            self._module_imports[tp.__module__].add(tp.__qualname__.split(".")[0])
             return tp.__qualname__
         return repr(tp)
 
-    def build_imports(self) -> Mapping[str, set[str]]:
+    @property
+    def module_imports(self) -> defaultdict[str, set[str]]:
         return self._module_imports
 
     @property

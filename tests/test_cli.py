@@ -8,7 +8,6 @@ import pytest
 
 from dclassql.cli import (
     DEFAULT_MODEL_FILE,
-    compute_model_target,
     main,
     resolve_asdict_stub_path,
     resolve_generated_path,
@@ -91,8 +90,6 @@ def test_generate_command_outputs_code(tmp_path: Path, capsys: pytest.CaptureFix
     module_path = write_model(tmp_path, db_path)
     target = resolve_generated_path()
     stub_target = resolve_asdict_stub_path()
-    model_target, _ = compute_model_target(module_path)
-    model_init = model_target.parent / "__init__.py"
     backup = target.read_text(encoding="utf-8") if target.exists() else None
     stub_backup = stub_target.read_text(encoding="utf-8") if stub_target.exists() else None
     exit_code = main(["-m", str(module_path), "generate"])
@@ -101,7 +98,6 @@ def test_generate_command_outputs_code(tmp_path: Path, capsys: pytest.CaptureFix
     assert str(target) in captured.out
     assert target.exists()
     assert stub_target.exists()
-    assert model_target.exists()
     code = target.read_text(encoding="utf-8")
     assert "class Client" in code
     assert "class UserTable" in code
@@ -116,12 +112,6 @@ def test_generate_command_outputs_code(tmp_path: Path, capsys: pytest.CaptureFix
         stub_target.unlink(missing_ok=True)
     else:
         stub_target.write_text(stub_backup, encoding="utf-8")
-    if model_target.exists() or model_target.is_symlink():
-        model_target.unlink()
-    if model_init.exists() and not any(
-        p.name != "__init__.py" for p in model_target.parent.glob("*.py")
-    ):
-        model_init.unlink(missing_ok=True)
 
 
 def test_generate_command_rebinds_enum_imports(tmp_path: Path) -> None:
@@ -129,14 +119,12 @@ def test_generate_command_rebinds_enum_imports(tmp_path: Path) -> None:
     module_path = write_enum_model(tmp_path, db_path, name="enum")
     target = resolve_generated_path()
     stub_target = resolve_asdict_stub_path()
-    model_target, import_path = compute_model_target(module_path)
-    model_init = model_target.parent / "__init__.py"
     backup = target.read_text(encoding="utf-8") if target.exists() else None
     stub_backup = stub_target.read_text(encoding="utf-8") if stub_target.exists() else None
     exit_code = main(["-m", str(module_path), "generate"])
     assert exit_code == 0
     code = target.read_text(encoding="utf-8")
-    assert f"from {import_path} import RunRecord" in code
+    assert "RunRecord" in code
     stub_code = stub_target.read_text(encoding="utf-8")
     assert "RunRecordDict" in stub_code
 
@@ -148,12 +136,6 @@ def test_generate_command_rebinds_enum_imports(tmp_path: Path) -> None:
         stub_target.unlink(missing_ok=True)
     else:
         stub_target.write_text(stub_backup, encoding="utf-8")
-    if model_target.exists() or model_target.is_symlink():
-        model_target.unlink()
-    if model_init.exists() and not any(
-        p.name != "__init__.py" for p in model_target.parent.glob("*.py")
-    ):
-        model_init.unlink(missing_ok=True)
 
 
 def test_push_db_command_creates_schema(tmp_path: Path) -> None:

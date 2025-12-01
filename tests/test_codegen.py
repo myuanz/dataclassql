@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Literal, Mapping, NotRequired, Sequence, get_args, get_origin, get_type_hints
 from enum import Enum, StrEnum, IntEnum
 
-from dclassql.cli import compute_model_target, resolve_generated_path
+from dclassql.cli import resolve_generated_path
 from dclassql.codegen import generate_client
 from dclassql.runtime.backends import SQLiteBackend
 
@@ -460,15 +460,11 @@ def test_generated_client_supports_named_datasources() -> None:
 def test_generated_client_written_module_allows_direct_import(tmp_path: Path) -> None:
     module = generate_client([User])
     target = resolve_generated_path()
-    model_target, _ = compute_model_target(Path(__file__))
-    model_init = model_target.parent / "__init__.py"
     backup = target.read_text(encoding="utf-8") if target.exists() else None
     try:
         target.write_text(module.code, encoding="utf-8")
         for mod in (
             "dclassql.client",
-            "dclassql.generated_models",
-            f"dclassql.generated_models.{model_target.stem}",
         ):
             sys.modules.pop(mod, None)
         import dclassql as dql
@@ -481,16 +477,8 @@ def test_generated_client_written_module_allows_direct_import(tmp_path: Path) ->
             target.unlink(missing_ok=True)
         else:
             target.write_text(backup, encoding="utf-8")
-        if model_target.exists() or model_target.is_symlink():
-            model_target.unlink()
-        if model_init.exists() and not any(
-            p.name != "__init__.py" for p in model_init.parent.glob("*.py")
-        ):
-            model_init.unlink(missing_ok=True)
         for mod in (
             "dclassql.client",
-            "dclassql.generated_models",
-            f"dclassql.generated_models.{model_target.stem}",
         ):
             sys.modules.pop(mod, None)
         import dclassql as dql  # type: ignore[import]
