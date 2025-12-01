@@ -13,8 +13,6 @@ def _adapt_date_iso(value: _dt.date) -> str:
 
 
 def _adapt_datetime_iso(value: _dt.datetime) -> str:
-    if value.tzinfo is not None:
-        value = value.astimezone(_dt.timezone.utc).replace(tzinfo=None)
     return value.isoformat(sep="T")
 
 
@@ -40,4 +38,3 @@ def register_sqlite_adapters() -> None:
     sqlite3.register_converter("datetime", _convert_datetime_iso)
 
     _REGISTERED["done"] = True
-
