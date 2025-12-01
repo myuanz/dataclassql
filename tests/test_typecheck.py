@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,12 @@ import pytest
 from dclassql.codegen import generate_client
 
 __datasource__ = {"provider": "sqlite", "url": None}
+
+@dataclass
+class User:
+    id: int
+    name: str
+    email: str
 
 
 @pytest.mark.skipif(os.environ.get("SKIP_PYRIGHT_TESTS") == "1", reason="pyright check skipped")
@@ -18,13 +25,6 @@ def test_pyright_reports_missing_required_field(tmp_path: Path) -> None:
     global __datasource__
     __datasource__ = {"provider": "sqlite", "url": f"sqlite:///{db_path.as_posix()}"}
 
-    from dataclasses import dataclass
-
-    @dataclass
-    class User:
-        id: int
-        name: str
-        email: str
 
     module = generate_client([User])
     client_path = tmp_path / "client_module.py"
@@ -32,8 +32,7 @@ def test_pyright_reports_missing_required_field(tmp_path: Path) -> None:
 
     snippet = tmp_path / "snippet.py"
     snippet.write_text(
-        """
-from client_module import Client
+        """from .client_module import Client
 
 client = Client()
 client.user.insert({"name": "Alice", "email": "a@example.com"})
@@ -42,19 +41,15 @@ client.user.insert({"email": "missing"})
         encoding="utf-8",
     )
 
-    env = os.environ.copy()
-    pythonpath_entries = [tmp_path.as_posix(), env.get("PYTHONPATH", "")]
-    env["PYTHONPATH"] = ":".join([entry for entry in pythonpath_entries if entry])
-
     result = subprocess.run(
-        ["uv", "run", "pyright", str(snippet)],
-        cwd=tmp_path,
+        ["uv", "run", "pyright", str(snippet), "--verbose", ],
         capture_output=True,
         text=True,
-        env=env,
     )
 
     assert result.returncode != 0
 
     assert 'dict[str, str]' in result.stdout and 'UserInsertDict' in result.stdout, result.stdout
     assert 'reportArgumentType' in result.stdout, result.stdout
+    assert 'is not assignable to' in result.stdout, result.stdout
+    assert 'snippet.py:5:20 - error:' in result.stdout, result.stdout
