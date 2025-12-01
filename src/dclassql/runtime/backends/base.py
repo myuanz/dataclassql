@@ -34,7 +34,7 @@ class BackendBase(BackendProtocol, ABC):
     def insert(
         self,
         table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
-        data: InsertT | Mapping[str, object],
+        data: InsertT | ModelT | Mapping[str, object],
     ) -> ModelT:
         payload = table.serialize_insert(data)
         if not payload:
@@ -62,7 +62,7 @@ class BackendBase(BackendProtocol, ABC):
     def insert_many(
         self,
         table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
-        data: Sequence[InsertT | Mapping[str, object]],
+        data: Sequence[InsertT | ModelT | Mapping[str, object]],
         *,
         batch_size: int | None = None,
     ) -> list[ModelT]:
@@ -116,7 +116,7 @@ class BackendBase(BackendProtocol, ABC):
         *,
         where: UpsertWhereT,
         update: Mapping[str, object],
-        insert: InsertT | Mapping[str, object],
+        insert: InsertT | ModelT | Mapping[str, object],
         include: Mapping[str, bool] | None = None,
     ) -> ModelT:
         where_payload = dict(where)

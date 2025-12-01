@@ -106,7 +106,7 @@ class {{ table_class }}(TableProtocol):
         )
 
     @classmethod
-    def serialize_insert(cls, data: {{ insert_class }} | Mapping[str, object]) -> dict[str, object]:
+    def serialize_insert(cls, data: {{ insert_class }} | {{ name }} | Mapping[str, object]) -> dict[str, object]:
         if isinstance(data, Mapping):
             result: dict[str, object] = {}
 {% for column in model.column_specs %}
@@ -114,7 +114,7 @@ class {{ table_class }}(TableProtocol):
                 result[{{ column.name_repr }}] = {{ column.mapping_value_expr }}{{ '  # type: ignore[attr-defined]' if column.is_enum else '' }}
 {% endfor %}
             return result
-        if isinstance(data, {{ insert_class }}):
+        if isinstance(data, ({{ insert_class }}, {{ name }})):
             return {
 {% for column in model.column_specs %}                {{ column.name_repr }}: {{ column.insert_value_expr }},{{ '  # type: ignore[attr-defined]' if column.is_enum else '' }}
 {% endfor %}            }
@@ -138,10 +138,10 @@ class {{ table_class }}(TableProtocol):
     def __str__(self) -> str:
         return self._backend.escape_identifier(self.table_name)
 
-    def insert(self, data: {{ insert_class }} | {{ insert_dict_class }}) -> {{ name }}:
+    def insert(self, data: {{ insert_class }} | {{ name }} | {{ insert_dict_class }}) -> {{ name }}:
         return self._backend.insert(self, data)
 
-    def insert_many(self, data: Sequence[{{ insert_class }} | {{ insert_dict_class }}], *, batch_size: int | None = None) -> list[{{ name }}]:
+    def insert_many(self, data: Sequence[{{ insert_class }} | {{ name }} | {{ insert_dict_class }}], *, batch_size: int | None = None) -> list[{{ name }}]:
         return self._backend.insert_many(self, data, batch_size=batch_size)
 
     def update(self, *, data: {{ update_dict_class }}, where: {{ where_dict_class }}, include: {{ include_dict_class }} | None = None) -> {{ name }}:
@@ -159,7 +159,7 @@ class {{ table_class }}(TableProtocol):
         *,
         where: {{ upsert_where_alias }},
         update: {{ upsert_update_class }},
-        insert: {{ upsert_insert_class }} | {{ upsert_insert_dict_class }},
+        insert: {{ upsert_insert_class }} | {{ name }} | {{ upsert_insert_dict_class }},
         include: {{ include_dict_class }} | None = None,
     ) -> {{ name }}:
         return self._backend.upsert(self, where=where, update=update, insert=insert, include=include)

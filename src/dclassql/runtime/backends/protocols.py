@@ -25,7 +25,7 @@ class TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT](Protocol):
     column_specs_by_name: Mapping[str, ColumnSpec]
 
     @classmethod
-    def serialize_insert(cls, data: InsertT | Mapping[str, object]) -> dict[str, object]: ...
+    def serialize_insert(cls, data: InsertT | ModelT | Mapping[str, object]) -> dict[str, object]: ...
     @classmethod
     def serialize_update(cls, data: Mapping[str, object]) -> dict[str, object]: ...
 
@@ -51,7 +51,7 @@ class BackendProtocol(Protocol):
     def insert(
         self,
         table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
-        data: InsertT | Mapping[str, object],
+        data: InsertT | ModelT | Mapping[str, object],
     ) -> ModelT: ...
     def update(
         self,
@@ -67,14 +67,14 @@ class BackendProtocol(Protocol):
         *,
         where: UpsertWhereT,
         update: Mapping[str, object],
-        insert: InsertT | Mapping[str, object],
+        insert: InsertT | ModelT | Mapping[str, object],
         include: IncludeT | None = None,
     ) -> ModelT: ...
 
     def insert_many(
         self,
         table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
-        data: Sequence[InsertT | Mapping[str, object]],
+        data: Sequence[InsertT | ModelT | Mapping[str, object]],
         *,
         batch_size: int | None = None,
     ) -> list[ModelT]: ...

@@ -267,14 +267,14 @@ def test_generate_client_matches_expected_shape() -> None:
 
     insert_hints = get_type_hints(user_table_cls.insert, globalns=namespace, localns=namespace)
     insert_data_type = insert_hints['data']
-    assert set(get_args(insert_data_type)) == {user_insert_cls, user_insert_dict}
+    assert set(get_args(insert_data_type)) == {user_insert_cls, user_insert_dict, namespace['User']}
     assert insert_hints['return'] is namespace['User']
 
     insert_many_hints = get_type_hints(user_table_cls.insert_many, globalns=namespace, localns=namespace)
     insert_many_data = insert_many_hints['data']
     assert get_origin(insert_many_data) is ABCSequence
     inner_union = get_args(insert_many_data)[0]
-    assert set(get_args(inner_union)) == {user_insert_cls, user_insert_dict}
+    assert set(get_args(inner_union)) == {user_insert_cls, user_insert_dict, namespace['User']}
     assert insert_many_hints['return'] == list[namespace['User']]
     assert insert_many_hints['batch_size'] == int | None
 
@@ -364,6 +364,7 @@ def test_generate_client_matches_expected_shape() -> None:
     upsert_insert_args = set(get_args(upsert_insert_union))
     assert namespace['UserInsert'] in upsert_insert_args
     assert namespace['UserInsertDict'] in upsert_insert_args
+    assert namespace['User'] in upsert_insert_args
     assert upsert_hints['return'] is namespace['User']
 
     delete_hints = get_type_hints(user_table_cls.delete, globalns=namespace, localns=namespace)
