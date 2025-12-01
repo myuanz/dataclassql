@@ -31,8 +31,10 @@ def test_delete_returns_removed_row(tmp_path: Path) -> None:
     with record_sql() as sqls:
         deleted = user_table.delete(where={"id": first.id})
     assert sqls == [
-        ('SELECT "id","name","email" FROM "RuntimeUser" WHERE "id"=? LIMIT 1;', (first.id,)),
-        ('DELETE FROM "RuntimeUser" WHERE "id"=?;', (first.id,)),
+        (
+            'DELETE FROM "RuntimeUser" WHERE "id"=? RETURNING "id", "name", "email";',
+            (first.id,),
+        )
     ]
     assert deleted is not None
     assert deleted.id == first.id
@@ -40,7 +42,9 @@ def test_delete_returns_removed_row(tmp_path: Path) -> None:
 
     with record_sql() as sqls:
         missing = user_table.delete(where={"id": 999})
-    assert sqls == [('SELECT "id","name","email" FROM "RuntimeUser" WHERE "id"=? LIMIT 1;', (999,))]
+    assert sqls == [
+        ('DELETE FROM "RuntimeUser" WHERE "id"=? RETURNING "id", "name", "email";', (999,))
+    ]
     assert missing is None
     client.__class__.close_all()
 

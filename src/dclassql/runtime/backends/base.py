@@ -258,35 +258,29 @@ class BackendBase(BackendProtocol, ABC):
         where: WhereT,
         include: Mapping[str, bool] | None = None,
     ) -> ModelT | None:
-        target = self.find_first(table, where=where, include=include)
-        if target is None:
-            return None
-
-        pk_values = table.primary_values(target)
-
         sql_table = self.table_cls(table.model.__name__)
-        criterion: Criterion | None = None
-        params: list[Any] = []
-        for column, value in zip(table.primary_key, pk_values):
-            field = sql_table.field(column)
-            cond = field == self.new_parameter()
-            criterion = cond if criterion is None else criterion & cond
-            params.append(value)
-
         delete_query: QueryBuilder = self.query_cls.from_(sql_table).delete()
-        if criterion is not None:
-            delete_query = delete_query.where(criterion)
+        criterion, params = self._compile_where(table, sql_table, where)
+        if criterion is None:
+            raise ValueError("delete() requires a where clause")
+        delete_query = delete_query.where(criterion)
         sql = self._render_query(delete_query)
-        affected = self.execute_raw(sql, params, auto_commit=True)
-        identity_key = (table.model, pk_values)
-        if affected == 0:
-            self._identity_map.pop(identity_key, None)
+        returning_columns = [spec.name for spec in table.column_specs]
+        sql_with_returning = self._append_returning(sql, returning_columns)
+        rows = self.query_raw(sql_with_returning, params, auto_commit=True)
+        if not rows:
             return None
-        if affected not in (0, 1):
-            raise RuntimeError(f"delete() unexpectedly affected {affected} rows")
+        if len(rows) != 1:
+            raise RuntimeError(f"delete() expected exactly 1 row, got {len(rows)}")
 
-        self._identity_map.pop(identity_key, None)
-        return target
+        row = rows[0]
+        include_map = include or {}
+        instance = self._materialize_instance(table, row, include_map)
+        identity_key = self._identity_key(table, row)
+        if identity_key is not None:
+            self._identity_map.pop(identity_key, None)
+        self._invalidate_backrefs(table, instance)
+        return instance
 
     @overload
     def delete_many(
