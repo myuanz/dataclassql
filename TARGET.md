@@ -138,6 +138,13 @@ class UserTable:
 - [ ] 多个数据源文件的客户端
 - [x] 静态化数据库序列化和反序列化
 - [x] 枚举字段读写转换, 支持 Python Enum 与数据库值的往返映射
+- [x] update/update_many
+  - [x] 实现update与prisma一致, 返回更新后的对象, update_many有两个重载, 是关于 return_records: Literal[True, False] 的, 前者返回所有更新后的记录, 后者仅返回数量, 后者是默认重载. 
+- [x] upsert 也对标prisma, 有三参数: where/update/insert. 该实现尽量基于原生 sql
+- [x] delete/delete_many 暂不考虑级联删除的问题
+  - [x] delete 默认返回被删除的条目, 如果条目不存在则 None
+  - [x] delete_many 同 update_many
+- [x] 提供 record_sql 上下文以捕获精确 SQL 与参数, 便于调试
 
 # 设计
 

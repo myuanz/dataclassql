@@ -50,6 +50,7 @@
 - `runtime/backends.base.BackendBase`:
   - 定义通用 CRUD 实现, 支持 typed insert payload (dataclass、TypedDict、Mapping)。
   - 提供 identity map 与关系懒加载 (`ensure_lazy_state`/`resolve_lazy_relation`)。
+  - delete/delete_many、update/update_many、insert/insert_many、find_first/find_many
 - `runtime/backends.sqlite.SQLiteBackend`:
   - 基于 sqlite3, 可接受连接或线程局部工厂, 实现批量插入、`query_raw`/`execute_raw`。
   - 默认使用 `sqlite3.Row` 作为 row factory, 保证列名访问。
@@ -83,6 +84,9 @@
   - `test_typecheck.py`: 调用 `uv run pyright` 验证类型错误能被检测。
 - `tests/results.py` 存放期望的生成代码快照 (持续更新)。
 - 使用 `uv run pyright .` 检查项目类型, 项目不大, 不用特地只检查单独的文件, 每次都检查项目库
+- 完成一个功能点后, 更新 TARGET.md 中的路线图
+- 尽量少用 getattr, 本项目有静态分析阶段, 很多东西明确是已知的.
+- 少在 ModelRenderContext 新增字段, 能在jinja里写的渲染逻辑直接在jinja实现, 能复用已有字段的尽量复用
 
 ## 代码风格
 - 少多 Any 和 cast, 多用泛型, 特别是3.12+的泛型语法`def f[T](x: T, y: T) -> T: ...`
@@ -97,8 +101,3 @@
 - 外键在数据库层面仍为“虚拟外键”(不创建真实约束), 依赖运行时约定。
 - 包含机制目前基于懒加载与 `include` bool map, 不支持复杂嵌套查询条件。
 
-## 最新进展
-- where 子句支持 Prisma 风格的标量过滤、AND/OR/NOT 组合, 并新增 `*RelationFilter` 结构及运行时子查询编译, 可表达 `IS/IS_NOT/SOME/NONE/EVERY` 等关系筛选。
-- `WhereCompiler` 抽离为独立模块, 统一负责 SQL 条件生成。
-- 代码生成自动导出对应 RelationFilter 类型, 测试覆盖已更新。
-- `Client` 与 backend 增加 `echo_sql` 参数, 所有 SQL 通过标准化执行入口 `_execute_sql` 处理并可统一日志输出。
