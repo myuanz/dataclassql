@@ -7,11 +7,12 @@ from weakref import ReferenceType, ref
 
 from pypika import Query, Table
 from pypika.enums import Order
-from pypika.terms import Criterion, Parameter
 from pypika.queries import QueryBuilder
+from pypika.terms import Criterion, Parameter
 from pypika.utils import format_quotes
 
-from dclassql.typing import IncludeT, InsertT, ModelT, OrderByT, WhereT, UpsertWhereT
+from dclassql.runtime.sql_recorder import push_sql
+from dclassql.typing import IncludeT, InsertT, ModelT, OrderByT, UpsertWhereT, WhereT
 
 from .lazy import ensure_lazy_state, finalize_lazy_state, reset_lazy_backref
 from .protocols import BackendProtocol, RelationSpec, TableProtocol
@@ -580,13 +581,8 @@ class BackendBase(BackendProtocol, ABC):
         return criterion, compiler.params
 
     def _log_sql(self, sql: str, params: Sequence[object] | None) -> None:
-        if not self._echo_sql:
-            return
-        if params is None:
-            display_params = []
-        else:
-            display_params = list(params)
-        print(f"[dclassql] SQL: {sql} | params={display_params}")
+        params_seq = list(params) if params is not None else []
+        push_sql(sql, params_seq, echo=self._echo_sql)
 
     def _normalize_distinct(
         self,

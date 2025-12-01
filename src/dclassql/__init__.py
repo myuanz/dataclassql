@@ -1,9 +1,11 @@
-from .model_inspector import DataSourceConfig
+from .asdict import asdict
 from .db_pool import BaseDBPool, save_local
+from .model_inspector import DataSourceConfig
 from .push import db_push
 from .runtime.backends.lazy import eager
-from .asdict import asdict
+from .runtime.sql_recorder import record_sql
 from .unwarp import unwarp, unwarp_or, unwarp_or_raise
+
 
 class _MissingClient:
     def __init__(self, *args: object, **kwargs: object) -> None:
@@ -28,4 +30,5 @@ __all__ = [
     'BaseDBPool',
     'save_local',
     'DataSourceConfig',
+    'record_sql',
 ]
