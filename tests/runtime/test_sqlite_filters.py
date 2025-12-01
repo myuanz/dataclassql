@@ -53,7 +53,12 @@ def test_where_filters_support_scalar_operations(tmp_path: Path):
 
     with record_sql() as sqls:
         not_results = user_table.find_many(where={"name": {"NOT": "Alice"}}, order_by={"name": "asc"})
-    assert sqls == [('SELECT "id","name","email" FROM "RuntimeUser" WHERE NOT "name"=? ORDER BY "name" ASC;', ("Alice",))]
+    assert sqls == [
+        (
+            'SELECT "id","name","email" FROM "RuntimeUser" WHERE "name"<>? OR "name" IS NULL ORDER BY "name" ASC;',
+            ("Alice",),
+        )
+    ]
     assert [row.name for row in not_results] == ["Bob", "Charlie"]
 
     with record_sql() as sqls:

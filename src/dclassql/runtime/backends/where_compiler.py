@@ -167,9 +167,11 @@ class WhereCompiler:
         if operator == "NOT":
             if isinstance(operand, ABCMapping):
                 compiled = self._compile_filter(field, operand)
-            else:
-                compiled = self._compile_direct(field, operand)
-            return compiled.negate() if compiled is not None else None
+                return compiled.negate() if compiled is not None else None
+            if operand is None:
+                return field.isnull().negate()
+            bound = self._bind_value(operand)
+            return (field != bound) | field.isnull()
         raise ValueError(f"Unsupported filter operator '{operator}'")
 
     def _apply_like(self, field: Field, pattern: str) -> Criterion:
