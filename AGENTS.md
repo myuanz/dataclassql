@@ -16,7 +16,6 @@
 - `src/dclassql/push/`: 数据库 schema 推送逻辑, 当前实现 `SQLitePusher`。
 - `src/dclassql/runtime/`: 运行时后端、懒加载关系、数据源解析与 sqlite 适配器。
 - `src/dclassql/cli.py`: `dql` 命令入口, 提供 `generate` / `push-db` 子命令。
-- `src/dclassql/generated_models/`: 生成模型样例 (用于测试/示例)。
 - `tests/`: 覆盖 CLI、代码生成、schema 推送、运行时、类型检查等场景。
 
 ## 代码生成流水线
@@ -27,7 +26,7 @@
   - `*Table` 类: 封装 `insert` / `insert_many` / `find_many` / `find_first` 等方法, 依赖运行时后端。
   - `*Insert` dataclass、`*InsertDict` / `*WhereDict` / `*IncludeDict` / `*OrderByDict` TypedDict, 以及 `T*IncludeCol` / `T*SortableCol` Literal 类型别名。
   - `ForeignKeySpec`、`ColumnSpec`、`RelationSpec` 等元信息用于运行时懒加载。
-- 生成代码写入安装包内的 `dclassql/client.py`, 模型文件通过 `generated_models` 目录中的符号链接或备份副本暴露。
+- 生成代码写入安装包内的 `dclassql/client.py`
 
 ## 数据模型解析
 - `model_inspector.inspect_models`:
@@ -62,8 +61,8 @@
 ## CLI 与工具链
 - 安装后提供 `dql` 命令 (在 `pyproject.toml` 注册)。
 - `dql -m model.py generate`:
-  - 载入模型模块 (`importlib.util`), 收集 dataclass, 调整 `__module__` 以生成 typed 代码。
-  - 写入生成客户端, 同时在 `generated_models/` 下维护模型文件的符号链接/副本。
+  - 载入模型模块 (`importlib.util`), 收集 dataclass, 生成 typed 代码。
+  - 写入生成客户端
 - `dql -m model.py push-db`:
   - 载入模型后, 为每个 datasource 打开连接 (`runtime.datasource.open_sqlite_connection`)。
   - 调用 `db_push` 应用 schema 与索引。
@@ -74,7 +73,6 @@
 - `db_pool.BaseDBPool` + `save_local` 装饰器: 在线程局部缓存数据库连接/对象, 提供 `close_all()` 释放资源。
 - `typing.py` 定义生成器使用的泛型 TypeVar (`ModelT`, `InsertT` 等)。
 - `unwarp.py` 提供 `unwarp_or`/`unwarp_or_raise` 等辅助函数, 在生成代码中用于处理可空值。
-- `generated_models/exchange_info.py`: 存放示例 dataclass 模型 (交易所信息) 供测试/演示。
 
 ## 测试与质量保障
 - 使用 `pytest` (见 `tests/`) 覆盖:
@@ -102,4 +100,3 @@
 - 查询 API 聚焦基本 CRUD, 未来计划扩展更复杂的查询能力和更多数据库驱动 (见 `TARGET.md` 路线图)。
 - 外键在数据库层面仍为“虚拟外键”(不创建真实约束), 依赖运行时约定。
 - 包含机制目前基于懒加载与 `include` bool map, 不支持复杂嵌套查询条件。
-
