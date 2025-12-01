@@ -25,6 +25,7 @@ class BackendBase(BackendProtocol, ABC):
     query_cls: type[Query] = Query
     table_cls: type[Table] = Table
     parameter_cls: type[Parameter] = Parameter
+    like_escape_char: str | None = "\\"
 
     def __init__(self, *, echo_sql: bool = False) -> None:
         self._identity_map: dict[tuple[type[Any], tuple[Any, ...]], list[ReferenceType[object]]] = {}

@@ -253,7 +253,7 @@ def test_lazy_relations(tmp_path):
             )
         assert sqls == [
             (
-                'SELECT "id","name" FROM "LazyUser" WHERE NOT EXISTS (SELECT 1 FROM "LazyAddress" WHERE "LazyAddress"."user_id"="LazyUser"."id" AND NOT "LazyAddress"."location" LIKE ?) ORDER BY "id" ASC;',
+                'SELECT "id","name" FROM "LazyUser" WHERE NOT EXISTS (SELECT 1 FROM "LazyAddress" WHERE "LazyAddress"."user_id"="LazyUser"."id" AND "LazyAddress"."location" NOT LIKE ? ESCAPE \'\\\') ORDER BY "id" ASC;',
                 ("%o%",),
             )
         ]

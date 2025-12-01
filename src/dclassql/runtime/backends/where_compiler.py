@@ -34,6 +34,23 @@ def combine_or(criteria: Sequence[Criterion | None]) -> Criterion | None:
     return result
 
 
+class EscapeLikeCriterion(Criterion):
+    def __init__(self, field: Field, parameter: Parameter, *, escape: str, negated: bool = False) -> None:
+        self._field = field
+        self._parameter = parameter
+        self._escape = escape
+        self._negated = negated
+
+    def negate(self) -> Criterion:
+        return EscapeLikeCriterion(self._field, self._parameter, escape=self._escape, negated=not self._negated)
+
+    def get_sql(self, **kwargs: object) -> str:  # type: ignore[override]
+        field_sql = self._field.get_sql(**kwargs)
+        param_sql = self._parameter.get_sql(**kwargs)
+        operator = "NOT LIKE" if self._negated else "LIKE"
+        return f"{field_sql} {operator} {param_sql} ESCAPE '{self._escape}'"
+
+
 class WhereCompiler:
     def __init__(
         self,
@@ -157,13 +174,13 @@ class WhereCompiler:
             return field >= self._bind_value(operand)
         if operator == "CONTAINS":
             text = ensure_string(operand, operator=operator)
-            return self._apply_like(field, f"%{text}%")
+            return self._apply_like(field, f"%{self._escape_like(text)}%")
         if operator == "STARTS_WITH":
             text = ensure_string(operand, operator=operator)
-            return self._apply_like(field, f"{text}%")
+            return self._apply_like(field, f"{self._escape_like(text)}%")
         if operator == "ENDS_WITH":
             text = ensure_string(operand, operator=operator)
-            return self._apply_like(field, f"%{text}")
+            return self._apply_like(field, f"%{self._escape_like(text)}")
         if operator == "NOT":
             if isinstance(operand, ABCMapping):
                 compiled = self._compile_filter(field, operand)
@@ -176,8 +193,21 @@ class WhereCompiler:
 
     def _apply_like(self, field: Field, pattern: str) -> Criterion:
         parameter = self._bind_value(pattern)
+        escape = self._backend.like_escape_char
+        if escape:
+            return EscapeLikeCriterion(field, parameter, escape=escape)
         # pypika 的 Field.like 允许 Term 参数, 但类型标注仅接受 str
         return field.like(parameter)  # type: ignore[arg-type]
+
+    def _escape_like(self, text: str) -> str:
+        escape = self._backend.like_escape_char
+        if not escape:
+            return text
+        return (
+            text.replace(escape, escape + escape)
+            .replace("%", escape + "%")
+            .replace("_", escape + "_")
+        )
 
     def _bind_value(self, value: object) -> Parameter:
         parameter = self._backend.new_parameter()

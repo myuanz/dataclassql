@@ -46,6 +46,7 @@ class BackendProtocol(Protocol):
     query_cls: type[Query]
     table_cls: type[Table]
     parameter_cls: type[Parameter]
+    like_escape_char: str | None
 
     def insert(
         self,

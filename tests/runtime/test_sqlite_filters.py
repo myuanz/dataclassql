@@ -24,7 +24,12 @@ def test_where_filters_support_scalar_operations(tmp_path: Path):
 
     with record_sql() as sqls:
         contains_results = user_table.find_many(where={"name": {"CONTAINS": "li"}}, order_by={"name": "asc"})
-    assert sqls == [('SELECT "id","name","email" FROM "RuntimeUser" WHERE "name" LIKE ? ORDER BY "name" ASC;', ("%li%",))]
+    assert sqls == [
+        (
+            'SELECT "id","name","email" FROM "RuntimeUser" WHERE "name" LIKE ? ESCAPE \'\\\' ORDER BY "name" ASC;',
+            ("%li%",),
+        )
+    ]
     assert [row.name for row in contains_results] == ["Alice", "Charlie"]
 
     with record_sql() as sqls:
@@ -36,7 +41,12 @@ def test_where_filters_support_scalar_operations(tmp_path: Path):
                 ]
             }
         )
-    assert sqls == [('SELECT "id","name","email" FROM "RuntimeUser" WHERE "name" LIKE ? AND "email"=?;', ("A%", "alice@example.com"))]
+    assert sqls == [
+        (
+            'SELECT "id","name","email" FROM "RuntimeUser" WHERE "name" LIKE ? ESCAPE \'\\\' AND "email"=?;',
+            ("A%", "alice@example.com"),
+        )
+    ]
     assert [row.name for row in and_results] == ["Alice"]
 
     with record_sql() as sqls:
@@ -65,5 +75,54 @@ def test_where_filters_support_scalar_operations(tmp_path: Path):
         null_results = user_table.find_many(where={"email": None})
     assert [row.name for row in null_results] == ["Bob"]
     assert sqls == [('SELECT "id","name","email" FROM "RuntimeUser" WHERE "email" IS NULL;', ())]
+
+    client.__class__.close_all()
+
+
+def test_like_escapes_special_chars(tmp_path: Path):
+    db_path = tmp_path / "escapes.db"
+    prepare_database(db_path)
+    namespace, client = build_client()
+    user_table = client.runtime_user
+    InsertModel = namespace["RuntimeUserInsert"]
+
+    user_table.insert_many(
+        [
+            InsertModel(id=None, name="50% off", email=None),
+            InsertModel(id=None, name="under_score", email=None),
+            InsertModel(id=None, name="mixed 100%_deal", email=None),
+            InsertModel(id=None, name="has [bracket]", email=None),
+        ]
+    )
+
+    with record_sql() as sqls:
+        percent_matches = user_table.find_many(where={"name": {"CONTAINS": "%"}}, order_by={"id": "asc"})
+    assert sqls == [
+        (
+            'SELECT "id","name","email" FROM "RuntimeUser" WHERE "name" LIKE ? ESCAPE \'\\\' ORDER BY "id" ASC;',
+            ("%\\%%",),
+        )
+    ]
+    assert [row.name for row in percent_matches] == ["50% off", "mixed 100%_deal"]
+
+    with record_sql() as sqls:
+        underscore_matches = user_table.find_many(where={"name": {"STARTS_WITH": "under_"}}, order_by={"id": "asc"})
+    assert sqls == [
+        (
+            'SELECT "id","name","email" FROM "RuntimeUser" WHERE "name" LIKE ? ESCAPE \'\\\' ORDER BY "id" ASC;',
+            ("under\\_%",),
+        )
+    ]
+    assert [row.name for row in underscore_matches] == ["under_score"]
+
+    with record_sql() as sqls:
+        bracket_matches = user_table.find_many(where={"name": {"CONTAINS": "["}}, order_by={"id": "asc"})
+    assert sqls == [
+        (
+            'SELECT "id","name","email" FROM "RuntimeUser" WHERE "name" LIKE ? ESCAPE \'\\\' ORDER BY "id" ASC;',
+            ("%[%",),
+        )
+    ]
+    assert [row.name for row in bracket_matches] == ["has [bracket]"]
 
     client.__class__.close_all()
