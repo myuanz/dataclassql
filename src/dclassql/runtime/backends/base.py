@@ -274,7 +274,7 @@ class BackendBase(BackendProtocol, ABC):
         delete_query: QueryBuilder = self.query_cls.from_(sql_table).delete()
         criterion, params = self._compile_where(table, sql_table, where)
         if criterion is None:
-            raise ValueError("delete() requires a where clause")
+            raise ValueError("delete() requires a where clause, if you want to delete more rows use delete_many()")
         delete_query = delete_query.where(criterion)
         sql = self._render_query(delete_query)
         returning_columns = [spec.name for spec in table.column_specs]
