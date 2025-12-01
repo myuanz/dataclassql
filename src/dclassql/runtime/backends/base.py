@@ -329,12 +329,12 @@ class BackendBase(BackendProtocol, ABC):
                 params.extend(where_params)
 
         sql = self._render_query(delete_query)
-        returning_columns = [spec.name for spec in table.column_specs]
-        sql_with_returning = self._append_returning(sql, returning_columns)
-        rows = self.query_raw(sql_with_returning, params, auto_commit=True)
-        include_map: Mapping[str, bool] = {}
 
         if return_records:
+            returning_columns = [spec.name for spec in table.column_specs]
+            sql_with_returning = self._append_returning(sql, returning_columns)
+            rows = self.query_raw(sql_with_returning, params, auto_commit=True)
+            include_map: Mapping[str, bool] = {}
             results: list[ModelT] = []
             for row in rows:
                 identity_key = self._identity_key(table, row)
@@ -344,11 +344,9 @@ class BackendBase(BackendProtocol, ABC):
                 results.append(instance)
             return results
 
-        for row in rows:
-            identity_key = self._identity_key(table, row)
-            if identity_key is not None:
-                self._identity_map.pop(identity_key, None)
-        return len(rows)
+        affected = self.execute_raw(sql, params, auto_commit=True)
+        self._purge_identity_map(table.model)
+        return affected
 
     @overload
     def update_many(
@@ -396,12 +394,12 @@ class BackendBase(BackendProtocol, ABC):
                 params.extend(where_params)
 
         sql = self._render_query(update_query)
-        returning_columns = [spec.name for spec in table.column_specs]
-        sql_with_returning = self._append_returning(sql, returning_columns)
-        rows = self.query_raw(sql_with_returning, params, auto_commit=True)
-        include_map: Mapping[str, bool] = {}
 
         if return_records:
+            returning_columns = [spec.name for spec in table.column_specs]
+            sql_with_returning = self._append_returning(sql, returning_columns)
+            rows = self.query_raw(sql_with_returning, params, auto_commit=True)
+            include_map: Mapping[str, bool] = {}
             results: list[ModelT] = []
             for row in rows:
                 identity_key = self._identity_key(table, row)
@@ -411,11 +409,9 @@ class BackendBase(BackendProtocol, ABC):
                 results.append(instance)
             return results
 
-        for row in rows:
-            identity_key = self._identity_key(table, row)
-            if identity_key is not None:
-                self._identity_map.pop(identity_key, None)
-        return len(rows)
+        affected = self.execute_raw(sql, params, auto_commit=True)
+        self._purge_identity_map(table.model)
+        return affected
 
     def _fetch_single(
         self,

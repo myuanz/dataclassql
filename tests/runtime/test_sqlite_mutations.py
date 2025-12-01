@@ -59,7 +59,7 @@ def test_delete_many_supports_count_and_records(tmp_path: Path) -> None:
 
     with record_sql() as sqls:
         deleted_count = user_table.delete_many(where={"email": None})
-    assert sqls == [('DELETE FROM "RuntimeUser" WHERE "email" IS NULL RETURNING "id", "name", "email";', ())]
+    assert sqls == [('DELETE FROM "RuntimeUser" WHERE "email" IS NULL;', ())]
     assert deleted_count == 1
 
     remaining_names = [row.name for row in user_table.find_many(order_by={"id": "asc"})]
@@ -115,9 +115,7 @@ def test_update_many_supports_count_and_records(tmp_path: Path) -> None:
 
     with record_sql() as sqls:
         updated_count = user_table.update_many(data={"email": "shared@example.com"}, where={"email": None})
-    assert sqls == [
-        ('UPDATE "RuntimeUser" SET "email"=? WHERE "email" IS NULL RETURNING "id", "name", "email";', ("shared@example.com",))
-    ]
+    assert sqls == [('UPDATE "RuntimeUser" SET "email"=? WHERE "email" IS NULL;', ("shared@example.com",))]
     assert updated_count == 1
 
     with record_sql() as sqls:
