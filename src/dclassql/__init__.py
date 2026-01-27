@@ -15,7 +15,7 @@ class _MissingClient:
 
 try:  # pragma: no cover - exercised in integration tests
     from .client import Client  # type: ignore
-except ModuleNotFoundError:  # pragma: no cover - fallback when未生成
+except (ModuleNotFoundError, ImportError):  # pragma: no cover - fallback when未生成
     Client = _MissingClient  # type: ignore[assignment]
 
 
