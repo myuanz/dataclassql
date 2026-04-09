@@ -10,7 +10,7 @@ from .unwarp import unwarp, unwarp_or, unwarp_or_raise
 class _MissingClient:
     def __init__(self, *args: object, **kwargs: object) -> None:
         raise RuntimeError(
-            "dclassql.Client 尚未生成。请先运行 `dql -m <model.py> generate` 生成客户端后再导入。"
+            "dclassql.Client 尚未生成。请先运行 `dclassql -m <model.py> generate` 生成客户端后再导入。"
         )
 
 try:  # pragma: no cover - exercised in integration tests

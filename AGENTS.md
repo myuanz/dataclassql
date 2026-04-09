@@ -15,7 +15,7 @@
 - `src/dclassql/model_inspector.py` 与 `table_spec.py`: 将 dataclass 转换为列、索引、外键等结构描述。
 - `src/dclassql/push/`: 数据库 schema 推送逻辑, 当前实现 `SQLitePusher`。
 - `src/dclassql/runtime/`: 运行时后端、懒加载关系、数据源解析与 sqlite 适配器。
-- `src/dclassql/cli.py`: `dql` 命令入口, 提供 `generate` / `push-db` 子命令。
+- `src/dclassql/cli.py`: `dclassql` 命令入口, 提供 `generate` / `push-db` 子命令。
 - `tests/`: 覆盖 CLI、代码生成、schema 推送、运行时、类型检查等场景。
 
 ## 代码生成流水线
@@ -59,11 +59,11 @@
 - `runtime/datasource.py` + `sqlite_adapters.py`: 解析 `sqlite:///...` URL, 注册日期/时间适配器, 构造连接。
 
 ## CLI 与工具链
-- 安装后提供 `dql` 命令 (在 `pyproject.toml` 注册)。
-- `dql -m model.py generate`:
+- 安装后提供 `dclassql` 命令 (在 `pyproject.toml` 注册)。
+- `dclassql -m model.py generate`:
   - 载入模型模块 (`importlib.util`), 收集 dataclass, 生成 typed 代码。
   - 写入生成客户端
-- `dql -m model.py push-db`:
+- `dclassql -m model.py push-db`:
   - 载入模型后, 为每个 datasource 打开连接 (`runtime.datasource.open_sqlite_connection`)。
   - 调用 `db_push` 应用 schema 与索引。
 - CLI 出错直接抛异常; 统一由 `main()` 捕获并写至 stderr。
@@ -79,7 +79,7 @@
   - `test_codegen*`: 校验生成代码结构、上下文数据、导出内容。
   - `test_sqlite_push.py`: 验证 schema/索引生成与重建逻辑、diff 报告。
   - `test_runtime_sqlite.py`: 集成测试 CRUD、懒加载、线程安全、批量插入与错误分支。
-  - `test_cli.py`: 检查 `dql` 命令输出、生成文件与 push-db 功能。
+  - `test_cli.py`: 检查 `dclassql` 命令输出、生成文件与 push-db 功能。
   - `test_typecheck.py`: 调用 `uv run pyright` 验证类型错误能被检测。
   - 本项目不大, 每次应当使用全量的 pytest, 避免部分测试
 - `tests/results.py` 存放期望的生成代码快照 (持续更新)。
