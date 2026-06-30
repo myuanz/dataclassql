@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import importlib
 from collections.abc import Mapping as ABCMapping
-from typing import Mapping, Sequence
+from typing import Mapping, Sequence, cast
 
 from pypika import Query, Table
 from pypika.queries import QueryBuilder
-from pypika.terms import Criterion, ExistsCriterion, Field, Parameter
+from pypika.terms import Criterion, ExistsCriterion, Field, Not, Parameter
 
 from dclassql.typing import IncludeT, InsertT, ModelT, OrderByT, WhereT
 from dclassql.utils.ensure import ensure_sequence, ensure_string
@@ -41,10 +41,14 @@ class EscapeLikeCriterion(Criterion):
         self._escape = escape
         self._negated = negated
 
-    def negate(self) -> Criterion:
-        return EscapeLikeCriterion(self._field, self._parameter, escape=self._escape, negated=not self._negated)
+    def negate(self) -> Not:
+        # PyPika 将 Term.negate() 标为 Not；这里的自定义条件只需要翻转自己的 SQL 操作符。
+        return cast(
+            Not,
+            EscapeLikeCriterion(self._field, self._parameter, escape=self._escape, negated=not self._negated),
+        )
 
-    def get_sql(self, **kwargs: object) -> str:  # type: ignore[override]
+    def get_sql(self, **kwargs: object) -> str:
         field_sql = self._field.get_sql(**kwargs)
         param_sql = self._parameter.get_sql(**kwargs)
         operator = "NOT LIKE" if self._negated else "LIKE"
