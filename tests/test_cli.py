@@ -66,7 +66,7 @@ def write_model(tmp_path: Path, db_path: Path, name: str | None = None) -> Path:
     module_path.write_text(
         MODEL_TEMPLATE.format(
             db_path=db_path.as_posix(),
-            datasource_name=name if name is not None else "None",
+            datasource_name=name,
         ),
         encoding="utf-8",
     )
@@ -78,7 +78,7 @@ def write_enum_model(tmp_path: Path, db_path: Path, name: str | None = None) -> 
     module_path.write_text(
         ENUM_MODEL_TEMPLATE.format(
             db_path=db_path.as_posix(),
-            datasource_name=name if name is not None else "None",
+            datasource_name=name,
         ),
         encoding="utf-8",
     )

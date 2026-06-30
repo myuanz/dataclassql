@@ -135,6 +135,7 @@ class UserTable:
   - [ ] json过滤器
   - [x] 关系过滤器
 - [x] echo sql 模式
+- [x] 运行时覆盖 datasource url, `Client(datasource=DataSourceConfig(...))` 并支持 `client.push_db()`
 - [ ] 多个数据源文件的客户端
 - [x] 静态化数据库序列化和反序列化
 - [x] 枚举字段读写转换, 支持 Python Enum 与数据库值的往返映射
@@ -154,8 +155,9 @@ class UserTable:
 - 使用 fake self 机制获取主键、索引、外键、唯键等信息
 - 不依赖 fastlite, 只依赖 sqlite-utils
 - 初期仅支持 `insert` / `insert_many` / `find_many` / `find_first` 的代码生成. Insert 支持 dataclass 与 TypedDict 两种结构, WhereDict 会独立生成并把所有列标注为可选
-- 每个模型模块通过模块级 `__datasource__ = {"provider": ..., "url": ...}` 指定数据源(目前仅支持 sqlite), 代码生成时会按 provider 分组构建表与客户端, 生成的 `Client` 在初始化时需要提供 `{provider: connection}` 的映射
+- 每个模型模块通过模块级 `__datasource__ = {"provider": ..., "url": ...}` 指定默认数据源(目前仅支持 sqlite), 单个生成客户端只对应一个 datasource
 - 生成结果包含 `DataSourceConfig`、`ForeignKeySpec` 等元信息, 以及 `T{Name}IncludeCol`/`T{Name}SortableCol` 字面量类型别名、`*Insert` dataclass、`*InsertDict`、`*WhereDict`、`*IncludeDict` 与 `*OrderByDict` TypedDict 组合、具体的 `*Table` 表访问类以及聚合的 `Client`
+- `Client(datasource=DataSourceConfig(...))` 可在运行时覆盖 url, `client.push_db()` 会使用同一份 datasource 配置推送 schema; provider 分派集中在连接和 backend 构造处
 - 每个 model 文件里需要写明数据源, 不同的 model 可以有不同的数据源. 在后面调用时按数据源分组使用. model 文件下可以定义模块变量 __datasource__ = {'provider': xxx, 'url': xxx}, 像 Prisma 一样, 提供器是数据库, url是连接url
     - 未来会支持其他数据库, 现在只关注 sqlite
     - 未来会支持从环境变量, 现在先不管

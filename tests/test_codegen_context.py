@@ -53,16 +53,11 @@ def test_client_context_binds_models_to_datasource_backends() -> None:
 
     client_ctx = _build_client_context(model_infos)
 
-    datasource_keys = [item.key for item in client_ctx.datasource_items]
-    assert datasource_keys == ["sqlite"]
-
-    backend_method = client_ctx.backend_methods[0]
-    assert backend_method.method_name == "_backend_sqlite"
+    assert client_ctx.datasource.key == "sqlite"
+    assert client_ctx.datasource.key_repr == "'sqlite'"
 
     user_binding = next(binding for binding in client_ctx.model_bindings if binding.model_name == "User")
     assert user_binding.attr_name == "user"
-    assert user_binding.backend_method == backend_method.method_name
-    assert user_binding.backend_method.startswith("_backend_")
     assert len(client_ctx.model_bindings) == len(model_infos)
 
 

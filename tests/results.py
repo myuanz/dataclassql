@@ -3,14 +3,16 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
-from typing import Any, Literal, Mapping, Sequence, NotRequired, overload
+from typing import Any, Callable, Literal, Mapping, Sequence, NotRequired, overload
 from typing_extensions import TypedDict
 
-from dclassql import DataSourceConfig
-from dclassql.db_pool import BaseDBPool, save_local
+from dclassql import DataSourceConfig, db_push
+from dclassql.db_pool import BaseDBPool
 from dclassql.runtime.backends import BackendProtocol, ColumnSpec, ForeignKeySpec, RelationSpec
 from dclassql.runtime.backends.protocols import TableProtocol
 from dclassql.runtime.datasource import open_sqlite_connection
+from dclassql.push.base import ExistingColumn, SchemaDiff, SchemaPlan
+from dclassql.model_inspector import ModelInfo
 
 from datetime import datetime
 from tests.test_codegen import Address, BirthDay, Book, Composite, User, UserBook, UserStatus, UserType, UserVIPLevel
@@ -1226,42 +1228,81 @@ class UserBookTable(TableProtocol):
     def delete_many(self, *, where: UserBookWhereDict | None = None, return_records: Literal[True]) -> list[UserBook]: ...
     def delete_many(self, *, where: UserBookWhereDict | None = None, return_records: Literal[False, True] = False) -> int | list[UserBook]:
         return self._backend.delete_many(self, where=where, return_records=return_records)
+ConfirmRebuildCallback = Callable[
+    [ModelInfo, SchemaPlan, tuple[ExistingColumn, ...] | None, SchemaDiff],
+    bool,
+]
+
+
 class Client(BaseDBPool):
-    _echo_sql: bool = False
-    datasources = {
-        'sqlite': DataSourceConfig(provider='sqlite', url='sqlite:///analytics.db', name=None),
-    }
+    datasource: DataSourceConfig = DataSourceConfig(
+        provider='sqlite',
+        url='sqlite:///analytics.db',
+        name=None,
+    )
+    datasource_key: str = 'sqlite'
 
-    @classmethod
-    @save_local
-    def _backend_sqlite(cls, *, echo_sql: bool | None = None) -> BackendProtocol:
-        config = cls.datasources['sqlite']
-        backend_echo = cls._echo_sql if echo_sql is None else echo_sql
-        if config.provider == 'sqlite':
-            from dclassql.runtime.backends.sqlite import SQLiteBackend
-            conn = open_sqlite_connection(config.url)
-            cls._setup_sqlite_db(conn)
-            return SQLiteBackend(conn, echo_sql=backend_echo)
-        raise ValueError(f"Unsupported provider '{config.provider}' for datasource 'sqlite'")
-
-    def __init__(self, *, echo_sql: bool = False) -> None:
+    def __init__(self, *, datasource: DataSourceConfig = datasource, echo_sql: bool = False) -> None:
+        self.datasource = datasource
         self._echo_sql = echo_sql
-        self.address = AddressTable(self._backend_sqlite(echo_sql=echo_sql))
-        self.birth_day = BirthDayTable(self._backend_sqlite(echo_sql=echo_sql))
-        self.book = BookTable(self._backend_sqlite(echo_sql=echo_sql))
-        self.composite = CompositeTable(self._backend_sqlite(echo_sql=echo_sql))
-        self.user = UserTable(self._backend_sqlite(echo_sql=echo_sql))
-        self.user_book = UserBookTable(self._backend_sqlite(echo_sql=echo_sql))
+        self._backend_instance: BackendProtocol | None = None
+        self.address = AddressTable(self._backend())
+        self.birth_day = BirthDayTable(self._backend())
+        self.book = BookTable(self._backend())
+        self.composite = CompositeTable(self._backend())
+        self.user = UserTable(self._backend())
+        self.user_book = UserBookTable(self._backend())
+
+    def _backend(self) -> BackendProtocol:
+        if self._backend_instance is None:
+            self._backend_instance = self._make_backend(self.datasource)
+        return self._backend_instance
+
+    def _make_backend(self, datasource: DataSourceConfig) -> BackendProtocol:
+        if datasource.provider == 'sqlite':
+            from dclassql.runtime.backends.sqlite import SQLiteBackend
+            return SQLiteBackend(lambda: self._open_connection(datasource), echo_sql=self._echo_sql)
+        raise ValueError(f"Unsupported provider '{datasource.provider}'")
+
+    def _open_connection(self, datasource: DataSourceConfig) -> Any:
+        if datasource.provider == 'sqlite':
+            conn = open_sqlite_connection(datasource.url)
+            self._setup_sqlite_db(conn)
+            return conn
+        raise ValueError(f"Unsupported provider '{datasource.provider}'")
+
+    def push_db(
+        self,
+        *,
+        sync_indexes: bool = False,
+        confirm_rebuild: ConfirmRebuildCallback | None = None,
+    ) -> None:
+        connection = self._open_connection(self.datasource)
+        try:
+            db_push(
+                (
+                    Address,
+                    BirthDay,
+                    Book,
+                    Composite,
+                    User,
+                    UserBook,
+                ),
+                {self.datasource_key: connection},
+                sync_indexes=sync_indexes,
+                confirm_rebuild=confirm_rebuild,
+            )
+        finally:
+            connection.close()
+
+    def close(self) -> None:
+        if self._backend_instance is not None:
+            self._backend_instance.close()
+            self._backend_instance = None
 
     @classmethod
     def close_all(cls, verbose: bool = False) -> None:
         super().close_all(verbose=verbose)
-        if hasattr(cls._local, '_backend_sqlite'):
-            backend = getattr(cls._local, '_backend_sqlite')
-            if hasattr(backend, 'close') and callable(getattr(backend, 'close')):
-                backend.close()
-            delattr(cls._local, '_backend_sqlite')
-
 __all__ = (
     "DataSourceConfig",
     "ForeignKeySpec",

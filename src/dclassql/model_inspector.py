@@ -48,7 +48,7 @@ class ModelInfo:
     datasource: 'DataSourceConfig'
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, frozen=True)
 class DataSourceConfig:
     provider: str
     url: str | None

@@ -131,7 +131,7 @@ class ModelRenderContext:
 
 
 @dataclass(slots=True)
-class ClientDatasourceContext:
+class ClientDataSourceContext:
     key: str
     key_repr: str
     provider_repr: str
@@ -140,23 +140,14 @@ class ClientDatasourceContext:
 
 
 @dataclass(slots=True)
-class BackendMethodContext:
-    key: str
-    key_repr: str
-    method_name: str
-
-
-@dataclass(slots=True)
 class ClientModelBindingContext:
     attr_name: str
     model_name: str
-    backend_method: str
 
 
 @dataclass(slots=True)
 class ClientContext:
-    datasource_items: tuple[ClientDatasourceContext, ...]
-    backend_methods: tuple[BackendMethodContext, ...]
+    datasource: ClientDataSourceContext
     model_bindings: tuple[ClientModelBindingContext, ...]
 
 
@@ -419,46 +410,31 @@ def _build_model_context(
 
 
 def _build_client_context(model_infos: Mapping[str, ModelInfo]) -> ClientContext:
-    datasource_configs: dict[str, DataSourceConfig] = {}
-    for info in model_infos.values():
-        datasource = info.datasource
-        key = datasource.name or datasource.provider
-        existing = datasource_configs.get(key)
-        if existing is None:
-            datasource_configs[key] = datasource
-        elif existing != datasource:
-            raise ValueError(f"Conflicting datasource key '{key}' for providers")
-
-    datasource_items = [
-        ClientDatasourceContext(
-            key=key,
-            key_repr=repr(key),
-            provider_repr=repr(ds.provider),
-            url_repr=repr(ds.url),
-            name_repr=repr(ds.name),
+    datasource_configs = {info.datasource for info in model_infos.values()}
+    if len(datasource_configs) != 1:
+        labels = ", ".join(
+            f"{ds.key}({ds.provider}, {ds.url!r})" for ds in sorted(datasource_configs, key=lambda item: item.key)
         )
-        for key, ds in sorted(datasource_configs.items())
-    ]
-
-    backend_methods: list[BackendMethodContext] = []
-    method_map: dict[str, str] = {}
-    for key in sorted(datasource_configs.keys()):
-        method_name = f"_backend_{_sanitize_identifier(key)}"
-        backend_methods.append(BackendMethodContext(key=key, key_repr=repr(key), method_name=method_name))
-        method_map[key] = method_name
+        raise ValueError(f"Generated Client can only use one datasource, got: {labels}")
+    datasource = next(iter(datasource_configs))
+    datasource_item = ClientDataSourceContext(
+        key=datasource.key,
+        key_repr=repr(datasource.key),
+        provider_repr=repr(datasource.provider),
+        url_repr=repr(datasource.url),
+        name_repr=repr(datasource.name),
+    )
 
     model_bindings = [
         ClientModelBindingContext(
             attr_name=_camel_to_snake(name),
             model_name=name,
-            backend_method=method_map[(model_infos[name].datasource.name or model_infos[name].datasource.provider)],
         )
         for name in sorted(model_infos.keys())
     ]
 
     return ClientContext(
-        datasource_items=tuple(datasource_items),
-        backend_methods=tuple(backend_methods),
+        datasource=datasource_item,
         model_bindings=tuple(model_bindings),
     )
 

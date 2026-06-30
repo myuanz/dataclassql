@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any, Literal, Mapping, NotRequired, Sequence, get_args, get_origin, get_type_hints
 from enum import Enum, StrEnum, IntEnum
 
+import pytest
+
 from dclassql.cli import resolve_generated_path
 from dclassql.codegen import generate_client
 from dclassql.runtime.backends import SQLiteBackend
@@ -183,12 +185,11 @@ def test_generate_client_matches_expected_shape() -> None:
     })
     assert insert_payload["status"] == namespace["UserStatus"].ACTIVE.value
 
-    ds_mapping = generated_client.datasources
-    assert ds_mapping == {
-        'sqlite': data_source_config(provider='sqlite', url='sqlite:///analytics.db', name=None)
-    }
+    assert generated_client.datasource == data_source_config(provider='sqlite', url='sqlite:///analytics.db', name=None)
+    assert generated_client.datasource_key == 'sqlite'
     init_hints = get_type_hints(generated_client.__init__, globalns=namespace, localns=namespace)
-    assert set(init_hints.keys()) == {"return", "echo_sql"}
+    assert set(init_hints.keys()) == {"return", "datasource", "echo_sql"}
+    assert init_hints["datasource"] is data_source_config
     assert init_hints["echo_sql"] == bool
     assert init_hints["return"] is type(None)
 
@@ -389,7 +390,7 @@ def test_generate_client_matches_expected_shape() -> None:
     assert delete_many_hints['return'] == int | list[namespace['User']]
 
 
-def test_generated_client_supports_named_datasources() -> None:
+def test_generated_client_rejects_multiple_datasources() -> None:
     module_name_primary = "tests.codegen_primary"
     module_name_secondary = "tests.codegen_secondary"
     primary_db = Path(tempfile.mkstemp(prefix="primary", suffix=".db")[1])
@@ -423,38 +424,199 @@ def test_generated_client_supports_named_datasources() -> None:
     SecondaryUser.__module__ = module_name_secondary
     setattr(secondary_module, "SecondaryUser", SecondaryUser)
 
-    namespace: dict[str, Any] = {}
-    generated_client_cls = None
     try:
-        module = generate_client([PrimaryUser, SecondaryUser])
-        exec(module.code, namespace)
-
-        generated_client = namespace["Client"]
-        generated_client_cls = generated_client
-        data_source_config = namespace["DataSourceConfig"]
-        expected_mapping = {
-            "primary": data_source_config(provider="sqlite", url=f"sqlite:///{primary_db.as_posix()}", name="primary"),
-            "secondary": data_source_config(provider="sqlite", url=f"sqlite:///{secondary_db.as_posix()}", name="secondary"),
-        }
-        assert generated_client.datasources == expected_mapping
-
-        primary_table_cls = namespace["PrimaryUserTable"]
-        secondary_table_cls = namespace["SecondaryUserTable"]
-        assert primary_table_cls.datasource == expected_mapping["primary"]
-        assert secondary_table_cls.datasource == expected_mapping["secondary"]
-
-        client = generated_client()
-        assert isinstance(client.primary_user, primary_table_cls)
-        assert isinstance(client.secondary_user, secondary_table_cls)
-        assert isinstance(client.primary_user._backend, SQLiteBackend)
-        assert isinstance(client.secondary_user._backend, SQLiteBackend)
+        with pytest.raises(ValueError, match="only use one datasource"):
+            generate_client([PrimaryUser, SecondaryUser])
     finally:
         sys.modules.pop(module_name_primary, None)
         sys.modules.pop(module_name_secondary, None)
         primary_db.unlink(missing_ok=True)
         secondary_db.unlink(missing_ok=True)
-        if generated_client_cls is not None:
-            generated_client_cls.close_all()
+
+
+def test_generated_client_supports_named_single_datasource() -> None:
+    module_name = "tests.codegen_named_single"
+    db_path = Path(tempfile.mkstemp(prefix="named", suffix=".db")[1])
+    model_module = types.ModuleType(module_name)
+    setattr(model_module, "__datasource__", {
+        "provider": "sqlite",
+        "url": f"sqlite:///{db_path.as_posix()}",
+        "name": "analytics",
+    })
+    sys.modules[module_name] = model_module
+
+    @dataclass
+    class NamedUser:
+        id: int
+
+    NamedUser.__module__ = module_name
+    setattr(model_module, "NamedUser", NamedUser)
+
+    try:
+        namespace: dict[str, Any] = {}
+        module = generate_client([NamedUser])
+        exec(module.code, namespace)
+
+        generated_client = namespace["Client"]
+        data_source_config = namespace["DataSourceConfig"]
+        expected_datasource = data_source_config(
+            provider="sqlite",
+            url=f"sqlite:///{db_path.as_posix()}",
+            name="analytics",
+        )
+        assert generated_client.datasource == expected_datasource
+        assert generated_client.datasource_key == "analytics"
+
+        table_cls = namespace["NamedUserTable"]
+        assert table_cls.datasource == expected_datasource
+        client = generated_client()
+        try:
+            assert isinstance(client.named_user, table_cls)
+            assert isinstance(client.named_user._backend, SQLiteBackend)
+            assert client.named_user._backend is client._backend()
+        finally:
+            client.close()
+    finally:
+        sys.modules.pop(module_name, None)
+        db_path.unlink(missing_ok=True)
+
+
+def test_generated_client_dynamic_datasource_pushes_and_uses_override_url(tmp_path: Path) -> None:
+    module_name = "tests.codegen_dynamic_datasource"
+    default_db = tmp_path / "default.db"
+    override_db = tmp_path / "override.db"
+    model_module = types.ModuleType(module_name)
+    setattr(model_module, "__datasource__", {
+        "provider": "sqlite",
+        "url": f"sqlite:///{default_db.as_posix()}",
+    })
+    sys.modules[module_name] = model_module
+
+    @dataclass
+    class Person:
+        id: int
+        name: str
+
+    Person.__module__ = module_name
+    setattr(model_module, "Person", Person)
+
+    try:
+        namespace: dict[str, Any] = {}
+        module = generate_client([Person])
+        exec(module.code, namespace)
+
+        client_cls = namespace["Client"]
+        data_source_config = namespace["DataSourceConfig"]
+        client = client_cls(
+            datasource=data_source_config(
+                provider="sqlite",
+                url=f"sqlite:///{override_db.as_posix()}",
+            )
+        )
+        try:
+            client.push_db()
+            client.person.insert({"name": "Alice"})
+            rows = client.person.find_many()
+            assert [row.name for row in rows] == ["Alice"]
+        finally:
+            client.close()
+
+        assert override_db.exists()
+        assert not default_db.exists()
+        conn = sqlite3.connect(override_db)
+        try:
+            count = conn.execute('SELECT COUNT(*) FROM "Person"').fetchone()[0]
+        finally:
+            conn.close()
+        assert count == 1
+    finally:
+        sys.modules.pop(module_name, None)
+
+
+def test_generated_client_dynamic_datasource_instances_do_not_share_backend(tmp_path: Path) -> None:
+    module_name = "tests.codegen_dynamic_datasource_isolation"
+    model_module = types.ModuleType(module_name)
+    setattr(model_module, "__datasource__", {
+        "provider": "sqlite",
+        "url": f"sqlite:///{(tmp_path / 'default.db').as_posix()}",
+    })
+    sys.modules[module_name] = model_module
+
+    @dataclass
+    class Person:
+        id: int
+        name: str
+
+    Person.__module__ = module_name
+    setattr(model_module, "Person", Person)
+
+    try:
+        namespace: dict[str, Any] = {}
+        module = generate_client([Person])
+        exec(module.code, namespace)
+
+        client_cls = namespace["Client"]
+        data_source_config = namespace["DataSourceConfig"]
+
+        db_a = tmp_path / "a.db"
+        db_b = tmp_path / "b.db"
+        client_a = client_cls(
+            datasource=data_source_config(provider="sqlite", url=f"sqlite:///{db_a.as_posix()}")
+        )
+        client_b = client_cls(
+            datasource=data_source_config(provider="sqlite", url=f"sqlite:///{db_b.as_posix()}")
+        )
+        try:
+            client_a.push_db()
+            client_b.push_db()
+            client_a.person.insert({"name": "Alice"})
+            client_b.person.insert({"name": "Bob"})
+
+            assert [row.name for row in client_a.person.find_many()] == ["Alice"]
+            assert [row.name for row in client_b.person.find_many()] == ["Bob"]
+            assert client_a.person._backend is client_a._backend()
+            assert client_b.person._backend is client_b._backend()
+            assert client_a.person._backend is not client_b.person._backend
+        finally:
+            client_a.close()
+            client_b.close()
+    finally:
+        sys.modules.pop(module_name, None)
+
+
+def test_generated_client_allows_non_identifier_datasource_name(tmp_path: Path) -> None:
+    module_name = "tests.codegen_non_identifier_datasource_key"
+    db_path = tmp_path / "invalid-name.db"
+    model_module = types.ModuleType(module_name)
+    setattr(model_module, "__datasource__", {
+        "provider": "sqlite",
+        "url": f"sqlite:///{db_path.as_posix()}",
+        "name": "not-valid",
+    })
+    sys.modules[module_name] = model_module
+
+    @dataclass
+    class Person:
+        id: int
+
+    Person.__module__ = module_name
+    setattr(model_module, "Person", Person)
+
+    try:
+        namespace: dict[str, Any] = {}
+        module = generate_client([Person])
+        exec(module.code, namespace)
+
+        client_cls = namespace["Client"]
+        assert client_cls.datasource_key == "not-valid"
+        client = client_cls()
+        try:
+            client.push_db()
+        finally:
+            client.close()
+        assert db_path.exists()
+    finally:
+        sys.modules.pop(module_name, None)
 
 
 def test_generated_client_written_module_allows_direct_import(tmp_path: Path) -> None:

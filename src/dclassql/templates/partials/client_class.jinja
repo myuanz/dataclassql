@@ -1,32 +1,66 @@
+ConfirmRebuildCallback = Callable[
+    [ModelInfo, SchemaPlan, tuple[ExistingColumn, ...] | None, SchemaDiff],
+    bool,
+]
+
+
 class Client(BaseDBPool):
-    _echo_sql: bool = False
-    datasources = {
-{% for item in client.datasource_items %}        {{ item.key_repr }}: DataSourceConfig(provider={{ item.provider_repr }}, url={{ item.url_repr }}, name={{ item.name_repr }}),
-{% endfor %}    }
+    datasource: DataSourceConfig = DataSourceConfig(
+        provider={{ client.datasource.provider_repr }},
+        url={{ client.datasource.url_repr }},
+        name={{ client.datasource.name_repr }},
+    )
+    datasource_key: str = {{ client.datasource.key_repr }}
 
-{% for method in client.backend_methods %}    @classmethod
-    @save_local
-    def {{ method.method_name }}(cls, *, echo_sql: bool | None = None) -> BackendProtocol:
-        config = cls.datasources[{{ method.key_repr }}]
-        backend_echo = cls._echo_sql if echo_sql is None else echo_sql
-        if config.provider == 'sqlite':
-            from dclassql.runtime.backends.sqlite import SQLiteBackend
-            conn = open_sqlite_connection(config.url)
-            cls._setup_sqlite_db(conn)
-            return SQLiteBackend(conn, echo_sql=backend_echo)
-        raise ValueError(f"Unsupported provider '{config.provider}' for datasource {{ method.key_repr }}")
-
-{% endfor %}    def __init__(self, *, echo_sql: bool = False) -> None:
+    def __init__(self, *, datasource: DataSourceConfig = datasource, echo_sql: bool = False) -> None:
+        self.datasource = datasource
         self._echo_sql = echo_sql
-{% for binding in client.model_bindings %}        self.{{ binding.attr_name }} = {{ binding.model_name }}Table(self.{{ binding.backend_method }}(echo_sql=echo_sql))
+        self._backend_instance: BackendProtocol | None = None
+{% for binding in client.model_bindings %}        self.{{ binding.attr_name }} = {{ binding.model_name }}Table(self._backend())
 {% endfor %}
+
+    def _backend(self) -> BackendProtocol:
+        if self._backend_instance is None:
+            self._backend_instance = self._make_backend(self.datasource)
+        return self._backend_instance
+
+    def _make_backend(self, datasource: DataSourceConfig) -> BackendProtocol:
+        if datasource.provider == 'sqlite':
+            from dclassql.runtime.backends.sqlite import SQLiteBackend
+            return SQLiteBackend(lambda: self._open_connection(datasource), echo_sql=self._echo_sql)
+        raise ValueError(f"Unsupported provider '{datasource.provider}'")
+
+    def _open_connection(self, datasource: DataSourceConfig) -> Any:
+        if datasource.provider == 'sqlite':
+            conn = open_sqlite_connection(datasource.url)
+            self._setup_sqlite_db(conn)
+            return conn
+        raise ValueError(f"Unsupported provider '{datasource.provider}'")
+
+    def push_db(
+        self,
+        *,
+        sync_indexes: bool = False,
+        confirm_rebuild: ConfirmRebuildCallback | None = None,
+    ) -> None:
+        connection = self._open_connection(self.datasource)
+        try:
+            db_push(
+                (
+{% for binding in client.model_bindings %}                    {{ binding.model_name }},
+{% endfor %}                ),
+                {self.datasource_key: connection},
+                sync_indexes=sync_indexes,
+                confirm_rebuild=confirm_rebuild,
+            )
+        finally:
+            connection.close()
+
+    def close(self) -> None:
+        if self._backend_instance is not None:
+            self._backend_instance.close()
+            self._backend_instance = None
 
     @classmethod
     def close_all(cls, verbose: bool = False) -> None:
         super().close_all(verbose=verbose)
-{% for method in client.backend_methods %}        if hasattr(cls._local, '{{ method.method_name }}'):
-            backend = getattr(cls._local, '{{ method.method_name }}')
-            if hasattr(backend, 'close') and callable(getattr(backend, 'close')):
-                backend.close()
-            delattr(cls._local, '{{ method.method_name }}')
-{% endfor %}
