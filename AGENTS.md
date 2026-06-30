@@ -1,14 +1,14 @@
 # AGENTS
 
 ## 项目概览
-- **DataclassQL** 是一个围绕“纯 dataclass 定义”构建的 ORM 客户端生成器, 版本号当前为 `0.1.3`, 目标是成为 Prisma for Python 的精神继任者。
+- **DataclassQL** 是一个围绕“纯 dataclass 定义”构建的 ORM 客户端生成器, 目标是成为 Prisma for Python 的精神继任者。
 - 通过分析模型 dataclass, 自动生成带完整类型提示的客户端及表访问层, 以获得静态类型检查能力 (pyright/mypy) 与更直观的开发体验。
 - 目前聚焦 SQLite, 已实现代码生成、数据库 schema 推送、运行时 CRUD 与包含机制, 并提供懒加载的关系解析。
 
 ## 技术栈与依赖
 - 要求 Python ≥ 3.12。
 - 核心依赖: `jinja2` (模板渲染)、`pypika` (SQL 构造与 schema 操作)、`typing_extensions` (Typing 支持)。
-- 建议使用 `uv` 管理环境与指令, 例如: `uv add dclassql`, `uv run pytest .`, `uv run pyright .`。
+- 使用 `uv` 管理环境与指令, 例如: `uv add dclassql`, `uv run pytest .`, `uv run pyright .`。
 
 ## 目录速览
 - `src/dclassql/codegen.py` + `templates/client_module.py.jinja`: 负责生成客户端模块代码。
