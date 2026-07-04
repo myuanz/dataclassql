@@ -154,6 +154,34 @@ class JsonOrder:
     stamps: list[JsonStamp]
 
 
+@dataclass
+class JsonModelOrder:
+    id: int
+    name: str
+
+
+@dataclass
+class JsonModelTrade:
+    id: int
+    order: JsonModelOrder
+
+
+@dataclass
+class RelationCustomer:
+    id: int
+    orders: list['RelationOrder']
+
+
+@dataclass
+class RelationOrder:
+    id: int
+    customer_id: int
+    customer: RelationCustomer
+
+    def foreign_key(self):
+        yield self.customer.id == self.customer_id, RelationCustomer.orders
+
+
 def test_generate_client_matches_expected_shape() -> None:
     module = generate_client([User, Address, BirthDay, Book, UserBook, Composite])
     code = module.code
@@ -485,6 +513,43 @@ def test_generated_client_serializes_unregistered_dataclass_fields_as_json() -> 
         )
     finally:
         conn.close()
+
+
+def test_model_dataclass_field_without_foreign_key_is_json_column() -> None:
+    module = generate_client([JsonModelOrder, JsonModelTrade])
+    code = module.code
+    assert "order: JsonModelOrder" in code
+    assert "serialize_json_value(data['order'])" in code
+    assert "deserialize_json_value(row['order'], JsonModelOrder)" in code
+
+    trade_info = inspect_models([JsonModelOrder, JsonModelTrade])["JsonModelTrade"]
+    assert [(column.name, column.storage_kind) for column in trade_info.columns] == [
+        ("id", "scalar"),
+        ("order", "json"),
+    ]
+    assert trade_info.relations == []
+
+    create_sql, _ = _build_sqlite_schema(trade_info)
+    assert '"order" TEXT NOT NULL' in create_sql
+
+
+def test_foreign_key_dataclass_field_stays_relation_not_json_column() -> None:
+    module = generate_client([RelationCustomer, RelationOrder])
+    code = module.code
+    assert "serialize_json_value(data['customer'])" not in code
+    assert "RelationSpec(name='customer'" in code
+
+    order_info = inspect_models([RelationCustomer, RelationOrder])["RelationOrder"]
+    assert [column.name for column in order_info.columns] == ["id", "customer_id"]
+    assert [(relation.name, relation.target, relation.many) for relation in order_info.relations] == [
+        ("customer", RelationCustomer, False)
+    ]
+
+    customer_info = inspect_models([RelationCustomer, RelationOrder])["RelationCustomer"]
+    assert [column.name for column in customer_info.columns] == ["id"]
+    assert [(relation.name, relation.target, relation.many) for relation in customer_info.relations] == [
+        ("orders", RelationOrder, True)
+    ]
 
 
 def test_generated_client_rejects_slotted_model_without_weakref_slot() -> None:

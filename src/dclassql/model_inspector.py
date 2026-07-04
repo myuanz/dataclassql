@@ -90,22 +90,27 @@ class ForeignKeyComparison:
 
 
 class _ProxyCol(Col):
+    def __init__(self, name: str, table: type[Any], relation_attribute: str | None = None) -> None:
+        super().__init__(name, table)
+        self.relation_attribute = relation_attribute
+
     def __eq__(self, other: object) -> ForeignKeyComparison | bool: # type: ignore[override]
         other_col = _normalize_col(other)
         if other_col is None:
             return NotImplemented  # type: ignore[return-value]
-        return ForeignKeyComparison(self._to_base(), other_col)
+        return ForeignKeyComparison(self, other_col)
 
     def _to_base(self) -> Col:
         return Col(self.name, table=self.table)
 
 
 class RelationProxy:
-    def __init__(self, target: type[Any]) -> None:
+    def __init__(self, target: type[Any], attribute: str) -> None:
         self._target = target
+        self._attribute = attribute
 
     def __getattr__(self, name: str) -> _ProxyCol:
-        return _ProxyCol(name, table=self._target)
+        return _ProxyCol(name, table=self._target, relation_attribute=self._attribute)
 
 
 class FakeSelf:
@@ -120,7 +125,7 @@ class FakeSelf:
         if spec.kind == "column":
             return _ProxyCol(name, table=self._model)
         if spec.kind in {"relation", "relation_many"} and spec.target is not None:
-            return RelationProxy(spec.target)
+            return RelationProxy(spec.target, name)
         raise AttributeError(name)
 
 
@@ -172,10 +177,32 @@ def inspect_models(models: Sequence[type[Any]]) -> dict[str, ModelInfo]:
             backref_records.append((model, relation.name, previous, has_attr))
 
     try:
+        # 第一遍找出所有模型和关系候选，第二遍把有 dataclass 对象但没有任何关系的字段变成 JSON
+
+        # round 1
+        foreign_key_map: dict[type[Any], list[ForeignKeyInfo]] = {}
+        relation_name_map: dict[type[Any], set[str]] = {model: set() for model in models}
+        for model in models:
+            foreign_keys, local_relation_names, remote_relation_names = _extract_foreign_keys(
+                model,
+                field_specs_map[model],
+            )
+            foreign_key_map[model] = foreign_keys
+            relation_name_map[model].update(local_relation_names)
+            for remote_model, attr in remote_relation_names:
+                if remote_model in relation_name_map:
+                    relation_name_map[remote_model].add(attr)
+
+        # round 2
         infos: dict[str, ModelInfo] = {}
         for model in models:
             annotations = annotations_map[model]
-            columns, relations, specs = _categorize_fields(model, annotations, registry)
+            columns, relations, specs = _categorize_fields(
+                model,
+                annotations,
+                registry,
+                relation_names=relation_name_map[model],
+            )
             table_info = TableInfo.from_dc(model)
             primary_key = _col_names(table_info.primary_key.cols)
             indexes: list[tuple[str, ...]] = []
@@ -186,7 +213,6 @@ def inspect_models(models: Sequence[type[Any]]) -> dict[str, ModelInfo]:
                     unique_indexes.append(col_names)
                 else:
                     indexes.append(col_names)
-            foreign_keys = _extract_foreign_keys(model, field_specs_map[model])
             infos[model.__name__] = ModelInfo(
                 model=model,
                 columns=columns,
@@ -194,7 +220,7 @@ def inspect_models(models: Sequence[type[Any]]) -> dict[str, ModelInfo]:
                 primary_key=primary_key,
                 indexes=indexes,
                 unique_indexes=unique_indexes,
-                foreign_keys=foreign_keys,
+                foreign_keys=foreign_key_map[model],
                 datasource=datasource_map[model],
             )
         return infos
@@ -210,6 +236,7 @@ def _categorize_fields(
     model: type[Any],
     annotations: Mapping[str, Any],
     registry: Mapping[str, type[Any]],
+    relation_names: set[str] | None = None,
 ) -> tuple[list[ColumnInfo], list[RelationInfo], dict[str, FieldSpec]]:
     columns: list[ColumnInfo] = []
     relations: list[RelationInfo] = []
@@ -226,7 +253,7 @@ def _categorize_fields(
         optional_flag = False
         annotation, optional_flag = _strip_optional(annotation)
         base_annotation = _unwrap_annotation(annotation)
-        if _is_relationship(base_annotation, registry):
+        if (relation_names is None or name in relation_names) and _is_relationship(base_annotation, registry):
             target = _resolve_model(base_annotation, registry)
             many = _is_collection_type(annotation)
             relations.append(RelationInfo(name=name, target=target, many=many))
@@ -288,7 +315,7 @@ def _is_relationship(tp: Any, registry: Mapping[str, type[Any]]) -> bool:
 
 
 def _is_json_dataclass(tp: Any, registry: Mapping[str, type[Any]]) -> bool:
-    return isinstance(tp, type) and is_dataclass(tp) and tp not in registry.values()
+    return isinstance(tp, type) and is_dataclass(tp)
 
 
 def _resolve_model(tp: Any, registry: Mapping[str, type[Any]]) -> type[Any]:
@@ -312,7 +339,7 @@ def _is_auto_increment(name: str, annotation: Any, pk_cols: set[str]) -> bool:
 
 def _normalize_col(value: object) -> Col | tuple[Col, ...] | None:
     if isinstance(value, _ProxyCol):
-        return value._to_base()
+        return value
     if isinstance(value, Col):
         return value
     if isinstance(value, tuple):
@@ -332,14 +359,19 @@ def _col_names(cols: Col | tuple[Col, ...]) -> tuple[str, ...]:
     return tuple(col.name for col in cols)
 
 
-def _extract_foreign_keys(model: type[Any], specs: Mapping[str, FieldSpec]) -> list[ForeignKeyInfo]:
+def _extract_foreign_keys(
+    model: type[Any],
+    specs: Mapping[str, FieldSpec],
+) -> tuple[list[ForeignKeyInfo], set[str], list[tuple[type[Any], str]]]:
     if not hasattr(model, "foreign_key"):
-        return []
+        return [], set(), []
     fake = FakeSelf(model, specs)
     fn = getattr(model, "foreign_key")
     results = fn(fake)
     entries = _iterate_results(results)
     foreign_keys: list[ForeignKeyInfo] = []
+    local_relation_names: set[str] = set()
+    remote_relation_names: list[tuple[type[Any], str]] = []
     for entry in entries:
         if not isinstance(entry, tuple) or len(entry) != 2:
             raise TypeError("foreign_key must yield tuples of (comparison, backref)")
@@ -349,9 +381,13 @@ def _extract_foreign_keys(model: type[Any], specs: Mapping[str, FieldSpec]) -> l
         local_cols, remote_cols = _determine_direction(model, comparison)
         backref_attr: str | None = None
         remote_model = remote_cols[0].table
+        relation_attr = _relation_attribute_from_cols(remote_cols)
+        if relation_attr is not None:
+            local_relation_names.add(relation_attr)
         if isinstance(backref, RelationAttribute):
             backref_attr = backref.attribute
             remote_model = backref.model
+            remote_relation_names.append((remote_model, backref_attr))
         foreign_keys.append(
             ForeignKeyInfo(
                 local_columns=tuple(col.name for col in local_cols),
@@ -360,7 +396,18 @@ def _extract_foreign_keys(model: type[Any], specs: Mapping[str, FieldSpec]) -> l
                 backref_attribute=backref_attr,
             )
         )
-    return foreign_keys
+    return foreign_keys, local_relation_names, remote_relation_names
+
+
+def _relation_attribute_from_cols(cols: Sequence[Col]) -> str | None:
+    attrs = {
+        getattr(col, "relation_attribute", None)
+        for col in cols
+        if isinstance(col, _ProxyCol) and getattr(col, "relation_attribute", None) is not None
+    }
+    if len(attrs) > 1:
+        raise ValueError("Composite foreign key cannot mix multiple relation attributes")
+    return next(iter(attrs), None)
 
 
 def _iterate_results(results: Any) -> Iterable[Any]:
