@@ -121,6 +121,45 @@ def test_generate_command_rebinds_enum_imports(tmp_path: Path) -> None:
     assert "RunRecordDict" in stub_code
 
 
+def test_generate_command_loads_project_root_imports(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_dir = tmp_path / "project"
+    utils_dir = project_dir / "src" / "utils"
+    model_dir = project_dir / "src" / "models"
+    utils_dir.mkdir(parents=True)
+    model_dir.mkdir(parents=True)
+    (project_dir / "src" / "__init__.py").write_text("", encoding="utf-8")
+    (utils_dir / "__init__.py").write_text("", encoding="utf-8")
+    (model_dir / "__init__.py").write_text("", encoding="utf-8")
+    (utils_dir / "names.py").write_text("DEFAULT_NAME = 'Alice'\n", encoding="utf-8")
+    module_path = model_dir / "model.py"
+    module_path.write_text(
+        """
+from dataclasses import dataclass
+
+from src.utils.names import DEFAULT_NAME
+
+__datasource__ = {"provider": "sqlite", "url": "sqlite:///example.db"}
+
+@dataclass
+class User:
+    id: int
+    name: str = DEFAULT_NAME
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.chdir(project_dir)
+    exit_code = main(["-m", str(module_path), "generate"])
+
+    assert exit_code == 0
+    code = (model_dir / "model_client" / "client.py").read_text(encoding="utf-8")
+    assert "class ModelClient" in code
+    assert "name: str = User.__dataclass_fields__['name'].default" in code
+
+
 def test_generate_command_supports_package_target(tmp_path: Path) -> None:
     db_path = tmp_path / "package.db"
     module_path = write_model(tmp_path, db_path, name="package")
