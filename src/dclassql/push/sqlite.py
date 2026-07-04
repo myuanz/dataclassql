@@ -24,6 +24,9 @@ TYPE_MAP: Mapping[type[Any], str] = {
 
 
 def _infer_sqlite_type(annotation: Any) -> str:
+    if (alias_value := getattr(annotation, "__value__", None)) is not None:
+        # PEP 695
+        return _infer_sqlite_type(alias_value)
     origin = get_origin(annotation)
     if origin is UnionType or isinstance(annotation, UnionType):
         args = [arg for arg in get_args(annotation) if arg is not type(None)]

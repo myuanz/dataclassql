@@ -32,6 +32,15 @@ class User:
         yield self.email
 
 
+type UserKind = Literal["retail", "vip"]
+
+
+@dataclass
+class AliasUser:
+    id: int
+    kind: UserKind
+
+
 def test_db_push_creates_table_and_indexes():
     info = inspect_models([User])["User"]
     create_sql, index_entries = _build_sqlite_schema(info)
@@ -72,6 +81,13 @@ def test_db_push_creates_table_and_indexes():
         ).fetchone()[0]
         == 1
     )
+
+
+def test_db_push_infers_type_alias_value():
+    info = inspect_models([AliasUser])["AliasUser"]
+    create_sql, _ = _build_sqlite_schema(info)
+
+    assert '"kind" TEXT NOT NULL' in create_sql
 
 
 def test_db_push_sync_indexes_aligns_with_model():
