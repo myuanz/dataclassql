@@ -66,7 +66,7 @@ def _build_client() -> tuple[dict[str, Any], Any]:
     module = generate_client([RuntimeAuthor, RuntimeProfile, RuntimePost])
     namespace: dict[str, Any] = {}
     exec(module.code, namespace)
-    client_cls = namespace["Client"]
+    client_cls = namespace[module.client_class_name]
     return namespace, client_cls()
 
 

@@ -17,7 +17,10 @@ from .model_inspector import ColumnInfo, ModelInfo, inspect_models, DataSourceCo
 class GeneratedModule:
     code: str
     asdict_stub: str
+    init_code: str
+    init_stub: str
     model_names: tuple[str, ...]
+    client_class_name: str
 
 
 @dataclass(slots=True)
@@ -147,6 +150,7 @@ class ClientModelBindingContext:
 
 @dataclass(slots=True)
 class ClientContext:
+    class_name: str
     datasource: ClientDataSourceContext
     model_bindings: tuple[ClientModelBindingContext, ...]
 
@@ -167,7 +171,7 @@ def _get_environment() -> Environment:
     return _ENVIRONMENT
 
 
-def generate_client(models: Sequence[type[Any]]) -> GeneratedModule:
+def generate_client(models: Sequence[type[Any]], *, client_class_name: str = "GeneratedClient") -> GeneratedModule:
     model_infos = inspect_models(models)
     renderer = _TypeRenderer({info.model: name for name, info in model_infos.items()})
     filter_registry = _ScalarFilterRegistry(renderer)
@@ -192,8 +196,8 @@ def generate_client(models: Sequence[type[Any]]) -> GeneratedModule:
         for module, names in sorted(combined_imports.items())
     ]
 
-    client_context = _build_client_context(model_infos)
-    exports = _collect_exports(model_contexts)
+    client_context = _build_client_context(model_infos, client_class_name)
+    exports = _collect_exports(model_contexts, client_class_name)
     scalar_filters = filter_registry.render_definitions()
 
     template = _get_environment().get_template(_TEMPLATE_NAME)
@@ -207,7 +211,16 @@ def generate_client(models: Sequence[type[Any]]) -> GeneratedModule:
     if not code.endswith("\n"):
         code += "\n"
     asdict_stub = _render_asdict_stub(model_contexts)
-    return GeneratedModule(code=code, asdict_stub=asdict_stub, model_names=tuple(sorted(model_infos.keys())))
+    init_code = _render_init_code(client_class_name)
+    init_stub = _render_init_stub(client_class_name)
+    return GeneratedModule(
+        code=code,
+        asdict_stub=asdict_stub,
+        init_code=init_code,
+        init_stub=init_stub,
+        model_names=tuple(sorted(model_infos.keys())),
+        client_class_name=client_class_name,
+    )
 
 
 def _build_model_context(
@@ -409,7 +422,7 @@ def _build_model_context(
     )
 
 
-def _build_client_context(model_infos: Mapping[str, ModelInfo]) -> ClientContext:
+def _build_client_context(model_infos: Mapping[str, ModelInfo], client_class_name: str) -> ClientContext:
     datasource_configs = {info.datasource for info in model_infos.values()}
     if len(datasource_configs) != 1:
         labels = ", ".join(
@@ -434,13 +447,14 @@ def _build_client_context(model_infos: Mapping[str, ModelInfo]) -> ClientContext
     ]
 
     return ClientContext(
+        class_name=client_class_name,
         datasource=datasource_item,
         model_bindings=tuple(model_bindings),
     )
 
 
-def _collect_exports(model_contexts: Sequence[ModelRenderContext]) -> list[str]:
-    exports: list[str] = ["DataSourceConfig", "ForeignKeySpec", "Client"]
+def _collect_exports(model_contexts: Sequence[ModelRenderContext], client_class_name: str) -> list[str]:
+    exports: list[str] = ["DataSourceConfig", "ForeignKeySpec", client_class_name]
     for context in model_contexts:
         name = context.name
         exports.extend(
@@ -469,6 +483,24 @@ def _render_asdict_stub(model_contexts: Sequence[ModelRenderContext]) -> str:
     code = template.render(models=tuple(model_contexts))
     if not code.endswith("\n"):
         code += "\n"
+    return code
+
+
+def _render_init_code(client_class_name: str) -> str:
+    code = (
+        "from dclassql.asdict import asdict as asdict\n"
+        f"from .client import {client_class_name} as {client_class_name}\n\n"
+        f"__all__ = ['{client_class_name}', 'asdict']\n"
+    )
+    return code
+
+
+def _render_init_stub(client_class_name: str) -> str:
+    code = (
+        "from .asdict import asdict as asdict\n"
+        f"from .client import {client_class_name} as {client_class_name}\n\n"
+        "__all__: list[str]\n"
+    )
     return code
 
 

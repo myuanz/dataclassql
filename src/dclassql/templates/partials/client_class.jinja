@@ -4,7 +4,7 @@ ConfirmRebuildCallback = Callable[
 ]
 
 
-class Client(BaseDBPool):
+class {{ client.class_name }}(BaseDBPool):
     datasource: DataSourceConfig = DataSourceConfig(
         provider={{ client.datasource.provider_repr }},
         url={{ client.datasource.url_repr }},

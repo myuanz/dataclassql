@@ -180,7 +180,7 @@ def test_backend_thread_local(tmp_path: Path):
     user_table.insert({'name': "Eve", 'email': None})
 
     def worker() -> int | None:
-        other_client = namespace["Client"]()
+        other_client = namespace[namespace["__client_class_name__"]]()
         try:
             record = other_client.runtime_user.find_first(order_by={"name": "asc"})
             return record.id if record else None

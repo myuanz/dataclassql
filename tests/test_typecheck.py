@@ -26,15 +26,15 @@ def test_pyright_reports_missing_required_field(tmp_path: Path) -> None:
     __datasource__ = {"provider": "sqlite", "url": f"sqlite:///{db_path.as_posix()}"}
 
 
-    module = generate_client([User])
+    module = generate_client([User], client_class_name="UserModelClient")
     client_path = tmp_path / "client_module.py"
     client_path.write_text(module.code, encoding="utf-8")
 
     snippet = tmp_path / "snippet.py"
     snippet.write_text(
-        """from .client_module import Client
+        """from .client_module import UserModelClient
 
-client = Client()
+client = UserModelClient()
 client.user.insert({"name": "Alice", "email": "a@example.com"})
 client.user.insert({"email": "missing"})
 """,

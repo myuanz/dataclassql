@@ -18,6 +18,7 @@ from .runtime.datasource import open_sqlite_connection
 DEFAULT_MODEL_FILE = "model.py"
 GENERATED_CLIENT_FILENAME = "client.py"
 
+GenerateTarget = Literal["model-dir", "package"]
 ConfirmRebuildMode = Literal["auto", "prompt"]
 ConfirmCallback = Callable[
     [ModelInfo, SchemaPlan, tuple[ExistingColumn, ...] | None, SchemaDiff],
@@ -66,12 +67,21 @@ def _find_package_directory() -> Path:
     return Path(next(iter(spec.submodule_search_locations))).resolve()
 
 
-def resolve_generated_path() -> Path:
-    return _find_package_directory() / GENERATED_CLIENT_FILENAME
+def resolve_client_package_name(module_path: Path) -> str:
+    stem = re.sub(r"[^0-9a-zA-Z_]+", "_", module_path.stem) or "_"
+    return f"{stem}_client"
 
 
-def resolve_asdict_stub_path() -> Path:
-    return _find_package_directory() / "asdict.pyi"
+def resolve_client_class_name(module_path: Path) -> str:
+    package_name = resolve_client_package_name(module_path)
+    return "".join(part.capitalize() for part in package_name.split("_") if part)
+
+
+def resolve_generated_package_dir(module_path: Path, target: GenerateTarget = "model-dir") -> Path:
+    package_name = resolve_client_package_name(module_path)
+    if target == "model-dir":
+        return module_path.resolve().parent / package_name
+    return _find_package_directory() / package_name
 
 
 def collect_models(module: ModuleType) -> list[type[Any]]:
@@ -162,16 +172,18 @@ def push_database(
                 pass
 
 
-def command_generate(module_path: Path) -> None:
+def command_generate(module_path: Path, *, target: GenerateTarget = "model-dir") -> None:
     module = load_module(module_path)
     models = collect_models(module)
-    generated = generate_client(models)
-    output_path = resolve_generated_path()
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(generated.code, encoding="utf-8")
-    asdict_stub_path = resolve_asdict_stub_path()
-    asdict_stub_path.write_text(generated.asdict_stub, encoding="utf-8")
-    sys.stdout.write(f"Client written to {output_path}\n")
+    client_class_name = resolve_client_class_name(module_path)
+    generated = generate_client(models, client_class_name=client_class_name)
+    output_dir = resolve_generated_package_dir(module_path, target)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "__init__.py").write_text(generated.init_code, encoding="utf-8")
+    (output_dir / "__init__.pyi").write_text(generated.init_stub, encoding="utf-8")
+    (output_dir / GENERATED_CLIENT_FILENAME).write_text(generated.code, encoding="utf-8")
+    (output_dir / "asdict.pyi").write_text(generated.asdict_stub, encoding="utf-8")
+    sys.stdout.write(f"Client package written to {output_dir}\n")
 
 
 def command_push_db(
@@ -197,7 +209,13 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     generate_parser = subparsers.add_parser("generate", help="Generate client code for given models")
-    generate_parser.set_defaults(handler=lambda args: command_generate(args.module))
+    generate_parser.add_argument(
+        "--target",
+        choices=("model-dir", "package"),
+        default="model-dir",
+        help="生成 client 的位置: model-dir 写到模型文件同目录; package 写到 dclassql 包内",
+    )
+    generate_parser.set_defaults(handler=lambda args: command_generate(args.module, target=args.target))
 
     push_parser = subparsers.add_parser("push-db", help="Apply schema and indexes to configured databases")
     push_parser.add_argument(

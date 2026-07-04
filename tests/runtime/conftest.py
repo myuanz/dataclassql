@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sys
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum, StrEnum, IntEnum
@@ -64,7 +63,8 @@ def build_client() -> tuple[dict[str, Any], Any]:
     module = generate_client([RuntimeUser])
     namespace: dict[str, Any] = {}
     exec(module.code, namespace)
-    generated_client = namespace["Client"]
+    namespace["__client_class_name__"] = module.client_class_name
+    generated_client = namespace[module.client_class_name]
     client = generated_client()
     return namespace, client
 
@@ -73,17 +73,11 @@ def build_enum_client() -> tuple[dict[str, Any], Any]:
     module = generate_client([RuntimeEnumUser])
     namespace: dict[str, Any] = {}
     exec(module.code, namespace)
-    client = namespace["Client"]()
+    namespace["__client_class_name__"] = module.client_class_name
+    client = namespace[module.client_class_name]()
     return namespace, client
 
 
 @pytest.fixture(autouse=True)
 def cleanup_clients():
     yield
-    # best effort close all generated clients if present
-    cls = getattr(sys.modules.get("dclassql.client", None), "Client", None)
-    if cls and hasattr(cls, "close_all"):
-        try:
-            cls.close_all()
-        except Exception:
-            pass

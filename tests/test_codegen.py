@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib
 import sqlite3
 import sys
 import tempfile
@@ -14,7 +13,6 @@ from enum import Enum, StrEnum, IntEnum
 
 import pytest
 
-from dclassql.cli import resolve_generated_path
 from dclassql.codegen import generate_client
 from dclassql.runtime.backends import SQLiteBackend
 
@@ -157,7 +155,7 @@ def test_generate_client_matches_expected_shape() -> None:
     assert 'UserUpdateDict' in namespace['__all__']
 
     data_source_config = namespace['DataSourceConfig']
-    generated_client = namespace['Client']
+    generated_client = namespace[module.client_class_name]
 
     include_alias = namespace['TUserIncludeCol']
     assert get_origin(include_alias) is Literal
@@ -457,7 +455,7 @@ def test_generated_client_supports_named_single_datasource() -> None:
         module = generate_client([NamedUser])
         exec(module.code, namespace)
 
-        generated_client = namespace["Client"]
+        generated_client = namespace[module.client_class_name]
         data_source_config = namespace["DataSourceConfig"]
         expected_datasource = data_source_config(
             provider="sqlite",
@@ -505,7 +503,7 @@ def test_generated_client_dynamic_datasource_pushes_and_uses_override_url(tmp_pa
         module = generate_client([Person])
         exec(module.code, namespace)
 
-        client_cls = namespace["Client"]
+        client_cls = namespace[module.client_class_name]
         data_source_config = namespace["DataSourceConfig"]
         client = client_cls(
             datasource=data_source_config(
@@ -555,7 +553,7 @@ def test_generated_client_dynamic_datasource_instances_do_not_share_backend(tmp_
         module = generate_client([Person])
         exec(module.code, namespace)
 
-        client_cls = namespace["Client"]
+        client_cls = namespace[module.client_class_name]
         data_source_config = namespace["DataSourceConfig"]
 
         db_a = tmp_path / "a.db"
@@ -607,7 +605,7 @@ def test_generated_client_allows_non_identifier_datasource_name(tmp_path: Path) 
         module = generate_client([Person])
         exec(module.code, namespace)
 
-        client_cls = namespace["Client"]
+        client_cls = namespace[module.client_class_name]
         assert client_cls.datasource_key == "not-valid"
         client = client_cls()
         try:
@@ -619,29 +617,24 @@ def test_generated_client_allows_non_identifier_datasource_name(tmp_path: Path) 
         sys.modules.pop(module_name, None)
 
 
-def test_generated_client_written_module_allows_direct_import(tmp_path: Path) -> None:
-    module = generate_client([User])
-    target = resolve_generated_path()
-    backup = target.read_text(encoding="utf-8") if target.exists() else None
-    try:
-        target.write_text(module.code, encoding="utf-8")
-        for mod in (
-            "dclassql.client",
-        ):
-            sys.modules.pop(mod, None)
-        import dclassql as dql
-        importlib.reload(dql)
-        Client = dql.Client
+def test_generated_client_package_allows_direct_import(tmp_path: Path) -> None:
+    module = generate_client([User], client_class_name="UserModelClient")
+    package_dir = tmp_path / "user_model_client"
+    package_dir.mkdir()
+    (package_dir / "__init__.py").write_text(module.init_code, encoding="utf-8")
+    (package_dir / "__init__.pyi").write_text(module.init_stub, encoding="utf-8")
+    (package_dir / "client.py").write_text(module.code, encoding="utf-8")
+    (package_dir / "asdict.pyi").write_text(module.asdict_stub, encoding="utf-8")
 
-        assert Client.__name__ == "Client"
+    sys.path.insert(0, str(tmp_path))
+    try:
+        imported = __import__("user_model_client", fromlist=["UserModelClient", "asdict"])
+        client_cls = imported.UserModelClient
+        typed_asdict = imported.asdict
+
+        assert client_cls.__name__ == "UserModelClient"
+        assert callable(typed_asdict)
     finally:
-        if backup is None:
-            target.unlink(missing_ok=True)
-        else:
-            target.write_text(backup, encoding="utf-8")
-        for mod in (
-            "dclassql.client",
-        ):
-            sys.modules.pop(mod, None)
-        import dclassql as dql  # type: ignore[import]
-        importlib.reload(dql)
+        sys.path.pop(0)
+        sys.modules.pop("user_model_client", None)
+        sys.modules.pop("user_model_client.client", None)

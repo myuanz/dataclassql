@@ -1234,7 +1234,7 @@ ConfirmRebuildCallback = Callable[
 ]
 
 
-class Client(BaseDBPool):
+class GeneratedClient(BaseDBPool):
     datasource: DataSourceConfig = DataSourceConfig(
         provider='sqlite',
         url='sqlite:///analytics.db',
@@ -1306,7 +1306,7 @@ class Client(BaseDBPool):
 __all__ = (
     "DataSourceConfig",
     "ForeignKeySpec",
-    "Client",
+    "GeneratedClient",
     "TAddressIncludeCol",
     "TAddressSortableCol",
     "TAddressDistinctCol",

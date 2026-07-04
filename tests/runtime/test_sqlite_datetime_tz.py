@@ -34,7 +34,7 @@ def test_datetime_with_timezone_roundtrip(tmp_path: Path) -> None:
     module = generate_client([Event])
     ns: dict[str, Any] = {}
     exec(module.code, ns)
-    client = ns["Client"]()
+    client = ns[module.client_class_name]()
     table = client.event
     aware_dt = datetime(2024, 1, 1, 12, 34, 56, 123456, tzinfo=timezone(timedelta(hours=8)))
 
@@ -56,7 +56,7 @@ def test_datetime_naive_roundtrip(tmp_path: Path) -> None:
     module = generate_client([Event])
     ns: dict[str, Any] = {}
     exec(module.code, ns)
-    client = ns["Client"]()
+    client = ns[module.client_class_name]()
     table = client.event
     naive_dt = datetime(2024, 1, 1, 8, 0, 0)
 

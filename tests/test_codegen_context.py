@@ -51,8 +51,9 @@ def test_model_context_shapes_insert_and_typeddict_sections() -> None:
 def test_client_context_binds_models_to_datasource_backends() -> None:
     model_infos, _, _ = _prepare_context([User, Address, BirthDay, Book, UserBook])
 
-    client_ctx = _build_client_context(model_infos)
+    client_ctx = _build_client_context(model_infos, "UserModelClient")
 
+    assert client_ctx.class_name == "UserModelClient"
     assert client_ctx.datasource.key == "sqlite"
     assert client_ctx.datasource.key_repr == "'sqlite'"
 
@@ -68,9 +69,9 @@ def test_collect_exports_includes_expected_symbols() -> None:
         for name in sorted(model_infos.keys())
     ]
 
-    exports = _collect_exports(contexts)
+    exports = _collect_exports(contexts, "UserModelClient")
 
-    assert "Client" in exports
+    assert "UserModelClient" in exports
     assert "DataSourceConfig" in exports
     assert "ForeignKeySpec" in exports
     for name in ("User", "Address", "BirthDay"):

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import shutil
 from pathlib import Path
 from enum import Enum
 
@@ -9,8 +10,8 @@ import pytest
 from dclassql.cli import (
     DEFAULT_MODEL_FILE,
     main,
-    resolve_asdict_stub_path,
-    resolve_generated_path,
+    resolve_client_class_name,
+    resolve_generated_package_dir,
 )
 
 
@@ -88,54 +89,51 @@ def write_enum_model(tmp_path: Path, db_path: Path, name: str | None = None) -> 
 def test_generate_command_outputs_code(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     db_path = tmp_path / "example.db"
     module_path = write_model(tmp_path, db_path)
-    target = resolve_generated_path()
-    stub_target = resolve_asdict_stub_path()
-    backup = target.read_text(encoding="utf-8") if target.exists() else None
-    stub_backup = stub_target.read_text(encoding="utf-8") if stub_target.exists() else None
+    target_dir = resolve_generated_package_dir(module_path)
+    target = target_dir / "client.py"
+    stub_target = target_dir / "asdict.pyi"
     exit_code = main(["-m", str(module_path), "generate"])
     assert exit_code == 0
     captured = capsys.readouterr()
-    assert str(target) in captured.out
+    assert str(target_dir) in captured.out
     assert target.exists()
     assert stub_target.exists()
+    assert (target_dir / "__init__.py").exists()
+    assert (target_dir / "__init__.pyi").exists()
     code = target.read_text(encoding="utf-8")
-    assert "class Client" in code
+    assert f"class {resolve_client_class_name(module_path)}" in code
     assert "class UserTable" in code
     stub_code = stub_target.read_text(encoding="utf-8")
     assert "RelationPolicy" in stub_code
-
-    if backup is None:
-        target.unlink(missing_ok=True)
-    else:
-        target.write_text(backup, encoding="utf-8")
-    if stub_backup is None:
-        stub_target.unlink(missing_ok=True)
-    else:
-        stub_target.write_text(stub_backup, encoding="utf-8")
 
 
 def test_generate_command_rebinds_enum_imports(tmp_path: Path) -> None:
     db_path = tmp_path / "enum.db"
     module_path = write_enum_model(tmp_path, db_path, name="enum")
-    target = resolve_generated_path()
-    stub_target = resolve_asdict_stub_path()
-    backup = target.read_text(encoding="utf-8") if target.exists() else None
-    stub_backup = stub_target.read_text(encoding="utf-8") if stub_target.exists() else None
     exit_code = main(["-m", str(module_path), "generate"])
     assert exit_code == 0
+    target_dir = resolve_generated_package_dir(module_path)
+    target = target_dir / "client.py"
+    stub_target = target_dir / "asdict.pyi"
     code = target.read_text(encoding="utf-8")
     assert "RunRecord" in code
     stub_code = stub_target.read_text(encoding="utf-8")
     assert "RunRecordDict" in stub_code
 
-    if backup is None:
-        target.unlink(missing_ok=True)
-    else:
-        target.write_text(backup, encoding="utf-8")
-    if stub_backup is None:
-        stub_target.unlink(missing_ok=True)
-    else:
-        stub_target.write_text(stub_backup, encoding="utf-8")
+
+def test_generate_command_supports_package_target(tmp_path: Path) -> None:
+    db_path = tmp_path / "package.db"
+    module_path = write_model(tmp_path, db_path, name="package")
+    target_dir = resolve_generated_package_dir(module_path, "package")
+    try:
+        exit_code = main(["-m", str(module_path), "generate", "--target", "package"])
+        assert exit_code == 0
+        assert (target_dir / "__init__.py").exists()
+        assert (target_dir / "__init__.pyi").exists()
+        assert (target_dir / "client.py").exists()
+        assert (target_dir / "asdict.pyi").exists()
+    finally:
+        shutil.rmtree(target_dir, ignore_errors=True)
 
 
 def test_push_db_command_creates_schema(tmp_path: Path) -> None:
