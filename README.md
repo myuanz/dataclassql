@@ -41,11 +41,14 @@ class User:
 写出如下代码时: 
 
 ```python
-from dclassql import client
+from dclassql import Client
+
+client = Client()
 
 client.user.insert({
     "name": "Alice",
     "email": "test@example.com",
+    # 这里缺少 last_login 
 })
 ```
 
