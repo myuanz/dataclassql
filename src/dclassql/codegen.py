@@ -514,7 +514,7 @@ def _build_relation_entries(info: ModelInfo, model_infos: Mapping[str, ModelInfo
         mapping: tuple[tuple[str, str], ...] | None = None
         if not relation.many:
             for fk in info.foreign_keys:
-                if fk.remote_model is target_model:
+                if fk.remote_model is target_model and fk.relation_attribute == relation.name:
                     mapping = tuple((local, remote) for local, remote in zip(fk.local_columns, fk.remote_columns))
                     break
             if mapping is None:

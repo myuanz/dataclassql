@@ -35,6 +35,7 @@ class ForeignKeyInfo:
     local_columns: tuple[str, ...]
     remote_model: type[Any]
     remote_columns: tuple[str, ...]
+    relation_attribute: str | None
     backref_attribute: str | None
 
 
@@ -393,6 +394,7 @@ def _extract_foreign_keys(
                 local_columns=tuple(col.name for col in local_cols),
                 remote_model=remote_model,
                 remote_columns=tuple(col.name for col in remote_cols),
+                relation_attribute=relation_attr,
                 backref_attribute=backref_attr,
             )
         )

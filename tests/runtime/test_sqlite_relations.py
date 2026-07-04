@@ -264,3 +264,94 @@ def test_lazy_relations(tmp_path):
             ClientClass.close_all()
         sys.modules.pop(generated_module_name, None)
         sys.modules.pop(module_name, None)
+
+
+def test_trade_entry_and_exit_order_relations(tmp_path):
+    module_name = "tests.dynamic_trade_relations"
+    db_path = tmp_path / "trade_relations.db"
+    module = types.ModuleType(module_name)
+    setattr(module, "__datasource__", {"url": f"sqlite:///{db_path.as_posix()}"})
+
+    @dataclass
+    class TradeOrder:
+        id: int
+        symbol: str
+        entry_trades: list['Trade']
+        exit_trades: list['Trade']
+
+    TradeOrder.__module__ = module_name
+    setattr(module, "TradeOrder", TradeOrder)
+
+    @dataclass
+    class Trade:
+        id: int
+        symbol: str
+        entry_order_id: int
+        exit_order_id: int | None
+        entry_order: TradeOrder
+        exit_order: TradeOrder | None
+
+        def foreign_key(self):
+            yield self.entry_order.id == self.entry_order_id, TradeOrder.entry_trades
+            yield self.exit_order and self.exit_order.id == self.exit_order_id, TradeOrder.exit_trades
+
+    Trade.__module__ = module_name
+    setattr(module, "Trade", Trade)
+
+    sys.modules[module_name] = module
+    generated_module_name = "tests.generated_trade_relations"
+    ClientClass: type[Any] | None = None
+    try:
+        module_generated = generate_client([TradeOrder, Trade])
+        generated_module = types.ModuleType(generated_module_name)
+        namespace = generated_module.__dict__
+        namespace["__name__"] = generated_module_name
+        sys.modules[generated_module_name] = generated_module
+        exec(module_generated.code, namespace)
+        ClientClass = cast(type[Any], namespace[module_generated.client_class_name])
+        with open_sqlite_connection(f"sqlite:///{db_path.as_posix()}") as conn_setup:
+            db_push([namespace["TradeOrder"], namespace["Trade"]], conn_setup)
+        client = ClientClass()
+
+        client.trade_order.insert({"id": 1, "symbol": "rb"})
+        client.trade_order.insert({"id": 2, "symbol": "rb"})
+        client.trade.insert(
+            {
+                "id": 10,
+                "symbol": "rb",
+                "entry_order_id": 1,
+                "exit_order_id": 2,
+            }
+        )
+
+        trade = client.trade.find_first(
+            where={"id": {"EQ": 10}},
+            include={"entry_order": True, "exit_order": True},
+        )
+        assert trade is not None
+        assert isinstance(trade.entry_order, TradeOrder)
+        assert isinstance(trade.exit_order, TradeOrder)
+        assert trade.entry_order.id == 1
+        assert trade.exit_order.id == 2
+
+        entry_order = client.trade_order.find_first(
+            where={"id": {"EQ": 1}},
+            include={"entry_trades": True, "exit_trades": True},
+        )
+        assert entry_order is not None
+        assert [item.id for item in entry_order.entry_trades] == [10]
+        assert entry_order.exit_trades == []
+
+        exit_order = client.trade_order.find_first(
+            where={"id": {"EQ": 2}},
+            include={"entry_trades": True, "exit_trades": True},
+        )
+        assert exit_order is not None
+        assert exit_order.entry_trades == []
+        assert [item.id for item in exit_order.exit_trades] == [10]
+
+    finally:
+        if ClientClass is not None:
+            ClientClass.close_all()
+        sys.modules.pop(generated_module_name, None)
+        sys.modules.pop(module_name, None)
