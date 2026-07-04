@@ -488,6 +488,25 @@ def test_generated_client_serializes_unregistered_dataclass_fields_as_json() -> 
         conn.close()
 
 
+def test_generated_client_rejects_slotted_model_without_weakref_slot() -> None:
+    @dataclass(slots=True)
+    class SlottedRecord:
+        id: int
+
+    with pytest.raises(TypeError, match="weakref_slot=True"):
+        generate_client([SlottedRecord])
+
+
+def test_generated_client_accepts_slotted_model_with_weakref_slot() -> None:
+    @dataclass(slots=True, weakref_slot=True)
+    class WeakrefSlottedRecord:
+        id: int
+
+    module = generate_client([WeakrefSlottedRecord])
+
+    assert "class WeakrefSlottedRecordTable" in module.code
+
+
 def test_generated_client_rejects_multiple_datasources() -> None:
     module_name_primary = "tests.codegen_primary"
     module_name_secondary = "tests.codegen_secondary"

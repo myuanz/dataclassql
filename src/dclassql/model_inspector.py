@@ -117,7 +117,20 @@ class FakeSelf:
         raise AttributeError(name)
 
 
+def _validate_model_supports_weakref(model: type[Any]) -> None:
+    if not hasattr(model, "__slots__"):
+        return
+    if hasattr(model, "__weakref__"):
+        return
+    raise TypeError(
+        f"Model {model.__name__} uses slots=True but does not support weak references. "
+        f"Use @dataclass(..., slots=True, weakref_slot=True)."
+    )
+
 def inspect_models(models: Sequence[type[Any]]) -> dict[str, ModelInfo]:
+    for model in models:
+        _validate_model_supports_weakref(model)
+
     registry: dict[str, type[Any]] = {model.__name__: model for model in models}
     globalns: dict[str, Any] = {}
     module_map: dict[type[Any], Any] = {}
