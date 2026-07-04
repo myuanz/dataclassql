@@ -1,0 +1,4 @@
+interface:
+  display_name: "DataclassQL"
+  short_description: "Use dclassql typed ORM"
+  default_prompt: "Use $dataclassql to manage database by dataclass."
