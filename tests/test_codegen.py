@@ -531,6 +531,55 @@ def test_generated_client_dynamic_datasource_pushes_and_uses_override_url(tmp_pa
         sys.modules.pop(module_name, None)
 
 
+def test_generated_client_push_db_force_rebuild_controls_rebuild(tmp_path: Path) -> None:
+    module_name = "tests.codegen_force_rebuild"
+    db_path = tmp_path / "force.db"
+    model_module = types.ModuleType(module_name)
+    setattr(model_module, "__datasource__", {
+        "provider": "sqlite",
+        "url": f"sqlite:///{db_path.as_posix()}",
+    })
+    sys.modules[module_name] = model_module
+
+    @dataclass
+    class Person:
+        id: int
+        name: str
+
+    Person.__module__ = module_name
+    setattr(model_module, "Person", Person)
+
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute('CREATE TABLE "Person" ("id" INTEGER PRIMARY KEY AUTOINCREMENT)')
+    finally:
+        conn.close()
+
+    try:
+        namespace: dict[str, Any] = {}
+        module = generate_client([Person])
+        exec(module.code, namespace)
+        client_cls = namespace[module.client_class_name]
+        client = client_cls()
+
+        try:
+            with pytest.raises(RuntimeError, match="模型 Person"):
+                client.push_db()
+
+            client.push_db(force_rebuild=True)
+        finally:
+            client.close()
+
+        conn = sqlite3.connect(db_path)
+        try:
+            columns = conn.execute('PRAGMA table_info("Person")').fetchall()
+        finally:
+            conn.close()
+        assert [name for (_cid, name, *_rest) in columns] == ["id", "name"]
+    finally:
+        sys.modules.pop(module_name, None)
+
+
 def test_generated_client_dynamic_datasource_instances_do_not_share_backend(tmp_path: Path) -> None:
     module_name = "tests.codegen_dynamic_datasource_isolation"
     model_module = types.ModuleType(module_name)

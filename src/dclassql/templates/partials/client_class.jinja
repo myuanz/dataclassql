@@ -1,9 +1,3 @@
-ConfirmRebuildCallback = Callable[
-    [ModelInfo, SchemaPlan, tuple[ExistingColumn, ...] | None, SchemaDiff],
-    bool,
-]
-
-
 class {{ client.class_name }}(BaseDBPool):
     datasource: DataSourceConfig = DataSourceConfig(
         provider={{ client.datasource.provider_repr }},
@@ -41,7 +35,7 @@ class {{ client.class_name }}(BaseDBPool):
         self,
         *,
         sync_indexes: bool = False,
-        confirm_rebuild: ConfirmRebuildCallback | None = None,
+        force_rebuild: bool = False,
     ) -> None:
         connection = self._open_connection(self.datasource)
         try:
@@ -51,7 +45,7 @@ class {{ client.class_name }}(BaseDBPool):
 {% endfor %}                ),
                 {self.datasource_key: connection},
                 sync_indexes=sync_indexes,
-                confirm_rebuild=confirm_rebuild,
+                confirm_rebuild=(lambda *_: True) if force_rebuild else None,
             )
         finally:
             connection.close()

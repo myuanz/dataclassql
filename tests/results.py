@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
-from typing import Any, Callable, Literal, Mapping, Sequence, NotRequired, overload
+from typing import Any, Literal, Mapping, Sequence, NotRequired, overload
 from typing_extensions import TypedDict
 
 from dclassql import DataSourceConfig, db_push
@@ -11,8 +11,6 @@ from dclassql.db_pool import BaseDBPool
 from dclassql.runtime.backends import BackendProtocol, ColumnSpec, ForeignKeySpec, RelationSpec
 from dclassql.runtime.backends.protocols import TableProtocol
 from dclassql.runtime.datasource import open_sqlite_connection
-from dclassql.push.base import ExistingColumn, SchemaDiff, SchemaPlan
-from dclassql.model_inspector import ModelInfo
 
 from datetime import datetime
 from tests.test_codegen import Address, BirthDay, Book, Composite, User, UserBook, UserStatus, UserType, UserVIPLevel
@@ -1228,12 +1226,6 @@ class UserBookTable(TableProtocol):
     def delete_many(self, *, where: UserBookWhereDict | None = None, return_records: Literal[True]) -> list[UserBook]: ...
     def delete_many(self, *, where: UserBookWhereDict | None = None, return_records: Literal[False, True] = False) -> int | list[UserBook]:
         return self._backend.delete_many(self, where=where, return_records=return_records)
-ConfirmRebuildCallback = Callable[
-    [ModelInfo, SchemaPlan, tuple[ExistingColumn, ...] | None, SchemaDiff],
-    bool,
-]
-
-
 class GeneratedClient(BaseDBPool):
     datasource: DataSourceConfig = DataSourceConfig(
         provider='sqlite',
@@ -1275,7 +1267,7 @@ class GeneratedClient(BaseDBPool):
         self,
         *,
         sync_indexes: bool = False,
-        confirm_rebuild: ConfirmRebuildCallback | None = None,
+        force_rebuild: bool = False,
     ) -> None:
         connection = self._open_connection(self.datasource)
         try:
@@ -1290,7 +1282,7 @@ class GeneratedClient(BaseDBPool):
                 ),
                 {self.datasource_key: connection},
                 sync_indexes=sync_indexes,
-                confirm_rebuild=confirm_rebuild,
+                confirm_rebuild=(lambda *_: True) if force_rebuild else None,
             )
         finally:
             connection.close()
