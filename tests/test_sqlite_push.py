@@ -74,7 +74,7 @@ def test_db_push_creates_table_and_indexes():
     assert index_sqls['uq_User_email'] == 'CREATE UNIQUE INDEX "uq_User_email" ON "User" ("email")'
 
     conn2 = sqlite3.connect(":memory:")
-    db_push([User], {"sqlite": conn2})
+    db_push([User], conn2)
     assert (
         conn2.execute(
             "SELECT COUNT(*) FROM sqlite_master WHERE tbl_name='User' AND type='table'"
@@ -98,7 +98,7 @@ def test_db_push_sync_indexes_aligns_with_model():
     conn.execute('CREATE INDEX "idx_User_extra" ON "User" ("created_at", "name")')
     conn.execute('DROP INDEX "idx_User_name"')
 
-    db_push([User], {"sqlite": conn}, sync_indexes=True)
+    db_push([User], conn, sync_indexes=True)
 
     rows = conn.execute(
         "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='User'"
@@ -120,7 +120,7 @@ def test_db_push_rebuild_requires_confirmation():
     )
 
     with pytest.raises(RuntimeError) as exc:
-        db_push([User], {"sqlite": conn})
+        db_push([User], conn)
 
     assert "新增列" in str(exc.value)
 
@@ -145,7 +145,7 @@ def test_db_push_rebuilds_table_and_preserves_rows():
         captured_diff["changed"] = tuple(change.name for change in diff.changed)
         return True
 
-    db_push([User], {"sqlite": conn}, confirm_rebuild=approve_rebuild)
+    db_push([User], conn, confirm_rebuild=approve_rebuild)
 
     columns = conn.execute('PRAGMA table_info("User")').fetchall()
     column_names = [name for (_, name, *_rest) in columns]
@@ -183,7 +183,7 @@ def test_db_push_rebuild_drops_extra_columns():
         assert tuple(column.name for column in diff.removed) == ("legacy",)
         return True
 
-    db_push([User], {"sqlite": conn}, confirm_rebuild=approve)
+    db_push([User], conn, confirm_rebuild=approve)
 
     columns = conn.execute('PRAGMA table_info("User")').fetchall()
     column_names = [name for (_, name, *_rest) in columns]
@@ -206,7 +206,7 @@ def test_db_push_rebuild_detects_column_type_change():
         assert changed == {"name": ("type INTEGER -> TEXT",)}
         return True
 
-    db_push([User], {"sqlite": conn}, confirm_rebuild=approve)
+    db_push([User], conn, confirm_rebuild=approve)
 
     column_info = conn.execute('PRAGMA table_info("User")').fetchall()
     types = {name: typ for (_, name, typ, *_rest) in column_info}
@@ -224,6 +224,6 @@ def test_db_push_rebuild_callback_can_abort():
         return False
 
     with pytest.raises(RuntimeError) as exc:
-        db_push([User], {"sqlite": conn}, confirm_rebuild=reject)
+        db_push([User], conn, confirm_rebuild=reject)
 
     assert "模型 User" in str(exc.value)

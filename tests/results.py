@@ -7,7 +7,7 @@ from typing import Any, Literal, Mapping, Sequence, NotRequired, overload
 from typing_extensions import TypedDict
 
 from dclassql import DataSourceConfig, db_push
-from dclassql.db_pool import BaseDBPool
+from dclassql.db_pool import BaseDBPool, save_local
 from dclassql.runtime.backends import BackendProtocol, ColumnSpec, ForeignKeySpec, RelationSpec
 from dclassql.runtime.backends.protocols import TableProtocol
 from dclassql.runtime.datasource import open_sqlite_connection
@@ -118,7 +118,7 @@ class AddressTable(TableProtocol):
     model = Address
     insert_model = AddressInsert
     table_name: str = 'Address'
-    datasource = DataSourceConfig(provider='sqlite', url='sqlite:///analytics.db', name=None)
+    datasource = DataSourceConfig(url='sqlite:///analytics.db', name=None)
     column_specs: tuple[ColumnSpec, ...] = (
         ColumnSpec(name='id', optional=False, auto_increment=True, has_default=False, has_default_factory=False),
         ColumnSpec(name='location', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
@@ -294,7 +294,7 @@ class BirthDayTable(TableProtocol):
     model = BirthDay
     insert_model = BirthDayInsert
     table_name: str = 'BirthDay'
-    datasource = DataSourceConfig(provider='sqlite', url='sqlite:///analytics.db', name=None)
+    datasource = DataSourceConfig(url='sqlite:///analytics.db', name=None)
     column_specs: tuple[ColumnSpec, ...] = (
         ColumnSpec(name='user_id', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
         ColumnSpec(name='date', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
@@ -466,7 +466,7 @@ class BookTable(TableProtocol):
     model = Book
     insert_model = BookInsert
     table_name: str = 'Book'
-    datasource = DataSourceConfig(provider='sqlite', url='sqlite:///analytics.db', name=None)
+    datasource = DataSourceConfig(url='sqlite:///analytics.db', name=None)
     column_specs: tuple[ColumnSpec, ...] = (
         ColumnSpec(name='id', optional=False, auto_increment=True, has_default=False, has_default_factory=False),
         ColumnSpec(name='name', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
@@ -657,7 +657,7 @@ class CompositeTable(TableProtocol):
     model = Composite
     insert_model = CompositeInsert
     table_name: str = 'Composite'
-    datasource = DataSourceConfig(provider='sqlite', url='sqlite:///analytics.db', name=None)
+    datasource = DataSourceConfig(url='sqlite:///analytics.db', name=None)
     column_specs: tuple[ColumnSpec, ...] = (
         ColumnSpec(name='id1', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
         ColumnSpec(name='id2', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
@@ -892,7 +892,7 @@ class UserTable(TableProtocol):
     model = User
     insert_model = UserInsert
     table_name: str = 'User'
-    datasource = DataSourceConfig(provider='sqlite', url='sqlite:///analytics.db', name=None)
+    datasource = DataSourceConfig(url='sqlite:///analytics.db', name=None)
     column_specs: tuple[ColumnSpec, ...] = (
         ColumnSpec(name='id', optional=False, auto_increment=True, has_default=False, has_default_factory=False),
         ColumnSpec(name='name', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
@@ -1100,7 +1100,7 @@ class UserBookTable(TableProtocol):
     model = UserBook
     insert_model = UserBookInsert
     table_name: str = 'UserBook'
-    datasource = DataSourceConfig(provider='sqlite', url='sqlite:///analytics.db', name=None)
+    datasource = DataSourceConfig(url='sqlite:///analytics.db', name=None)
     column_specs: tuple[ColumnSpec, ...] = (
         ColumnSpec(name='user_id', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
         ColumnSpec(name='book_id', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
@@ -1229,11 +1229,9 @@ class UserBookTable(TableProtocol):
         return self._backend.delete_many(self, where=where, return_records=return_records)
 class GeneratedClient(BaseDBPool):
     datasource: DataSourceConfig = DataSourceConfig(
-        provider='sqlite',
         url='sqlite:///analytics.db',
         name=None,
     )
-    datasource_key: str = 'sqlite'
 
     def __init__(self, *, datasource: DataSourceConfig = datasource, echo_sql: bool = False) -> None:
         self.datasource = datasource
@@ -1254,8 +1252,12 @@ class GeneratedClient(BaseDBPool):
     def _make_backend(self, datasource: DataSourceConfig) -> BackendProtocol:
         if datasource.provider == 'sqlite':
             from dclassql.runtime.backends.sqlite import SQLiteBackend
-            return SQLiteBackend(lambda: self._open_connection(datasource), echo_sql=self._echo_sql)
+            return SQLiteBackend(lambda: self._connection(), echo_sql=self._echo_sql)
         raise ValueError(f"Unsupported provider '{datasource.provider}'")
+
+    @save_local(key=lambda self, func: (func.__name__, self.datasource.identity))
+    def _connection(self) -> Any:
+        return self._open_connection(self.datasource)
 
     def _open_connection(self, datasource: DataSourceConfig) -> Any:
         if datasource.provider == 'sqlite':
@@ -1270,28 +1272,25 @@ class GeneratedClient(BaseDBPool):
         sync_indexes: bool = False,
         force_rebuild: bool = False,
     ) -> None:
-        connection = self._open_connection(self.datasource)
-        try:
-            db_push(
-                (
+        db_push(
+            (
                     Address,
                     BirthDay,
                     Book,
                     Composite,
                     User,
                     UserBook,
-                ),
-                {self.datasource_key: connection},
-                sync_indexes=sync_indexes,
-                confirm_rebuild=(lambda *_: True) if force_rebuild else None,
-            )
-        finally:
-            connection.close()
+            ),
+            self._connection(),
+            sync_indexes=sync_indexes,
+            confirm_rebuild=(lambda *_: True) if force_rebuild else None,
+        )
 
     def close(self) -> None:
         if self._backend_instance is not None:
             self._backend_instance.close()
             self._backend_instance = None
+        self.close_all()
 
     @classmethod
     def close_all(cls, verbose: bool = False) -> None:

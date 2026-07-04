@@ -127,8 +127,7 @@ def _collect_excluded_model_names(module: ModuleType) -> set[str]:
 
 
 def _describe_schema_diff(info: ModelInfo, diff: SchemaDiff) -> str:
-    datasource_key = getattr(info.datasource, "key", None)
-    prefix = f"[{datasource_key}] " if datasource_key else ""
+    prefix = f"[{info.datasource.identity}] "
     parts: list[str] = [f"{prefix}模型 {info.model.__name__} 需要重建表"]
     if diff.added:
         added = ", ".join(f"+{column.name}:{column.type_sql}" for column in diff.added)
@@ -174,32 +173,24 @@ def push_database(
     confirm_mode: ConfirmRebuildMode | None = None,
 ) -> None:
     model_infos = inspect_models(models)
-    connections: dict[str, Any] = {}
-    opened: list[Any] = []
+    datasource_configs = {info.datasource for info in model_infos.values()}
+    if len(datasource_configs) != 1:
+        labels = ", ".join(sorted(config.identity for config in datasource_configs))
+        raise ValueError(f"push-db only supports one datasource, got: {labels}")
+    datasource = next(iter(datasource_configs))
+    if datasource.provider != "sqlite":
+        raise ValueError(f"Unsupported provider '{datasource.provider}'")
     confirm_callback = _build_confirm_callback(confirm_mode) if confirm_mode else None
+    connection = open_sqlite_connection(datasource.url)
     try:
-        for info in model_infos.values():
-            config = info.datasource
-            key = config.key
-            if key in connections:
-                continue
-            if config.provider != "sqlite":
-                raise ValueError(f"Unsupported provider '{config.provider}'")
-            connection = open_sqlite_connection(config.url)
-            connections[key] = connection
-            opened.append(connection)
         db_push(
             models,
-            connections,
+            connection,
             sync_indexes=sync_indexes,
             confirm_rebuild=confirm_callback,
         )
     finally:
-        for conn in opened:
-            try:
-                conn.close()
-            except Exception:
-                pass
+        connection.close()
 
 
 def command_generate(module_path: Path, *, target: GenerateTarget = "model-dir") -> None:

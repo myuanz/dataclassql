@@ -198,7 +198,7 @@ def test_generate_client_matches_expected_shape() -> None:
     column_names = tuple(spec.name for spec in column_specs)
     assert set(get_args(sortable_alias)) == set(column_names)
     assert set(get_args(distinct_alias)) == set(column_names)
-    expected_ds = data_source_config(provider='sqlite', url='sqlite:///analytics.db', name=None)
+    expected_ds = data_source_config(url='sqlite:///analytics.db', name=None)
     assert user_table_cls.datasource == expected_ds
     insert_payload = user_table_cls.serialize_insert({
         "id": None,
@@ -209,8 +209,7 @@ def test_generate_client_matches_expected_shape() -> None:
     })
     assert insert_payload["status"] == namespace["UserStatus"].ACTIVE.value
 
-    assert generated_client.datasource == data_source_config(provider='sqlite', url='sqlite:///analytics.db', name=None)
-    assert generated_client.datasource_key == 'sqlite'
+    assert generated_client.datasource == data_source_config(url='sqlite:///analytics.db', name=None)
     init_hints = get_type_hints(generated_client.__init__, globalns=namespace, localns=namespace)
     assert set(init_hints.keys()) == {"return", "datasource", "echo_sql"}
     assert init_hints["datasource"] is data_source_config
@@ -446,7 +445,7 @@ def test_generated_client_serializes_unregistered_dataclass_fields_as_json() -> 
     exec(code, namespace)
     conn = sqlite3.connect(":memory:")
     try:
-        db_push([JsonOrder], {"sqlite": conn})
+        db_push([JsonOrder], conn)
         table = namespace["JsonOrderTable"](SQLiteBackend(conn))
         stored = table.insert(
             {
@@ -577,12 +576,10 @@ def test_generated_client_supports_named_single_datasource() -> None:
         generated_client = namespace[module.client_class_name]
         data_source_config = namespace["DataSourceConfig"]
         expected_datasource = data_source_config(
-            provider="sqlite",
             url=f"sqlite:///{db_path.as_posix()}",
             name="analytics",
         )
         assert generated_client.datasource == expected_datasource
-        assert generated_client.datasource_key == "analytics"
 
         table_cls = namespace["NamedUserTable"]
         assert table_cls.datasource == expected_datasource
@@ -626,7 +623,6 @@ def test_generated_client_dynamic_datasource_pushes_and_uses_override_url(tmp_pa
         data_source_config = namespace["DataSourceConfig"]
         client = client_cls(
             datasource=data_source_config(
-                provider="sqlite",
                 url=f"sqlite:///{override_db.as_posix()}",
             )
         )
@@ -726,12 +722,8 @@ def test_generated_client_dynamic_datasource_instances_do_not_share_backend(tmp_
 
         db_a = tmp_path / "a.db"
         db_b = tmp_path / "b.db"
-        client_a = client_cls(
-            datasource=data_source_config(provider="sqlite", url=f"sqlite:///{db_a.as_posix()}")
-        )
-        client_b = client_cls(
-            datasource=data_source_config(provider="sqlite", url=f"sqlite:///{db_b.as_posix()}")
-        )
+        client_a = client_cls(datasource=data_source_config(url=f"sqlite:///{db_a.as_posix()}"))
+        client_b = client_cls(datasource=data_source_config(url=f"sqlite:///{db_b.as_posix()}"))
         try:
             client_a.push_db()
             client_b.push_db()
@@ -751,7 +743,7 @@ def test_generated_client_dynamic_datasource_instances_do_not_share_backend(tmp_
 
 
 def test_generated_client_allows_non_identifier_datasource_name(tmp_path: Path) -> None:
-    module_name = "tests.codegen_non_identifier_datasource_key"
+    module_name = "tests.codegen_non_identifier_datasource_name"
     db_path = tmp_path / "invalid-name.db"
     model_module = types.ModuleType(module_name)
     setattr(model_module, "__datasource__", {
@@ -774,7 +766,7 @@ def test_generated_client_allows_non_identifier_datasource_name(tmp_path: Path) 
         exec(module.code, namespace)
 
         client_cls = namespace[module.client_class_name]
-        assert client_cls.datasource_key == "not-valid"
+        assert client_cls.datasource.name == "not-valid"
         client = client_cls()
         try:
             client.push_db()

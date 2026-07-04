@@ -23,7 +23,7 @@ def test_enum_field_roundtrip(tmp_path: Path) -> None:
     # push enum table
     conn = open_sqlite_connection(f"sqlite:///{db_path.as_posix()}")
     try:
-        db_push([RuntimeEnumUser], {"sqlite": conn})
+        db_push([RuntimeEnumUser], conn)
         conn.execute('DELETE FROM "RuntimeEnumUser"')
         conn.commit()
     finally:

@@ -9,7 +9,7 @@ from dclassql.codegen import generate_client
 from dclassql.push import db_push
 from dclassql.runtime.datasource import open_sqlite_connection
 
-__datasource__ = {"provider": "sqlite", "url": None}
+__datasource__ = {"url": "sqlite:///:memory:"}
 
 
 @dataclass
@@ -21,7 +21,7 @@ class Event:
 def _prepare(url: str, model: type[object]) -> None:
     conn = open_sqlite_connection(url)
     try:
-        db_push([model], {"sqlite": conn})
+        db_push([model], conn)
     finally:
         conn.close()
 

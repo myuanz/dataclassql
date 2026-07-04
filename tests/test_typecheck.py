@@ -9,7 +9,7 @@ import pytest
 
 from dclassql.codegen import generate_client
 
-__datasource__ = {"provider": "sqlite", "url": None}
+__datasource__ = {"url": "sqlite:///:memory:"}
 
 @dataclass
 class User:

@@ -72,7 +72,7 @@ def test_lazy_relations(tmp_path):
         exec(module_generated.code, namespace)
         ClientClass = cast(type[Any], namespace[module_generated.client_class_name])
         with open_sqlite_connection(f"sqlite:///{db_path.as_posix()}") as conn_setup:
-            db_push([namespace["LazyUser"], namespace["LazyBirthDay"], namespace["LazyAddress"]], {"sqlite": conn_setup})
+            db_push([namespace["LazyUser"], namespace["LazyBirthDay"], namespace["LazyAddress"]], conn_setup)
         client = ClientClass()
 
         client.lazy_user.insert({"id": 1, "name": "Alice"})

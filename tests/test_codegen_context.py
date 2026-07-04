@@ -54,8 +54,7 @@ def test_client_context_binds_models_to_datasource_backends() -> None:
     client_ctx = _build_client_context(model_infos, "UserModelClient")
 
     assert client_ctx.class_name == "UserModelClient"
-    assert client_ctx.datasource.key == "sqlite"
-    assert client_ctx.datasource.key_repr == "'sqlite'"
+    assert client_ctx.datasource.url_repr == "'sqlite:///analytics.db'"
 
     user_binding = next(binding for binding in client_ctx.model_bindings if binding.model_name == "User")
     assert user_binding.attr_name == "user"

@@ -12,7 +12,7 @@ from dclassql.codegen import generate_client
 from dclassql.push import db_push
 from dclassql.runtime.datasource import open_sqlite_connection
 
-__datasource__ = {"provider": "sqlite", "url": None}
+__datasource__ = {"url": "sqlite:///:memory:"}
 
 
 @dataclass
@@ -52,7 +52,7 @@ def prepare_database(db_path: Path) -> None:
     __datasource__ = {"provider": "sqlite", "url": f"sqlite:///{db_path.as_posix()}"}
     conn = open_sqlite_connection(__datasource__["url"])
     try:
-        db_push([RuntimeUser], {"sqlite": conn})
+        db_push([RuntimeUser], conn)
         conn.execute('DELETE FROM "RuntimeUser"')
         conn.commit()
     finally:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 from dataclasses import MISSING, dataclass, fields, is_dataclass
 from types import UnionType
+from urllib.parse import urlparse
 from typing import Annotated, Any, Iterable, Literal, Mapping, Sequence, get_args, get_origin, get_type_hints
 
 from .table_spec import Col, TableInfo
@@ -51,13 +52,19 @@ class ModelInfo:
 
 @dataclass(slots=True, frozen=True)
 class DataSourceConfig:
-    provider: str
-    url: str | None
+    url: str
     name: str | None = None
 
     @property
-    def key(self) -> str:
-        return self.name or self.provider
+    def provider(self) -> str:
+        parsed = urlparse(self.url)
+        if not parsed.scheme:
+            raise ValueError(f"Datasource url must include provider scheme: {self.url!r}")
+        return parsed.scheme
+
+    @property
+    def identity(self) -> str:
+        return self.url
 
 
 @dataclass(slots=True)
@@ -381,15 +388,13 @@ def _module_datasource(module: Any | None) -> DataSourceConfig:
     if not isinstance(config, Mapping):
         raise ValueError(
             f"Module {module.__name__} must define __datasource__ = "
-            "{'provider': 'sqlite', 'url': 'sqlite:///example.db'}"
+            "{'url': 'sqlite:///example.db'}"
         )
-    if "provider" not in config:
+    if "url" not in config:
         raise ValueError(
-            f"Module {module.__name__} __datasource__ must declare a 'provider' key"
+            f"Module {module.__name__} __datasource__ must declare a 'url' key"
         )
-    provider = str(config["provider"])
-    raw_url = config.get("url")
-    url = str(raw_url) if raw_url is not None else None
+    url = str(config["url"])
     raw_name = config.get("name")
     name = str(raw_name) if raw_name is not None else None
-    return DataSourceConfig(provider=provider, url=url, name=name)
+    return DataSourceConfig(url=url, name=name)

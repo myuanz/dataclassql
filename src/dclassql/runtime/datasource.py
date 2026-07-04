@@ -7,10 +7,7 @@ from urllib.parse import urlparse
 
 from .sqlite_adapters import register_sqlite_adapters
 
-def resolve_sqlite_path(url: str | None) -> str:
-    if not url:
-        raise ValueError("SQLite datasource must specify a url, e.g. sqlite:///path/to.db")
-
+def resolve_sqlite_path(url: str) -> str:
     parsed = urlparse(url)
     if parsed.scheme != "sqlite":
         raise ValueError(f"Unsupported sqlite url '{url}'")
@@ -35,7 +32,7 @@ def resolve_sqlite_path(url: str | None) -> str:
     return target.as_posix()
 
 
-def open_sqlite_connection(url: str | None) -> sqlite3.Connection:
+def open_sqlite_connection(url: str) -> sqlite3.Connection:
     path = resolve_sqlite_path(url)
     register_sqlite_adapters()
     return sqlite3.connect(

@@ -135,9 +135,6 @@ class ModelRenderContext:
 
 @dataclass(slots=True)
 class ClientDataSourceContext:
-    key: str
-    key_repr: str
-    provider_repr: str
     url_repr: str
     name_repr: str
 
@@ -360,7 +357,7 @@ def _build_model_context(
 
     datasource_values = info.datasource
     datasource_expr = (
-        f"DataSourceConfig(provider={datasource_values.provider!r}, url={repr(datasource_values.url)}, name={repr(datasource_values.name)})"
+        f"DataSourceConfig(url={repr(datasource_values.url)}, name={repr(datasource_values.name)})"
     )
 
     indexes_literal = _tuple_literal(tuple(tuple(idx) for idx in info.indexes)) if info.indexes else "()"
@@ -426,14 +423,11 @@ def _build_client_context(model_infos: Mapping[str, ModelInfo], client_class_nam
     datasource_configs = {info.datasource for info in model_infos.values()}
     if len(datasource_configs) != 1:
         labels = ", ".join(
-            f"{ds.key}({ds.provider}, {ds.url!r})" for ds in sorted(datasource_configs, key=lambda item: item.key)
+            f"{ds.identity}({ds.url!r})" for ds in sorted(datasource_configs, key=lambda item: item.identity)
         )
         raise ValueError(f"Generated Client can only use one datasource, got: {labels}")
     datasource = next(iter(datasource_configs))
     datasource_item = ClientDataSourceContext(
-        key=datasource.key,
-        key_repr=repr(datasource.key),
-        provider_repr=repr(datasource.provider),
         url_repr=repr(datasource.url),
         name_repr=repr(datasource.name),
     )
