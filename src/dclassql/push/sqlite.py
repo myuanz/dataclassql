@@ -9,7 +9,7 @@ from pypika import Query, Table
 from pypika.utils import format_quotes
 
 from ..model_inspector import ColumnInfo, ModelInfo
-from .base import DatabasePusher, ExistingColumn, SchemaBuilder, SchemaDiff, SchemaPlan
+from .base import ColumnDeclaration, DatabasePusher, ExistingColumn, SchemaBuilder, SchemaDiff, SchemaPlan
 
 
 TYPE_MAP: Mapping[type[Any], str] = {
@@ -59,6 +59,38 @@ class SQLiteSchemaBuilder(SchemaBuilder):
 
     def resolve_column_type(self, annotation: Any) -> str:
         return _infer_sqlite_type(annotation)
+
+    def render_column_declaration(
+        self,
+        *,
+        column: ColumnInfo,
+        pk_columns: tuple[str, ...],
+        pk_members: set[str],
+        single_inline_pk: bool,
+    ) -> ColumnDeclaration:
+        if column.storage_kind == "json":
+            return self._build_json_column(column, pk_members)
+        return super().render_column_declaration(
+            column=column,
+            pk_columns=pk_columns,
+            pk_members=pk_members,
+            single_inline_pk=single_inline_pk,
+        )
+
+    def _build_json_column(self, column: ColumnInfo, pk_members: set[str]) -> ColumnDeclaration:
+        primary_key = column.name in pk_members
+        not_null = not column.optional and not primary_key
+        definition_sql = "TEXT"
+        if not_null:
+            definition_sql += " NOT NULL"
+        return ColumnDeclaration(
+            name=column.name,
+            type_sql="TEXT",
+            definition_sql=definition_sql,
+            not_null=not_null,
+            primary_key=primary_key,
+            auto_increment=False,
+        )
 
     def use_inline_primary_key(
         self,

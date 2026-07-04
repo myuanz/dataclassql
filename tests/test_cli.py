@@ -9,6 +9,8 @@ import pytest
 
 from dclassql.cli import (
     DEFAULT_MODEL_FILE,
+    collect_models,
+    load_module,
     main,
     resolve_client_class_name,
     resolve_generated_package_dir,
@@ -158,6 +160,34 @@ class User:
     code = (model_dir / "model_client" / "client.py").read_text(encoding="utf-8")
     assert "class ModelClient" in code
     assert "name: str = User.__dataclass_fields__['name'].default" in code
+
+
+def test_collect_models_honors_module_exclude(tmp_path: Path) -> None:
+    module_path = tmp_path / "model.py"
+    module_path.write_text(
+        """
+from dataclasses import dataclass
+
+__datasource__ = {"provider": "sqlite", "url": "sqlite:///example.db"}
+
+@dataclass
+class Stamp:
+    idx: int
+
+@dataclass
+class Event:
+    id: int
+    stamp: Stamp
+
+__exclude__ = (Stamp,)
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    module = load_module(module_path)
+    models = collect_models(module)
+
+    assert [model.__name__ for model in models] == ["Event"]
 
 
 def test_generate_command_supports_package_target(tmp_path: Path) -> None:

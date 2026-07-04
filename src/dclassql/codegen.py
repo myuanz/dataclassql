@@ -368,7 +368,7 @@ def _build_model_context(
         _tuple_literal(tuple(tuple(idx) for idx in info.unique_indexes)) if info.unique_indexes else "()"
     )
 
-    row_assignments, default_factories = _build_row_assignment_context(info, enum_type_map)
+    row_assignments, default_factories = _build_row_assignment_context(info, enum_type_map, renderer)
     primary_value_types: list[str] = []
     for column_name in info.primary_key:
         column = column_lookup.get(column_name)
@@ -556,6 +556,7 @@ def _build_relation_entries(info: ModelInfo, model_infos: Mapping[str, ModelInfo
 def _build_row_assignment_context(
     info: ModelInfo,
     enum_type_map: Mapping[str, type[Enum] | None],
+    renderer: "_TypeRenderer",
 ) -> tuple[list[RowAssignmentRender], list[DefaultFactoryRender]]:
     dataclass_fields = fields(info.model)
     column_map = {column.name: column for column in info.columns}
@@ -571,6 +572,7 @@ def _build_row_assignment_context(
             column_map,
             enum_type_map,
             relation_defaults,
+            renderer,
         )
         assignments.append(RowAssignmentRender(field_name=field_obj.name, value_expr=assignment_expr))
         if default_factory is not None:
@@ -584,12 +586,13 @@ def _resolve_row_assignment(
     column_map: Mapping[str, ColumnInfo],
     enum_type_map: Mapping[str, type[Enum] | None],
     relation_defaults: Mapping[str, str],
+    renderer: "_TypeRenderer",
 ) -> tuple[str, DefaultFactoryRender | None]:
     name = field_obj.name
     column_info = column_map.get(name)
     if column_info is not None:
         enum_type = enum_type_map.get(name)
-        return _column_value_expression(column_info, enum_type), None
+        return _column_value_expression(column_info, enum_type, renderer), None
     if field_obj.default is not MISSING:
         return f"{model_cls.__name__}.__dataclass_fields__[{name!r}].default", None
     if field_obj.default_factory is not MISSING:
@@ -602,8 +605,14 @@ def _resolve_row_assignment(
     return _infer_field_fallback(field_obj.type), None
 
 
-def _column_value_expression(column: ColumnInfo, enum_type: type[Enum] | None) -> str:
+def _column_value_expression(
+    column: ColumnInfo,
+    enum_type: type[Enum] | None,
+    renderer: "_TypeRenderer",
+) -> str:
     base_expr = f"row[{column.name!r}]"
+    if column.storage_kind == "json":
+        return f"deserialize_json_value({base_expr}, {renderer.render(column.python_type)})"
     if enum_type is None:
         return base_expr
     converter = enum_type.__name__
@@ -613,6 +622,8 @@ def _column_value_expression(column: ColumnInfo, enum_type: type[Enum] | None) -
 
 
 def _format_mapping_value_expr(column: ColumnInfo, enum_type: type[Enum] | None) -> str:
+    if column.storage_kind == "json":
+        return f"serialize_json_value(data[{column.name!r}])"
     if enum_type is None:
         return f"data[{column.name!r}]"
     value_expr = f"data[{column.name!r}]"
@@ -622,6 +633,8 @@ def _format_mapping_value_expr(column: ColumnInfo, enum_type: type[Enum] | None)
 
 
 def _format_insert_value_expr(column: ColumnInfo, enum_type: type[Enum] | None) -> str:
+    if column.storage_kind == "json":
+        return f"serialize_json_value(data.{column.name})"
     if enum_type is None:
         return f"data.{column.name}"
     value_expr = f"data.{column.name}"

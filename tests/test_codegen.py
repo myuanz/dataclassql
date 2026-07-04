@@ -15,6 +15,9 @@ from enum import Enum, StrEnum, IntEnum
 import pytest
 
 from dclassql.codegen import generate_client
+from dclassql.model_inspector import inspect_models
+from dclassql.push import db_push
+from dclassql.push.sqlite import _build_sqlite_schema
 from dclassql.runtime.backends import SQLiteBackend
 
 __datasource__ = {
@@ -136,6 +139,19 @@ class AliasDefaultOrder:
     id: int
     side: OrderSideAlias
     limit_price: float = math.nan
+
+
+@dataclass
+class JsonStamp:
+    dt: datetime
+    idx: int
+
+
+@dataclass
+class JsonOrder:
+    id: int
+    stamp: JsonStamp
+    stamps: list[JsonStamp]
 
 
 def test_generate_client_matches_expected_shape() -> None:
@@ -411,6 +427,65 @@ def test_generated_client_expands_type_alias_and_nan_default() -> None:
     insert_cls = namespace["AliasDefaultOrderInsert"]
     inserted = insert_cls(id=1, side="long")
     assert math.isnan(inserted.limit_price)
+
+
+def test_generated_client_serializes_unregistered_dataclass_fields_as_json() -> None:
+    module = generate_client([JsonOrder])
+    code = module.code
+    assert "stamp: JsonStamp" in code
+    assert "stamps: list[JsonStamp]" in code
+    assert "serialize_json_value(data['stamp'])" in code
+    assert "deserialize_json_value(row['stamp'], JsonStamp)" in code
+
+    model_info = inspect_models([JsonOrder])["JsonOrder"]
+    create_sql, _ = _build_sqlite_schema(model_info)
+    assert '"stamp" TEXT NOT NULL' in create_sql
+    assert '"stamps" TEXT NOT NULL' in create_sql
+
+    namespace: dict[str, Any] = {}
+    exec(code, namespace)
+    conn = sqlite3.connect(":memory:")
+    try:
+        db_push([JsonOrder], {"sqlite": conn})
+        table = namespace["JsonOrderTable"](SQLiteBackend(conn))
+        stored = table.insert(
+            {
+                "id": None,
+                "stamp": JsonStamp(dt=datetime(2026, 1, 2, 3, 4, 5), idx=1),
+                "stamps": [
+                    JsonStamp(dt=datetime(2026, 1, 2, 3, 4, 5), idx=1),
+                    JsonStamp(dt=datetime(2026, 1, 2, 3, 4, 6), idx=2),
+                ],
+            }
+        )
+        assert stored.stamp == JsonStamp(dt=datetime(2026, 1, 2, 3, 4, 5), idx=1)
+        assert stored.stamps[1] == JsonStamp(dt=datetime(2026, 1, 2, 3, 4, 6), idx=2)
+
+        raw = conn.execute('SELECT stamp, stamps FROM "JsonOrder"').fetchone()
+        assert raw[0].startswith('{"dt":"2026-01-02T03:04:05"')
+
+        json_row = conn.execute(
+            """
+            SELECT
+                json_valid(stamp),
+                json_valid(stamps),
+                json_extract(stamp, '$.dt'),
+                json_extract(stamp, '$.idx'),
+                json_extract(stamps, '$[1].dt'),
+                json_extract(stamps, '$[1].idx')
+            FROM "JsonOrder"
+            """
+        ).fetchone()
+        assert tuple(json_row) == (
+            1,
+            1,
+            "2026-01-02T03:04:05",
+            1,
+            "2026-01-02T03:04:06",
+            2,
+        )
+    finally:
+        conn.close()
 
 
 def test_generated_client_rejects_multiple_datasources() -> None:

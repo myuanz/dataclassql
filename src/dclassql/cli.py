@@ -93,13 +93,37 @@ def resolve_generated_package_dir(module_path: Path, target: GenerateTarget = "m
 def collect_models(module: ModuleType) -> list[type[Any]]:
     from dataclasses import is_dataclass
 
+    excluded_names = _collect_excluded_model_names(module)
     models: list[type[Any]] = []
     for value in vars(module).values():
-        if isinstance(value, type) and is_dataclass(value) and value.__module__ == module.__name__:
+        if (
+            isinstance(value, type)
+            and is_dataclass(value)
+            and value.__module__ == module.__name__
+            and value.__name__ not in excluded_names
+        ):
             models.append(value)
     if not models:
         raise ValueError("No dataclass models were found in the provided module")
     return models
+
+
+def _collect_excluded_model_names(module: ModuleType) -> set[str]:
+    raw = getattr(module, "__exclude__", ())
+    if raw is None:
+        return set()
+    if isinstance(raw, str):
+        return {raw}
+    names: set[str] = set()
+    for item in raw:
+        if isinstance(item, str):
+            names.add(item)
+            continue
+        if isinstance(item, type):
+            names.add(item.__name__)
+            continue
+        raise TypeError("__exclude__ entries must be dataclass classes or class names")
+    return names
 
 
 def _describe_schema_diff(info: ModelInfo, diff: SchemaDiff) -> str:

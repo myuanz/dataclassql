@@ -11,6 +11,7 @@ from dclassql.db_pool import BaseDBPool
 from dclassql.runtime.backends import BackendProtocol, ColumnSpec, ForeignKeySpec, RelationSpec
 from dclassql.runtime.backends.protocols import TableProtocol
 from dclassql.runtime.datasource import open_sqlite_connection
+from dclassql.runtime.json_value import deserialize_json_value, serialize_json_value
 
 {% if module_imports %}
 {% for block in module_imports -%}

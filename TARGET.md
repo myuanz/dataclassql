@@ -137,6 +137,7 @@ class UserTable:
 - [x] echo sql 模式
 - [x] 运行时覆盖 datasource url, 生成客户端类支持 `datasource=DataSourceConfig(...)` 并支持 `client.push_db()`
 - [x] 一个 model 文件生成一个同名 `_client` 包目录, 默认写到 model 同目录, 也可通过 `--target package` 写到 `dclassql` 包内
+- [x] 模块级 `__exclude__` 可排除辅助 dataclass, 未收集为模型的 dataclass 字段按 JSON 值对象写入普通列
 - [ ] 多个数据源文件的客户端
 - [x] 静态化数据库序列化和反序列化
 - [x] 枚举字段读写转换, 支持 Python Enum 与数据库值的往返映射

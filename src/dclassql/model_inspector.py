@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 from dataclasses import MISSING, dataclass, fields, is_dataclass
 from types import UnionType
-from typing import Annotated, Any, Iterable, Mapping, Sequence, get_args, get_origin, get_type_hints
+from typing import Annotated, Any, Iterable, Literal, Mapping, Sequence, get_args, get_origin, get_type_hints
 
 from .table_spec import Col, TableInfo
 from .utils.ensure import ensure_col_sequence
@@ -15,6 +15,7 @@ class ColumnInfo:
     python_type: Any
     optional: bool
     auto_increment: bool
+    storage_kind: Literal["scalar", "json"]
     has_default: bool
     default_value: Any
     has_default_factory: bool
@@ -219,6 +220,7 @@ def _categorize_fields(
                 python_type=annotations[name],
                 optional=optional_flag or has_default_value or has_default_factory,
                 auto_increment=_is_auto_increment(name, annotations[name], pk_cols),
+                storage_kind="json" if _is_json_dataclass(base_annotation, registry) else "scalar",
                 has_default=has_default_value,
                 default_value=field.default if has_default_value else None,
                 has_default_factory=has_default_factory,
@@ -258,11 +260,15 @@ def _is_collection_type(tp: Any) -> bool:
 
 
 def _is_relationship(tp: Any, registry: Mapping[str, type[Any]]) -> bool:
-    if isinstance(tp, type) and is_dataclass(tp):
+    if isinstance(tp, type) and tp in registry.values():
         return True
     if isinstance(tp, str) and tp in registry:
         return True
     return False
+
+
+def _is_json_dataclass(tp: Any, registry: Mapping[str, type[Any]]) -> bool:
+    return isinstance(tp, type) and is_dataclass(tp) and tp not in registry.values()
 
 
 def _resolve_model(tp: Any, registry: Mapping[str, type[Any]]) -> type[Any]:

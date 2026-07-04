@@ -11,6 +11,7 @@ from dclassql.db_pool import BaseDBPool
 from dclassql.runtime.backends import BackendProtocol, ColumnSpec, ForeignKeySpec, RelationSpec
 from dclassql.runtime.backends.protocols import TableProtocol
 from dclassql.runtime.datasource import open_sqlite_connection
+from dclassql.runtime.json_value import deserialize_json_value, serialize_json_value
 
 from datetime import datetime
 from tests.test_codegen import Address, BirthDay, Book, Composite, User, UserBook, UserStatus, UserType, UserVIPLevel
