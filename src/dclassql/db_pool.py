@@ -1,23 +1,39 @@
 import functools
 import sqlite3
 import threading
-from typing import Callable, Concatenate, Protocol
+from typing import Any, Callable, Concatenate, Protocol
 
 
 class HasLocalClass(Protocol):
     _local: threading.local
 
-def save_local[C: HasLocalClass, **P, T](func: Callable[Concatenate[type[C], P], T]) -> Callable[Concatenate[type[C], P], T]:
-    @functools.wraps(func)
-    def wrapper(cls: type[C], *args: P.args, **kwargs: P.kwargs) -> T:
-        field_name = func.__name__
-        if hasattr(cls._local, field_name):
-            return getattr(cls._local, field_name)
 
-        r = func(cls, *args, **kwargs)
-        setattr(cls._local, field_name, r)
-        return r
-    return wrapper
+def save_local[C: HasLocalClass, **P, T](
+    func: Callable[Concatenate[C, P], T] | None = None,
+    *,
+    key: Callable[[Any, Callable[..., object]], object] | None = None,
+) -> Callable[[Callable[Concatenate[C, P], T]], Callable[Concatenate[C, P], T]] | Callable[Concatenate[C, P], T]:
+    def decorator(func: Callable[Concatenate[C, P], T]) -> Callable[Concatenate[C, P], T]:
+        @functools.wraps(func)
+        def wrapper(self: C, *args: P.args, **kwargs: P.kwargs) -> T:
+            cache = getattr(self._local, "_dclassql_cache", None)
+            if cache is None:
+                cache = {}
+                self._local._dclassql_cache = cache
+
+            cache_key = key(self, func) if key is not None else func.__name__
+            if cache_key in cache:
+                return cache[cache_key]
+
+            value = func(self, *args, **kwargs)
+            cache[cache_key] = value
+            return value
+
+        return wrapper
+
+    if func is not None:
+        return decorator(func)
+    return decorator
 
 
 class BaseDBPool:
@@ -27,26 +43,23 @@ class BaseDBPool:
         sqlite_db_path = 'data/news.db'
         visitor_sqlite_db_path = 'data/visitors.db'
 
-        @classmethod
         @save_local
-        def sqlite_conn(cls) -> sqlite3.Connection:
-            conn = sqlite3.connect(cls.sqlite_db_path, check_same_thread=False)
-            cls._setup_sqlite_db(conn)
+        def sqlite_conn(self) -> sqlite3.Connection:
+            conn = sqlite3.connect(self.sqlite_db_path, check_same_thread=False)
+            self._setup_sqlite_db(conn)
             return conn
 
-        @classmethod
         @save_local
-        def fastlite_conn(cls):
+        def fastlite_conn(self):
             from fastlite import database
-            fastlite_db = database(cls.sqlite_db_path)
+            fastlite_db = database(self.sqlite_db_path)
             return fastlite_db
 
-        @classmethod
         @save_local
-        def fastlite_conn_visitor(cls):
+        def fastlite_conn_visitor(self):
             from fastlite import database
-            fastlite_db_visitor = database(cls.visitor_sqlite_db_path)
-            cls._setup_sqlite_db(fastlite_db_visitor.conn)
+            fastlite_db_visitor = database(self.visitor_sqlite_db_path)
+            self._setup_sqlite_db(fastlite_db_visitor.conn)
             return fastlite_db_visitor
     ```
     '''
@@ -55,16 +68,16 @@ class BaseDBPool:
 
     @classmethod
     def close_all(cls, verbose: bool = False):
-        for attr in dir(cls._local):
-            if '_conn' in attr or '_db' in attr:
+        cache = getattr(cls._local, "_dclassql_cache", None)
+        if cache is None:
+            return
+        for key, obj in list(cache.items()):
+            label = repr(key)
+            if hasattr(obj, 'close') and callable(obj.close):
                 if verbose:
-                    print(f'Check {attr}')
-                obj = getattr(cls._local, attr)
-                if hasattr(obj, 'close') and callable(obj.close):
-                    if verbose:
-                        print(f'\tClosing {attr}')
-                    obj.close()
-                delattr(cls._local, attr)
+                    print(f'Closing {label}')
+                obj.close()
+            del cache[key]
 
     @classmethod
     def _setup_sqlite_db(cls, conn: sqlite3.Connection):
