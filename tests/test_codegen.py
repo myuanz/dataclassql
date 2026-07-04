@@ -646,6 +646,46 @@ def test_generated_client_dynamic_datasource_pushes_and_uses_override_url(tmp_pa
         sys.modules.pop(module_name, None)
 
 
+def test_generated_client_push_db_reuses_memory_connection(tmp_path: Path) -> None:
+    module_name = "tests.codegen_memory_datasource"
+    model_module = types.ModuleType(module_name)
+    setattr(model_module, "__datasource__", {
+        "provider": "sqlite",
+        "url": f"sqlite:///{(tmp_path / 'default.db').as_posix()}",
+    })
+    sys.modules[module_name] = model_module
+
+    @dataclass
+    class Person:
+        id: int
+        name: str
+
+    Person.__module__ = module_name
+    setattr(model_module, "Person", Person)
+
+    try:
+        namespace: dict[str, Any] = {}
+        module = generate_client([Person])
+        exec(module.code, namespace)
+
+        client_cls = namespace[module.client_class_name]
+        data_source_config = namespace["DataSourceConfig"]
+        client = client_cls(
+            datasource=data_source_config(
+                url="sqlite:///:memory:",
+            )
+        )
+        try:
+            client.push_db()
+            client.person.insert({"name": "Alice"})
+            rows = client.person.find_many()
+            assert [row.name for row in rows] == ["Alice"]
+        finally:
+            client.close()
+    finally:
+        sys.modules.pop(module_name, None)
+
+
 def test_generated_client_push_db_force_rebuild_controls_rebuild(tmp_path: Path) -> None:
     module_name = "tests.codegen_force_rebuild"
     db_path = tmp_path / "force.db"
