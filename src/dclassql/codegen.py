@@ -240,7 +240,7 @@ def _build_model_context(
     column_lookup: dict[str, ColumnInfo] = {col.name: col for col in info.columns}
     for col in info.columns:
         annotation = _format_insert_annotation(col, renderer)
-        default_fragment = _render_default_fragment(name, col)
+        default_fragment = _render_default_fragment(info.model, col)
         if default_fragment is not None:
             default_expr = default_fragment
         elif col.auto_increment:
@@ -673,12 +673,12 @@ def _format_insert_annotation(col: ColumnInfo, renderer: "_TypeRenderer") -> str
     return annotation
 
 
-def _render_default_fragment(model_name: str, col: ColumnInfo) -> str | None:
+def _render_default_fragment(model_cls: type[Any], col: ColumnInfo) -> str | None:
     if col.has_default_factory and col.default_factory is not None:
-        factory_expr = f"{model_name}.__dataclass_fields__['{col.name}'].default_factory"
+        factory_expr = f"{model_cls.__name__}.__dataclass_fields__['{col.name}'].default_factory"
         return f"field(default_factory={factory_expr})"
     if col.has_default:
-        return repr(col.default_value)
+        return f"{model_cls.__name__}.__dataclass_fields__['{col.name}'].default"
     return None
 
 
@@ -907,6 +907,14 @@ class _TypeRenderer:
         self._typing_imports: set[str] = set()
 
     def render(self, tp: Any) -> str:
+        alias_value = getattr(tp, "__value__", None)
+        if alias_value is not None:
+            alias_name = getattr(tp, "__name__", None)
+            alias_module = getattr(tp, "__module__", None)
+            if isinstance(alias_name, str) and isinstance(alias_module, str):
+                self._module_imports[alias_module].add(alias_name)
+                return alias_name
+            return self.render(alias_value)
         if tp is Any:
             return "Any"
         if tp is type(None):

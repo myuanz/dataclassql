@@ -4,6 +4,7 @@ import sqlite3
 import sys
 import tempfile
 import types
+import math
 from collections.abc import Sequence as ABCSequence
 from dataclasses import dataclass, fields
 from datetime import datetime
@@ -34,6 +35,8 @@ class UserVIPLevel(IntEnum):
     LEVEL_1 = 1
     LEVEL_2 = 2
     LEVEL_3 = 3
+
+type OrderSideAlias = Literal["long", "short"]
 
 @dataclass
 class Address:
@@ -126,6 +129,13 @@ class User:
 
     def unique_index(self):
         yield self.name, self.email
+
+
+@dataclass
+class AliasDefaultOrder:
+    id: int
+    side: OrderSideAlias
+    limit_price: float = math.nan
 
 
 def test_generate_client_matches_expected_shape() -> None:
@@ -386,6 +396,21 @@ def test_generate_client_matches_expected_shape() -> None:
     delete_many_return_records = delete_many_hints['return_records']
     assert set(get_args(delete_many_return_records)) == {False, True}
     assert delete_many_hints['return'] == int | list[namespace['User']]
+
+
+def test_generated_client_expands_type_alias_and_nan_default() -> None:
+    module = generate_client([AliasDefaultOrder])
+    code = module.code
+    assert "from tests.test_codegen import AliasDefaultOrder, OrderSideAlias" in code
+    assert "side: OrderSideAlias" in code
+    assert "AliasDefaultOrder.__dataclass_fields__['limit_price'].default" in code
+
+    namespace: dict[str, Any] = {}
+    exec(code, namespace)
+
+    insert_cls = namespace["AliasDefaultOrderInsert"]
+    inserted = insert_cls(id=1, side="long")
+    assert math.isnan(inserted.limit_price)
 
 
 def test_generated_client_rejects_multiple_datasources() -> None:
