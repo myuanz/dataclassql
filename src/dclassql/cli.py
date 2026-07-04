@@ -52,11 +52,17 @@ def load_module(module_path: Path) -> ModuleType:
         raise ImportError(f"Unable to load module from '{module_path}'")
     module = importlib.util.module_from_spec(spec)
     sys.modules[module_name] = module
-    sys.path.insert(0, str(module_path.parent))
+    original_sys_path = list(sys.path)
+    search_paths = [str(module_path.parent)]
+    cwd = str(Path.cwd())
+    if cwd not in search_paths:
+        search_paths.append(cwd)
+    for path in reversed(search_paths):
+        sys.path.insert(0, path)
     try:
         spec.loader.exec_module(module)
     finally:
-        sys.path.pop(0)
+        sys.path[:] = original_sys_path
     return module
 
 
