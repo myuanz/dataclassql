@@ -2,6 +2,27 @@
 
 本项目从 `0.3.1` 开始记录变更。
 
+## 0.4.1 - 2026-07-05
+
+### Added
+
+- 支持未写 `primary_key()` 且模型没有 `id` 字段时自动创建隐式自增 `id` 主键列; 生成客户端会在 `Insert`、`Where`、`OrderBy`、upsert where 等间接描述里暴露该 `id`, 查询和写入返回值仍保持原 dataclass 字段。
+- 支持通过 `__exclude__` 排除辅助 dataclass, 未收集为模型的 dataclass 字段会按 JSON 值对象存储并在读取时还原。
+- 生成客户端保留模型中的类型别名与默认值语义, 包括 PEP 695 type alias 和 dataclass default/default_factory。
+- `generate` 支持从项目根路径导入模型模块。
+
+### Fixed
+
+- 修复 slotted 模型的普通关系对象在 lazy descriptor 安装后访问关系字段时报 `__dict__` 缺失的问题。
+- 修复关系映射按属性匹配不精确导致多关系模型可能串错映射的问题。
+- 修复 SQLite 类型推断对类型别名处理不完整的问题。
+- 对 `slots=True` 模型显式要求 `weakref_slot=True`, 避免运行时 lazy/identity map 需要弱引用时才暴露错误。
+
+### Changed
+
+- 重构 datasource 与 `db_push` 连接路径, 生成客户端的内存 datasource 连接复用更稳定。
+- `save_local` 连接缓存调整为实例级作用域, 避免不同客户端实例共享不该共享的连接。
+
 ## 0.4.0 - 2026-07-04
 
 ### Added
