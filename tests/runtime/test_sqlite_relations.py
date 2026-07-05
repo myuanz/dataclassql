@@ -266,6 +266,63 @@ def test_lazy_relations(tmp_path):
         sys.modules.pop(module_name, None)
 
 
+def test_lazy_descriptor_preserves_plain_slotted_instance_relation(tmp_path):
+    module_name = "tests.dynamic_slotted_plain_relation"
+    db_path = tmp_path / "slotted_plain_relation.db"
+    module = types.ModuleType(module_name)
+    setattr(module, "__datasource__", {"provider": "sqlite", "url": f"sqlite:///{db_path.as_posix()}"})
+
+    @dataclass(slots=True, weakref_slot=True)
+    class SlottedOrder:
+        id: int
+        symbol: str
+        trades: list['SlottedTrade']
+
+    SlottedOrder.__module__ = module_name
+    setattr(module, "SlottedOrder", SlottedOrder)
+
+    @dataclass(slots=True, weakref_slot=True)
+    class SlottedTrade:
+        order: SlottedOrder
+        order_id: int
+        pnl: float
+
+        def foreign_key(self):
+            yield self.order.id == self.order_id, SlottedOrder.trades
+
+    SlottedTrade.__module__ = module_name
+    setattr(module, "SlottedTrade", SlottedTrade)
+
+    sys.modules[module_name] = module
+    generated_module_name = "tests.generated_slotted_plain_relation"
+    ClientClass: type[Any] | None = None
+    try:
+        module_generated = generate_client([SlottedOrder, SlottedTrade])
+        generated_module = types.ModuleType(generated_module_name)
+        namespace = generated_module.__dict__
+        namespace["__name__"] = generated_module_name
+        sys.modules[generated_module_name] = generated_module
+        exec(module_generated.code, namespace)
+        ClientClass = cast(type[Any], namespace[module_generated.client_class_name])
+        with open_sqlite_connection(f"sqlite:///{db_path.as_posix()}") as conn_setup:
+            db_push([namespace["SlottedOrder"], namespace["SlottedTrade"]], conn_setup)
+        client = ClientClass()
+
+        client.slotted_order.insert({"id": 1, "symbol": "rb"})
+        client.slotted_trade.insert({"order_id": 1, "pnl": 1.0})
+        assert client.slotted_trade.find_first() is not None
+
+        order = SlottedOrder(id=2, symbol="ag", trades=[])
+        plain_trade = SlottedTrade(order=order, order_id=2, pnl=2.0)
+
+        assert plain_trade.order is order
+    finally:
+        if ClientClass is not None:
+            ClientClass.close_all()
+        sys.modules.pop(generated_module_name, None)
+        sys.modules.pop(module_name, None)
+
+
 def test_trade_entry_and_exit_order_relations(tmp_path):
     module_name = "tests.dynamic_trade_relations"
     db_path = tmp_path / "trade_relations.db"

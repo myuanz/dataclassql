@@ -28,10 +28,11 @@ class LazyRelationState[
 
 
 class _LazyRelationDescriptor:
-    __slots__ = ("name",)
+    __slots__ = ("name", "original")
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str, original: Any = None) -> None:
         self.name = name
+        self.original = original
 
     def __set_name__(self, owner: type[Any], name: str) -> None:
         self.name = name
@@ -41,16 +42,29 @@ class _LazyRelationDescriptor:
             return self
         state_map = LAZY_RELATION_STATE.get(instance)
         if state_map is None:
-            return instance.__dict__.get(self.name)
+            return self._get_original_value(instance)
         state = state_map.get(self.name)
         if state is None:
-            return instance.__dict__.get(self.name)
+            return self._get_original_value(instance)
         if state.loaded:
             return state.value
         value = ensure_lazy_placeholder(instance, state)
         if hasattr(instance, "__dict__"):
             instance.__dict__[self.name] = value
         return value
+
+    def _get_original_value(self, instance: Any) -> Any:
+        original = self.original
+        if original is not None and hasattr(original, "__get__"):
+            return original.__get__(instance, type(instance))
+        if hasattr(instance, "__dict__"):
+            return instance.__dict__.get(self.name)
+        raise AttributeError(self.name)
+
+    def _set_original_value(self, instance: Any, value: Any) -> None:
+        original = self.original
+        if original is not None and hasattr(original, "__set__"):
+            original.__set__(instance, value)
 
     def __set__(self, instance: Any, value: Any) -> None:
         state_map = LAZY_RELATION_STATE.get(instance)
@@ -60,6 +74,7 @@ class _LazyRelationDescriptor:
                 state.loaded = True
                 state.value = value
                 state.loading = False
+        self._set_original_value(instance, value)
         if hasattr(instance, "__dict__"):
             instance.__dict__[self.name] = value
 
@@ -157,7 +172,8 @@ def ensure_lazy_descriptor(model_cls: type[Any], attribute: str) -> None:
         return
     if getattr(model_cls, "__hash__", None) is None:
         setattr(model_cls, "__hash__", object.__hash__)
-    descriptor = _LazyRelationDescriptor(attribute)
+    original = getattr(model_cls, attribute, None)
+    descriptor = _LazyRelationDescriptor(attribute, original)
     descriptor_map[attribute] = descriptor
     setattr(model_cls, attribute, descriptor)
 
