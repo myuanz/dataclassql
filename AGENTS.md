@@ -33,6 +33,9 @@
   - 使用 `get_type_hints`、`fields` 等 API 解析 dataclass 字段, 判断可选性、默认值、自增主键等。
   - 借助 `table_spec.TableInfo` 的 fake self 机制处理 `primary_key` / `index` / `unique_index` 方法返回的列定义。
   - 将模型按 `__datasource__` 聚合为 `DataSourceConfig`, key 为 `name` 或 provider。
+- 主键约定:
+  - 未声明 `primary_key()` 时默认主键名为 `id`; 如果 dataclass 没有 `id` 字段, schema 会创建后端对应的隐式自增 `id` 主键列。
+  - 隐式 `id` 会出现在 `Insert` / `InsertDict` / `WhereDict` / `OrderByDict` / upsert where 等间接描述里, 查询和写入返回值仍保持原 dataclass 字段, 不给返回对象补 `id`。
 - 关系与外键:
   - `RelationAttribute`/`RelationProxy`/`ForeignKeyComparison` 支持 `self.user.id == self.user_id` 等表达式, 映射为关系和键约束。
   - 收集 `ForeignKeyInfo` 以驱动运行时 include 与懒加载。
@@ -87,6 +90,7 @@
 - 完成一个功能点后, 更新 TARGET.md 中的路线图
 - 尽量少用 getattr, 本项目有静态分析阶段, 很多东西明确是已知的.
 - 少在 ModelRenderContext 新增字段, 能在jinja里写的渲染逻辑直接在jinja实现, 能复用已有字段的尽量复用
+- 提交信息沿用当前 Conventional Commits 风格, 例如 `feat: ...`、`fix: ...`、`docs: ...`、`refactor: ...`。
 
 ## 代码风格
 - 少多 Any 和 cast, 多用泛型, 特别是3.12+的泛型语法`def f[T](x: T, y: T) -> T: ...`
