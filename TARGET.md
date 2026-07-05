@@ -148,6 +148,7 @@ class UserTable:
   - [x] delete 默认返回被删除的条目, 如果条目不存在则 None
   - [x] delete_many 同 update_many
 - [x] 提供 record_sql 上下文以捕获精确 SQL 与参数, 便于调试
+- [x] 模型没有 `id` 字段且未显式声明 `primary_key()` 时, SQLite schema 自动补隐式自增 `id` 主键列, 生成客户端仍只暴露原 dataclass 字段
 
 # 设计
 

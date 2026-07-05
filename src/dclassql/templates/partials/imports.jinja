@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
-from typing import Any, Literal, Mapping, Sequence, NotRequired, overload
+from typing import Any, Literal, Mapping, Sequence, NotRequired, Never, overload
 from typing_extensions import TypedDict
 
 from dclassql import DataSourceConfig, db_push

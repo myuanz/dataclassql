@@ -484,8 +484,11 @@ class BackendBase(BackendProtocol, ABC):
         pk_columns = getattr(table, "primary_key", ())
         if not pk_columns:
             return None
+        column_names = table.column_specs_by_name
         values: list[Any] = []
         for column in pk_columns:
+            if column not in column_names:
+                return None
             value = row[column]
             if value is None:
                 return None

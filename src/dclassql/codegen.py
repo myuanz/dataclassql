@@ -51,14 +51,34 @@ class WhereFieldSpec:
 @dataclass(slots=True)
 class ColumnSpecRender:
     name: str
+    '''数据库列名'''
+
     name_repr: str
+    '''列名的 Python 字符串字面量形式, 用于生成代码里的 dict key.'''
+
     optional: bool
+    '''插入/更新时是否允许 None 或缺省, 来自 Optional/default/factory 判断.'''
+
     auto_increment: bool
+    '''是否自增，给主键用的'''
+
     has_default: bool
+    '''原 dataclass 字段是否有 default'''
+
     has_default_factory: bool
+    '''原 dataclass 字段是否有 default_factory'''
+
+    returned_field: bool
+    '''是否会进入返回的原 dataclass 对象. 隐式 id 为 False.'''
+
     mapping_value_expr: str
+    '''Mapping payload 转数据库值的生成表达式. 例如 `data['open_order_id']`.'''
+
     insert_value_expr: str
+    '''Insert dataclass 或原模型实例转数据库值的生成表达式. 隐式 id 用 getattr 默认 None.'''
+
     is_enum: bool
+    '''是否是 Enum 列'''
 
 
 @dataclass(slots=True)
@@ -128,6 +148,7 @@ class ModelRenderContext:
     indexes_literal: str
     unique_indexes_literal: str
     primary_value_types: tuple[str, ...]
+    primary_key_on_model: bool
     row_assignments: tuple[RowAssignmentRender, ...]
     default_factories: tuple[DefaultFactoryRender, ...]
     model_info: ModelInfo
@@ -234,8 +255,11 @@ def _build_model_context(
     upsert_where_dicts: list[UpsertWhereRender] = []
     dict_field_map: dict[str, str] = {}
     enum_type_map: dict[str, type[Enum] | None] = {}
-    column_lookup: dict[str, ColumnInfo] = {col.name: col for col in info.columns}
-    for col in info.columns:
+    model_column_names = {col.name for col in info.columns}
+    db_columns = _build_db_columns(info)
+    column_lookup: dict[str, ColumnInfo] = {col.name: col for col in db_columns}
+    primary_key_on_model = all(column_name in model_column_names for column_name in info.primary_key)
+    for col in db_columns:
         annotation = _format_insert_annotation(col, renderer)
         default_fragment = _render_default_fragment(info.model, col)
         if default_fragment is not None:
@@ -264,8 +288,8 @@ def _build_model_context(
     if info.primary_key:
         pk_fields: list[TypedDictFieldSpec] = []
         for pk_col in info.primary_key:
-            col_info = column_lookup.get(pk_col)
-            annotation = renderer.render(col_info.python_type) if col_info else "object"
+            col_info = column_lookup[pk_col]
+            annotation = renderer.render(col_info.python_type)
             pk_fields.append(TypedDictFieldSpec(name=pk_col, annotation=annotation))
         upsert_where_dicts.append(UpsertWhereRender(name=f"{name}UpsertWherePK", fields=tuple(pk_fields)))
 
@@ -280,8 +304,11 @@ def _build_model_context(
                 UpsertWhereRender(name=f"{name}UpsertWhereUnique{idx}", fields=tuple(unique_fields))
             )
 
+    if not upsert_where_dicts:
+        renderer.require_typing("Never")
+
     where_fields: list[WhereFieldSpec] = []
-    for col in info.columns:
+    for col in db_columns:
         annotation = renderer.render(col.python_type)
         if "None" not in annotation:
             annotation = f"{annotation} | None"
@@ -326,11 +353,16 @@ def _build_model_context(
             auto_increment=column.auto_increment,
             has_default=column.has_default,
             has_default_factory=column.has_default_factory,
+            returned_field=column.name in model_column_names,
             mapping_value_expr=_format_mapping_value_expr(column, enum_type_map.get(column.name)),
-            insert_value_expr=_format_insert_value_expr(column, enum_type_map.get(column.name)),
+            insert_value_expr=_format_insert_value_expr(
+                column,
+                enum_type_map.get(column.name),
+                returned_field=column.name in model_column_names,
+            ),
             is_enum=enum_type_map.get(column.name) is not None,
         )
-        for column in info.columns
+        for column in db_columns
     ]
 
     foreign_keys = [
@@ -368,10 +400,7 @@ def _build_model_context(
     row_assignments, default_factories = _build_row_assignment_context(info, enum_type_map, renderer)
     primary_value_types: list[str] = []
     for column_name in info.primary_key:
-        column = column_lookup.get(column_name)
-        if column is None:
-            primary_value_types.append("object")
-            continue
+        column = column_lookup[column_name]
         primary_value_types.append(renderer.render(column.python_type))
 
     relation_lookup = {relation.name: relation for relation in info.relations}
@@ -413,10 +442,28 @@ def _build_model_context(
         indexes_literal=indexes_literal,
         unique_indexes_literal=unique_indexes_literal,
         primary_value_types=tuple(primary_value_types),
+        primary_key_on_model=primary_key_on_model,
         row_assignments=tuple(row_assignments),
         default_factories=tuple(default_factories),
         model_info=info,
     )
+
+
+def _build_db_columns(info: ModelInfo) -> tuple[ColumnInfo, ...]:
+    if info.primary_key == ("id",) and all(column.name != "id" for column in info.columns):
+        implicit_id = ColumnInfo(
+            name="id",
+            python_type=int,
+            optional=False,
+            auto_increment=True,
+            storage_kind="scalar",
+            has_default=False,
+            default_value=None,
+            has_default_factory=False,
+            default_factory=None,
+        )
+        return (implicit_id, *info.columns)
+    return tuple(info.columns)
 
 
 def _build_client_context(model_infos: Mapping[str, ModelInfo], client_class_name: str) -> ClientContext:
@@ -626,7 +673,14 @@ def _format_mapping_value_expr(column: ColumnInfo, enum_type: type[Enum] | None)
     return f"{value_expr}.value"
 
 
-def _format_insert_value_expr(column: ColumnInfo, enum_type: type[Enum] | None) -> str:
+def _format_insert_value_expr(
+    column: ColumnInfo,
+    enum_type: type[Enum] | None,
+    *,
+    returned_field: bool = True,
+) -> str:
+    if not returned_field:
+        return f"getattr(data, {column.name!r}, None)"
     if column.storage_kind == "json":
         return f"serialize_json_value(data.{column.name})"
     if enum_type is None:

@@ -711,6 +711,62 @@ def test_generated_client_dynamic_datasource_pushes_and_uses_override_url(tmp_pa
         sys.modules.pop(module_name, None)
 
 
+def test_generated_client_uses_implicit_id_for_model_without_id(tmp_path: Path) -> None:
+    module_name = "tests.codegen_implicit_id"
+    db_path = tmp_path / "implicit.db"
+    model_module = types.ModuleType(module_name)
+    setattr(model_module, "__datasource__", {
+        "provider": "sqlite",
+        "url": f"sqlite:///{db_path.as_posix()}",
+    })
+    sys.modules[module_name] = model_module
+
+    @dataclass
+    class Event:
+        name: str
+        amount: float
+
+    Event.__module__ = module_name
+    setattr(model_module, "Event", Event)
+
+    try:
+        namespace: dict[str, Any] = {}
+        module = generate_client([Event])
+        exec(module.code, namespace)
+
+        client_cls = namespace[module.client_class_name]
+        insert_cls = namespace["EventInsert"]
+        client = client_cls()
+        try:
+            client.push_db()
+            manual = client.event.insert(insert_cls(id=10, name="manual", amount=1.0))
+            stored = client.event.insert({"name": "filled", "amount": 2.0})
+            rows = client.event.find_many()
+            by_id = client.event.find_many(where={"id": 10})
+        finally:
+            client.close()
+
+        assert manual == Event(name="manual", amount=1.0)
+        assert stored == Event(name="filled", amount=2.0)
+        assert rows == [Event(name="manual", amount=1.0), Event(name="filled", amount=2.0)]
+        assert by_id == [Event(name="manual", amount=1.0)]
+
+        conn = sqlite3.connect(db_path)
+        try:
+            table_info = conn.execute('PRAGMA table_info("Event")').fetchall()
+            records = conn.execute('SELECT id,name,amount FROM "Event"').fetchall()
+        finally:
+            conn.close()
+        assert [(row[1], row[5]) for row in table_info] == [
+            ("id", 1),
+            ("name", 0),
+            ("amount", 0),
+        ]
+        assert records == [(10, "manual", 1.0), (11, "filled", 2.0)]
+    finally:
+        sys.modules.pop(module_name, None)
+
+
 def test_generated_client_push_db_reuses_memory_connection(tmp_path: Path) -> None:
     module_name = "tests.codegen_memory_datasource"
     model_module = types.ModuleType(module_name)

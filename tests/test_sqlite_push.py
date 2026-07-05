@@ -41,6 +41,12 @@ class AliasUser:
     kind: UserKind
 
 
+@dataclass
+class Event:
+    name: str
+    created_at: datetime
+
+
 def test_db_push_creates_table_and_indexes():
     info = inspect_models([User])["User"]
     create_sql, index_entries = _build_sqlite_schema(info)
@@ -88,6 +94,27 @@ def test_db_push_infers_type_alias_value():
     create_sql, _ = _build_sqlite_schema(info)
 
     assert '"kind" TEXT NOT NULL' in create_sql
+
+
+def test_db_push_adds_implicit_id_primary_key_for_model_without_id():
+    info = inspect_models([Event])["Event"]
+    create_sql, _ = _build_sqlite_schema(info)
+
+    assert create_sql == (
+        'CREATE TABLE IF NOT EXISTS "Event" '
+        '("id" INTEGER PRIMARY KEY AUTOINCREMENT,"name" TEXT NOT NULL,'
+        '"created_at" datetime NOT NULL);'
+    )
+
+    conn = sqlite3.connect(":memory:")
+    push_sqlite(conn, [info])
+    conn.execute(
+        'INSERT INTO "Event" ("name","created_at") VALUES (?, ?)',
+        ("start", "2026-01-01T00:00:00"),
+    )
+
+    rows = conn.execute('SELECT id,name,created_at FROM "Event"').fetchall()
+    assert rows == [(1, "start", "2026-01-01T00:00:00")]
 
 
 def test_db_push_sync_indexes_aligns_with_model():

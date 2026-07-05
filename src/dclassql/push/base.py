@@ -92,6 +92,13 @@ class SchemaBuilder(ABC):
         pk_cols = self._normalize_col_names(self.table_info.primary_key.col_name())
         pk_set = set(pk_cols)
         single_inline_pk = self._has_inline_primary_key(pk_cols)
+        column_names = {column.name for column in self.info.columns}
+
+        if self._uses_implicit_id_primary_key(pk_cols, column_names):
+            declaration = self.implicit_id_declaration()
+            self._column_declarations.append(declaration)
+            builder = builder.columns(self.make_column(declaration.name, declaration.definition_sql))
+            single_inline_pk = True
 
         for column in self.info.columns:
             declaration = self.render_column_declaration(
@@ -118,6 +125,19 @@ class SchemaBuilder(ABC):
                 builder = builder.primary_key(*pk_cols)
 
         return builder.get_sql(quote_char=self.quote_char) + ';'
+
+    def _uses_implicit_id_primary_key(self, pk_cols: tuple[str, ...], column_names: set[str]) -> bool:
+        return pk_cols == ("id",) and "id" not in column_names
+
+    def implicit_id_declaration(self) -> ColumnDeclaration:
+        return ColumnDeclaration(
+            name="id",
+            type_sql="INTEGER",
+            definition_sql=self.inline_primary_key_definition("INTEGER"),
+            not_null=False,
+            primary_key=True,
+            auto_increment=True,
+        )
 
     def render_index_definitions(self) -> list[IndexDefinition]:
         definitions: list[IndexDefinition] = []

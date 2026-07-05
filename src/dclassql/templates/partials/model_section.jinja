@@ -10,7 +10,7 @@
 {%- set include_alias = 'T' ~ name ~ 'IncludeCol' -%}
 {%- set sortable_alias = 'T' ~ name ~ 'SortableCol' -%}
 {%- set include_relations = info.relations | sort(attribute='name', case_sensitive=True) -%}
-{%- set sortable_columns = info.columns -%}
+{%- set sortable_columns = model.column_specs -%}
 {%- set update_dict_class = name ~ 'UpdateDict' -%}
 {%- set upsert_where_alias = name ~ 'UpsertWhereDict' -%}
 {%- set upsert_update_class = update_dict_class -%}
@@ -54,6 +54,8 @@ class {{ upsert_dict.name }}(TypedDict, closed=True):
 {% endfor %}
 {% if model.upsert_where_dicts|length == 1 %}
 {{ upsert_where_alias }} = {{ model.upsert_where_dicts[0].name }}
+{% elif model.upsert_where_dicts|length == 0 %}
+{{ upsert_where_alias }} = Never
 {% else %}
 {{ upsert_where_alias }} = {{ model.upsert_where_dicts | map(attribute='name') | join(' | ') }}
 {% endif %}
@@ -88,8 +90,12 @@ class {{ table_class }}(TableProtocol):
     datasource = {{ model.datasource_expr }}
 {{ macros.column_specs(model.column_specs)|indent(4, True) }}
     column_specs_by_name: Mapping[str, ColumnSpec] = MappingProxyType({spec.name: spec for spec in column_specs})
-{% set pk_types = ['str'] * (model.model_info.primary_key | length) %}
+{% set pk_types = ['str'] * (model.primary_value_types | length) %}
+{% if pk_types %}
     primary_key: tuple[{{ pk_types | join(', ') }}] = {{ model.primary_key_literal }}
+{% else %}
+    primary_key: tuple[()] = ()
+{% endif %}
 
     indexes: tuple[tuple[str, ...], ...] = {{ model.indexes_literal }}
     unique_indexes: tuple[tuple[str, ...], ...] = {{ model.unique_indexes_literal }}
@@ -98,12 +104,20 @@ class {{ table_class }}(TableProtocol):
 {% if model.default_factories %}
 {% for factory in model.default_factories %}    {{ factory.var_name }} = {{ factory.expression }}
 {% endfor %}{% endif %}
+{% if model.primary_value_types and model.primary_key_on_model %}
     def primary_values(self, instance: {{ name }}) -> tuple[{{ model.primary_value_types | join(', ') }}]:
         return (
-            {% for pk in model.model_info.primary_key %}
-            instance.{{ pk }},
+            {% for column in model.column_specs if column.name in model.model_info.primary_key %}
+            instance.{{ column.name }},
             {% endfor %}
         )
+{% elif model.primary_value_types %}
+    def primary_values(self, instance: {{ name }}) -> tuple[{{ model.primary_value_types | join(', ') }}]:
+        raise AttributeError("Implicit primary key is not available on {{ name }} instances")
+{% else %}
+    def primary_values(self, instance: {{ name }}) -> tuple[()]:
+        return ()
+{% endif %}
 
     @classmethod
     def serialize_insert(cls, data: {{ insert_class }} | {{ name }} | Mapping[str, object]) -> dict[str, object]:
