@@ -182,6 +182,31 @@ class RelationOrder:
         yield self.customer.id == self.customer_id, RelationCustomer.orders
 
 
+@dataclass
+class OneWayOrderStatus:
+    id: int
+
+
+@dataclass
+class OneWayOrder:
+    id: int
+    status_id: int | None
+    status: OneWayOrderStatus
+
+    def foreign_key(self):
+        yield self.status.id == self.status_id, None
+
+
+@dataclass
+class InvalidBackrefOrder:
+    id: int
+    status_id: int | None
+    status: OneWayOrderStatus
+
+    def foreign_key(self):
+        yield self.status.id == self.status_id, "status"
+
+
 def test_generate_client_matches_expected_shape() -> None:
     module = generate_client([User, Address, BirthDay, Book, UserBook, Composite])
     code = module.code
@@ -550,6 +575,31 @@ def test_foreign_key_dataclass_field_stays_relation_not_json_column() -> None:
     assert [(relation.name, relation.target, relation.many) for relation in customer_info.relations] == [
         ("orders", RelationOrder, True)
     ]
+
+
+def test_foreign_key_accepts_none_backref_for_one_way_relation() -> None:
+    model_infos = inspect_models([OneWayOrderStatus, OneWayOrder])
+
+    order_info = model_infos["OneWayOrder"]
+    assert [(relation.name, relation.target, relation.many) for relation in order_info.relations] == [
+        ("status", OneWayOrderStatus, False)
+    ]
+    assert len(order_info.foreign_keys) == 1
+    foreign_key = order_info.foreign_keys[0]
+    assert foreign_key.local_columns == ("status_id",)
+    assert foreign_key.remote_model is OneWayOrderStatus
+    assert foreign_key.remote_columns == ("id",)
+    assert foreign_key.relation_attribute == "status"
+    assert foreign_key.backref_attribute is None
+    assert model_infos["OneWayOrderStatus"].relations == []
+
+
+def test_foreign_key_rejects_invalid_backref() -> None:
+    with pytest.raises(
+        TypeError,
+        match="foreign_key backref must be a relation attribute or None",
+    ):
+        inspect_models([OneWayOrderStatus, InvalidBackrefOrder])
 
 
 def test_generated_client_rejects_slotted_model_without_weakref_slot() -> None:

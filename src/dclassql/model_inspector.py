@@ -385,6 +385,8 @@ def _extract_foreign_keys(
         relation_attr = _relation_attribute_from_cols(remote_cols)
         if relation_attr is not None:
             local_relation_names.add(relation_attr)
+        if backref is not None and not isinstance(backref, RelationAttribute):
+            raise TypeError("foreign_key backref must be a relation attribute or None")
         if isinstance(backref, RelationAttribute):
             backref_attr = backref.attribute
             remote_model = backref.model

@@ -128,6 +128,7 @@ class UserTable:
     - [x] 运行时查询和插入等功能
 - [x] 命令行接口包括: `typed-db -m {model py file} push-db`、`typed-db -m {model py file} generate`, model py file 默认名为`model.py`
 - [x] 惰性 n+1 查询关联表
+- [x] `foreign_key()` 支持以 `None` 声明无 backref 的单向关系, 并拒绝其他无效 backref
 - [x] 使用 jinja 生成代码
 - [x] rich filter, 类似 Prisma 的过滤器, 可以写 find_first(where={'or': {'a': {'eq': 1}, 'other_relation': {'is': {'name': '2'}}}})
   - [x] 标量过滤器
