@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from .metadata import ColumnSpec, ForeignKeySpec, RelationSpec
-from .protocols import BackendProtocol, ConnectionFactory, TableProtocol
+from .protocols import BackendProtocol, ConnectionFactory, SchemaTableProtocol, TableProtocol
 from .sqlite import SQLiteBackend
 
 __all__ = [
@@ -10,6 +10,7 @@ __all__ = [
     "ForeignKeySpec",
     "ConnectionFactory",
     "RelationSpec",
+    "SchemaTableProtocol",
     "TableProtocol",
     "SQLiteBackend",
 ]

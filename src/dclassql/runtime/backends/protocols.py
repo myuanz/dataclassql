@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
-from typing import Callable, Literal, Mapping, Protocol, Sequence, overload, runtime_checkable
+from typing import Any, Callable, Literal, Mapping, Protocol, Sequence, overload, runtime_checkable
 
 from pypika import Query, Table
 from pypika.terms import Parameter
@@ -13,16 +13,26 @@ from .metadata import ColumnSpec, ForeignKeySpec, RelationSpec
 
 ConnectionFactory = Callable[[], sqlite3.Connection]
 
+
 @runtime_checkable
-class TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT](Protocol):
+class SchemaTableProtocol(Protocol):
+    table_name: str
+    column_specs: tuple[ColumnSpec, ...]
+    primary_key: tuple[str, ...]
+    indexes: tuple[tuple[str, ...], ...]
+    unique_indexes: tuple[tuple[str, ...], ...]
+
+
+@runtime_checkable
+class TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT](SchemaTableProtocol, Protocol):
     def __init__(self, backend: BackendProtocol) -> None: ...
 
     model: type[ModelT]
     insert_model: type[InsertT]
-    table_name: str
     datasource: DataSourceConfig
-    column_specs: tuple[ColumnSpec, ...]
     column_specs_by_name: Mapping[str, ColumnSpec]
+    foreign_keys: tuple[ForeignKeySpec, ...]
+    relations: tuple[RelationSpec[Any], ...]
 
     @classmethod
     def serialize_insert(cls, data: InsertT | ModelT | Mapping[str, object]) -> dict[str, object]: ...
@@ -31,12 +41,7 @@ class TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT](Protocol):
 
     @classmethod
     def deserialize_row(cls, row: Mapping[str, object]) -> ModelT: ...
-    primary_key: tuple[str, ...]
     def primary_values(self, instance: ModelT) -> tuple[object, ...]: ...
-    indexes: tuple[tuple[str, ...], ...]
-    unique_indexes: tuple[tuple[str, ...], ...]
-    foreign_keys: tuple[ForeignKeySpec, ...]
-    relations: tuple[RelationSpec[TableProtocol], ...]
 
 
 @runtime_checkable

@@ -6,8 +6,7 @@ from typing import Any
 
 from dclassql import asdict
 from dclassql.codegen import generate_client
-from dclassql.push import db_push
-from dclassql.runtime.datasource import open_sqlite_connection
+from dclassql.model_inspector import DataSourceConfig
 
 
 __datasource__ = {"url": "sqlite:///:memory:"}
@@ -55,11 +54,14 @@ class RuntimePost:
 def _prepare_database(db_path: Path) -> None:
     global __datasource__
     __datasource__ = {"provider": "sqlite", "url": f"sqlite:///{db_path.as_posix()}"}
-    conn = open_sqlite_connection(__datasource__["url"])
+    module = generate_client([RuntimeAuthor, RuntimeProfile, RuntimePost])
+    namespace: dict[str, Any] = {}
+    exec(module.code, namespace)
+    client = namespace[module.client_class_name](datasource=DataSourceConfig(url=__datasource__["url"]))
     try:
-        db_push([RuntimeAuthor, RuntimeProfile, RuntimePost], conn)
+        client.push_db()
     finally:
-        conn.close()
+        client.close()
 
 
 def _build_client() -> tuple[dict[str, Any], Any]:

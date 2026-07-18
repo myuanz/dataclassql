@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Callable, Iterable, Sequence, Tuple
+from typing import Any, Callable, Iterable, Sequence
 
 from pypika import Query, Table
 from pypika.queries import Column
 from pypika.terms import Index as PypikaIndex
 
-from ..model_inspector import ColumnInfo, ModelInfo
-from ..table_spec import TableInfo
+from ..runtime.backends.metadata import ColumnSpec
+from ..runtime.backends.protocols import SchemaTableProtocol
 
 
 @dataclass(slots=True, frozen=True)
@@ -62,12 +62,17 @@ class SchemaDiff:
         return not self.added and not self.removed and not self.changed
 
 
+type ConfirmRebuildCallback = Callable[
+    [SchemaTableProtocol, SchemaPlan, tuple[ExistingColumn, ...] | None, SchemaDiff],
+    bool,
+]
+
+
 class SchemaBuilder(ABC):
     quote_char: str = '"'
 
-    def __init__(self, info: ModelInfo) -> None:
-        self.info = info
-        self.table_info = TableInfo.from_dc(info.model)
+    def __init__(self, table: SchemaTableProtocol) -> None:
+        self.table = table
         self._column_declarations: list[ColumnDeclaration] = []
         self._table_name_override: str | None = None
 
@@ -89,10 +94,10 @@ class SchemaBuilder(ABC):
         self._column_declarations = []
         builder = Query.create_table(self.table_name).if_not_exists()
 
-        pk_cols = self._normalize_col_names(self.table_info.primary_key.col_name())
+        pk_cols = self.table.primary_key
         pk_set = set(pk_cols)
         single_inline_pk = self._has_inline_primary_key(pk_cols)
-        column_names = {column.name for column in self.info.columns}
+        column_names = {column.name for column in self.table.column_specs}
 
         if self._uses_implicit_id_primary_key(pk_cols, column_names):
             declaration = self.implicit_id_declaration()
@@ -100,7 +105,7 @@ class SchemaBuilder(ABC):
             builder = builder.columns(self.make_column(declaration.name, declaration.definition_sql))
             single_inline_pk = True
 
-        for column in self.info.columns:
+        for column in self.table.column_specs:
             declaration = self.render_column_declaration(
                 column=column,
                 pk_columns=pk_cols,
@@ -111,8 +116,7 @@ class SchemaBuilder(ABC):
             builder = builder.columns(self.make_column(column.name, declaration.definition_sql))
 
         seen_unique: set[tuple[str, ...]] = set()
-        for spec in self.table_info.unique_index:
-            columns = self._normalize_col_names(spec.col_name())
+        for columns in self.table.unique_indexes:
             if columns in seen_unique:
                 continue
             seen_unique.add(columns)
@@ -141,14 +145,9 @@ class SchemaBuilder(ABC):
 
     def render_index_definitions(self) -> list[IndexDefinition]:
         definitions: list[IndexDefinition] = []
-        seen_unique: set[tuple[str, ...]] = set()
-        for spec in self.table_info.index:
-            columns = self._normalize_col_names(spec.col_name())
-            unique = spec.is_unique_index
-            if unique:
-                if columns in seen_unique:
-                    continue
-                seen_unique.add(columns)
+        specs = [(columns, False) for columns in self.table.indexes]
+        specs.extend((columns, True) for columns in self.table.unique_indexes)
+        for columns, unique in specs:
             definitions.append(
                 IndexDefinition(
                     name=self.make_index_name(columns, unique=unique),
@@ -164,7 +163,7 @@ class SchemaBuilder(ABC):
     def render_column_declaration(
         self,
         *,
-        column: ColumnInfo,
+        column: ColumnSpec,
         pk_columns: tuple[str, ...],
         pk_members: set[str],
         single_inline_pk: bool,
@@ -205,7 +204,7 @@ class SchemaBuilder(ABC):
 
     def include_not_null(
         self,
-        column: ColumnInfo,
+        column: ColumnSpec,
         *,
         pk_members: set[str],
         single_inline_pk: bool,
@@ -243,7 +242,7 @@ class SchemaBuilder(ABC):
         if len(pk_columns) != 1:
             return False
         pk_name = pk_columns[0]
-        for column in self.info.columns:
+        for column in self.table.column_specs:
             if column.name != pk_name:
                 continue
             sql_type = self.resolve_column_type(column.python_type)
@@ -254,18 +253,11 @@ class SchemaBuilder(ABC):
             )
         return False
 
-    def _normalize_col_names(self, spec_cols: Any) -> tuple[str, ...]:
-        if isinstance(spec_cols, tuple):
-            return tuple(spec_cols)
-        if isinstance(spec_cols, list):
-            return tuple(spec_cols)
-        return (spec_cols,)
-
     @property
     def table_name(self) -> str:
         if self._table_name_override is not None:
             return self._table_name_override
-        return self.info.model.__name__
+        return self.table.table_name
 
     @abstractmethod
     def resolve_column_type(self, annotation: Any) -> str:
@@ -274,7 +266,7 @@ class SchemaBuilder(ABC):
     def use_inline_primary_key(
         self,
         *,
-        column: ColumnInfo,
+        column: ColumnSpec,
         pk_columns: tuple[str, ...],
         sql_type: str,
     ) -> bool:
@@ -293,7 +285,7 @@ class DatabasePusher(ABC):
     schema_builder_cls: type[SchemaBuilder]
 
     @abstractmethod
-    def fetch_existing_indexes(self, conn: Any, info: ModelInfo) -> set[str]:
+    def fetch_existing_indexes(self, conn: Any, table: SchemaTableProtocol) -> set[str]:
         ...
 
     @abstractmethod
@@ -301,11 +293,15 @@ class DatabasePusher(ABC):
         ...
 
     @abstractmethod
-    def table_exists(self, conn: Any, info: ModelInfo) -> bool:
+    def table_exists(self, conn: Any, table: SchemaTableProtocol) -> bool:
         ...
 
     @abstractmethod
-    def inspect_existing_schema(self, conn: Any, info: ModelInfo) -> tuple[ExistingColumn, ...] | None:
+    def inspect_existing_schema(
+        self,
+        conn: Any,
+        table: SchemaTableProtocol,
+    ) -> tuple[ExistingColumn, ...] | None:
         ...
 
     def calculate_diff(self, existing: tuple[ExistingColumn, ...], expected: SchemaPlan) -> SchemaDiff:
@@ -343,8 +339,8 @@ class DatabasePusher(ABC):
             changed=tuple(changed),
         )
 
-    def format_diff_message(self, info: ModelInfo, diff: SchemaDiff) -> str:
-        parts: list[str] = [f"模型 {info.model.__name__} 需要重建表"]
+    def format_diff_message(self, table: SchemaTableProtocol, diff: SchemaDiff) -> str:
+        parts: list[str] = [f"模型 {table.table_name} 需要重建表"]
         if diff.added:
             added_desc = ", ".join(f"+{col.name}:{col.type_sql}" for col in diff.added)
             parts.append(f"新增列: {added_desc}")
@@ -362,7 +358,7 @@ class DatabasePusher(ABC):
     def rebuild_table(
         self,
         conn: Any,
-        info: ModelInfo,
+        table: SchemaTableProtocol,
         builder: SchemaBuilder,
         plan: SchemaPlan,
         existing_schema: tuple[ExistingColumn, ...] | None,
@@ -379,20 +375,20 @@ class DatabasePusher(ABC):
     def push(
         self,
         conn: Any,
-        infos: Sequence[ModelInfo],
+        tables: Sequence[SchemaTableProtocol],
         *,
         sync_indexes: bool = False,
-        confirm_rebuild: Callable[[ModelInfo, SchemaPlan, tuple[ExistingColumn, ...] | None, SchemaDiff], bool] | None = None,
+        confirm_rebuild: ConfirmRebuildCallback | None = None,
     ) -> None:
         self.validate_connection(conn)
-        for info in infos:
-            builder = self.schema_builder_cls(info)
+        for table in tables:
+            builder = self.schema_builder_cls(table)
             plan = builder.build()
 
-            if not self.table_exists(conn, info):
+            if not self.table_exists(conn, table):
                 self.execute_statements(conn, [plan.create_sql])
             else:
-                existing_schema = self.inspect_existing_schema(conn, info)
+                existing_schema = self.inspect_existing_schema(conn, table)
                 if existing_schema is None:
                     diff = SchemaDiff(added=plan.columns, removed=tuple(), changed=tuple())
                 else:
@@ -400,22 +396,22 @@ class DatabasePusher(ABC):
 
                 if existing_schema is None or not diff.is_empty():
                     if confirm_rebuild is None:
-                        raise RuntimeError(self.format_diff_message(info, diff))
-                    if not confirm_rebuild(info, plan, existing_schema, diff):
-                        raise RuntimeError(self.format_diff_message(info, diff))
-                    self.rebuild_table(conn, info, builder, plan, existing_schema, diff)
+                        raise RuntimeError(self.format_diff_message(table, diff))
+                    if not confirm_rebuild(table, plan, existing_schema, diff):
+                        raise RuntimeError(self.format_diff_message(table, diff))
+                    self.rebuild_table(conn, table, builder, plan, existing_schema, diff)
 
-            self._sync_indexes(conn, info, builder, plan.indexes, sync_indexes)
+            self._sync_indexes(conn, table, builder, plan.indexes, sync_indexes)
 
     def _sync_indexes(
         self,
         conn: Any,
-        info: ModelInfo,
+        table: SchemaTableProtocol,
         builder: SchemaBuilder,
-        index_definitions: Tuple[IndexDefinition, ...],
+        index_definitions: tuple[IndexDefinition, ...],
         sync_indexes: bool,
     ) -> None:
-        existing_indexes = self.fetch_existing_indexes(conn, info)
+        existing_indexes = self.fetch_existing_indexes(conn, table)
         expected_names = {definition.name for definition in index_definitions}
 
         statements: list[str] = []

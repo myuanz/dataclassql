@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from dclassql import record_sql
-from dclassql.push import db_push
 from dclassql.runtime.datasource import open_sqlite_connection
 
 from .conftest import (
@@ -20,16 +19,9 @@ def test_enum_field_roundtrip(tmp_path: Path) -> None:
     db_path = tmp_path / "enum_runtime.db"
     prepare_database(db_path)
 
-    # push enum table
-    conn = open_sqlite_connection(f"sqlite:///{db_path.as_posix()}")
-    try:
-        db_push([RuntimeEnumUser], conn)
-        conn.execute('DELETE FROM "RuntimeEnumUser"')
-        conn.commit()
-    finally:
-        conn.close()
-
     namespace, client = build_enum_client()
+    client.push_db()
+    client.runtime_enum_user.delete_many()
     table = client.runtime_enum_user
     InsertCls = namespace["RuntimeEnumUserInsert"]
 

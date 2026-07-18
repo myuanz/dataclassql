@@ -6,13 +6,11 @@ import re
 import sys
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Callable, Literal, Sequence
+from typing import Any, Literal, Protocol, Sequence
 
 from .codegen import generate_client
-from .model_inspector import ModelInfo, inspect_models
-from .push import db_push
-from .push.base import ExistingColumn, SchemaDiff, SchemaPlan
-from .runtime.datasource import open_sqlite_connection
+from .push.base import ConfirmRebuildCallback, ExistingColumn, SchemaDiff, SchemaPlan
+from .runtime.backends.protocols import SchemaTableProtocol
 
 
 DEFAULT_MODEL_FILE = "model.py"
@@ -20,10 +18,18 @@ GENERATED_CLIENT_FILENAME = "client.py"
 
 GenerateTarget = Literal["model-dir", "package"]
 ConfirmRebuildMode = Literal["auto", "prompt"]
-ConfirmCallback = Callable[
-    [ModelInfo, SchemaPlan, tuple[ExistingColumn, ...] | None, SchemaDiff],
-    bool,
-]
+
+
+class GeneratedClientProtocol(Protocol):
+    def push_db(
+        self,
+        *,
+        sync_indexes: bool = False,
+        force_rebuild: bool = False,
+        confirm_rebuild: ConfirmRebuildCallback | None = None,
+    ) -> None: ...
+
+    def close(self) -> None: ...
 
 
 def _module_name_from_path(module_path: Path) -> str:
@@ -126,9 +132,8 @@ def _collect_excluded_model_names(module: ModuleType) -> set[str]:
     return names
 
 
-def _describe_schema_diff(info: ModelInfo, diff: SchemaDiff) -> str:
-    prefix = f"[{info.datasource.identity}] "
-    parts: list[str] = [f"{prefix}模型 {info.model.__name__} 需要重建表"]
+def _describe_schema_diff(table: SchemaTableProtocol, diff: SchemaDiff) -> str:
+    parts: list[str] = [f"模型 {table.table_name} 需要重建表"]
     if diff.added:
         added = ", ".join(f"+{column.name}:{column.type_sql}" for column in diff.added)
         parts.append(f"新增列: {added}")
@@ -143,14 +148,14 @@ def _describe_schema_diff(info: ModelInfo, diff: SchemaDiff) -> str:
     return "; ".join(parts)
 
 
-def _build_confirm_callback(mode: ConfirmRebuildMode) -> ConfirmCallback:
+def _build_confirm_callback(mode: ConfirmRebuildMode) -> ConfirmRebuildCallback:
     def confirm(
-        info: ModelInfo,
+        table: SchemaTableProtocol,
         _plan: SchemaPlan,
         _existing: tuple[ExistingColumn, ...] | None,
         diff: SchemaDiff,
     ) -> bool:
-        summary = _describe_schema_diff(info, diff)
+        summary = _describe_schema_diff(table, diff)
         sys.stdout.write(summary + "\n")
         if mode == "auto":
             sys.stdout.write("已根据 --confirm-rebuild=auto 自动确认。\n")
@@ -166,34 +171,61 @@ def _build_confirm_callback(mode: ConfirmRebuildMode) -> ConfirmCallback:
     return confirm
 
 
-def push_database(
-    models: Sequence[type[Any]],
+def _load_generated_client_class(
+    module_path: Path,
     *,
+    target: GenerateTarget,
+) -> type[GeneratedClientProtocol]:
+    package_dir = resolve_generated_package_dir(module_path, target)
+    init_path = package_dir / "__init__.py"
+    if not init_path.exists():
+        raise FileNotFoundError(f"Generated client package '{package_dir}' does not exist; run generate first")
+
+    package_name = package_dir.name if target == "model-dir" else f"dclassql.{package_dir.name}"
+    for loaded_name in tuple(sys.modules):
+        if loaded_name == package_name or loaded_name.startswith(f"{package_name}."):
+            del sys.modules[loaded_name]
+
+    spec = importlib.util.spec_from_file_location(
+        package_name,
+        init_path,
+        submodule_search_locations=[str(package_dir)],
+    )
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Unable to load generated client package '{package_dir}'")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[package_name] = module
+    spec.loader.exec_module(module)
+    client_class = getattr(module, resolve_client_class_name(module_path))
+    return client_class
+
+
+def _push_generated_client(
+    module_path: Path,
+    *,
+    target: GenerateTarget,
+    sync_indexes: bool,
+    confirm_mode: ConfirmRebuildMode | None,
+) -> None:
+    client_class = _load_generated_client_class(module_path, target=target)
+    client = client_class()
+    try:
+        client.push_db(
+            sync_indexes=sync_indexes,
+            confirm_rebuild=_build_confirm_callback(confirm_mode) if confirm_mode else None,
+        )
+    finally:
+        client.close()
+
+
+def command_generate(
+    module_path: Path,
+    *,
+    target: GenerateTarget = "model-dir",
+    push_db: bool = False,
     sync_indexes: bool = False,
     confirm_mode: ConfirmRebuildMode | None = None,
 ) -> None:
-    model_infos = inspect_models(models)
-    datasource_configs = {info.datasource for info in model_infos.values()}
-    if len(datasource_configs) != 1:
-        labels = ", ".join(sorted(config.identity for config in datasource_configs))
-        raise ValueError(f"push-db only supports one datasource, got: {labels}")
-    datasource = next(iter(datasource_configs))
-    if datasource.provider != "sqlite":
-        raise ValueError(f"Unsupported provider '{datasource.provider}'")
-    confirm_callback = _build_confirm_callback(confirm_mode) if confirm_mode else None
-    connection = open_sqlite_connection(datasource.url)
-    try:
-        db_push(
-            models,
-            connection,
-            sync_indexes=sync_indexes,
-            confirm_rebuild=confirm_callback,
-        )
-    finally:
-        connection.close()
-
-
-def command_generate(module_path: Path, *, target: GenerateTarget = "model-dir") -> None:
     module = load_module(module_path)
     models = collect_models(module)
     client_class_name = resolve_client_class_name(module_path)
@@ -205,17 +237,29 @@ def command_generate(module_path: Path, *, target: GenerateTarget = "model-dir")
     (output_dir / GENERATED_CLIENT_FILENAME).write_text(generated.code, encoding="utf-8")
     (output_dir / "asdict.pyi").write_text(generated.asdict_stub, encoding="utf-8")
     sys.stdout.write(f"Client package written to {output_dir}\n")
+    if push_db:
+        _push_generated_client(
+            module_path,
+            target=target,
+            sync_indexes=sync_indexes,
+            confirm_mode=confirm_mode,
+        )
 
 
 def command_push_db(
     module_path: Path,
     *,
+    target: GenerateTarget,
     sync_indexes: bool,
     confirm_mode: ConfirmRebuildMode | None,
 ) -> None:
-    module = load_module(module_path)
-    models = collect_models(module)
-    push_database(models, sync_indexes=sync_indexes, confirm_mode=confirm_mode)
+    load_module(module_path)
+    _push_generated_client(
+        module_path,
+        target=target,
+        sync_indexes=sync_indexes,
+        confirm_mode=confirm_mode,
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -236,9 +280,31 @@ def build_parser() -> argparse.ArgumentParser:
         default="model-dir",
         help="生成 client 的位置: model-dir 写到模型文件同目录; package 写到 dclassql 包内",
     )
-    generate_parser.set_defaults(handler=lambda args: command_generate(args.module, target=args.target))
+    generate_parser.add_argument("--push-db", action="store_true", help="生成客户端后立即推送数据库 schema")
+    generate_parser.add_argument("--sync-indexes", action="store_true", help="推送时同步删除多余索引")
+    generate_parser.add_argument(
+        "--confirm-rebuild",
+        choices=("auto", "prompt"),
+        default=None,
+        help="推送时确认重建: auto 自动确认; prompt 逐表确认",
+    )
+    generate_parser.set_defaults(
+        handler=lambda args: command_generate(
+            args.module,
+            target=args.target,
+            push_db=args.push_db,
+            sync_indexes=args.sync_indexes,
+            confirm_mode=args.confirm_rebuild,
+        )
+    )
 
     push_parser = subparsers.add_parser("push-db", help="Apply schema and indexes to configured databases")
+    push_parser.add_argument(
+        "--target",
+        choices=("model-dir", "package"),
+        default="model-dir",
+        help="读取生成 client 的位置",
+    )
     push_parser.add_argument(
         "--sync-indexes",
         action="store_true",
@@ -253,6 +319,7 @@ def build_parser() -> argparse.ArgumentParser:
     push_parser.set_defaults(
         handler=lambda args: command_push_db(
             args.module,
+            target=args.target,
             sync_indexes=args.sync_indexes,
             confirm_mode=args.confirm_rebuild,
         )

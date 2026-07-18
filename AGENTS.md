@@ -25,8 +25,8 @@
   - `Client` 类: 维护数据源配置、延迟初始化每个表的后端对象。
   - `*Table` 类: 封装 `insert` / `insert_many` / `find_many` / `find_first` 等方法, 依赖运行时后端。
   - `*Insert` dataclass、`*InsertDict` / `*WhereDict` / `*IncludeDict` / `*OrderByDict` TypedDict, 以及 `T*IncludeCol` / `T*SortableCol` Literal 类型别名。
-  - `ForeignKeySpec`、`ColumnSpec`、`RelationSpec` 等元信息用于运行时懒加载。
-- 生成代码写入安装包内的 `dclassql/client.py`
+  - `ForeignKeySpec`、`ColumnSpec`、`RelationSpec` 等元信息用于运行时懒加载和 schema 推送。
+- 生成代码默认写入 model 同目录的 `*_client` 包, 也可通过 `--target package` 写入安装包。
 
 ## 数据模型解析
 - `model_inspector.inspect_models`:
@@ -42,7 +42,7 @@
 
 ## 运行时与数据库推送
 - `push.db_push`:
-  - 按 provider 和 datasource key 分组模型, 委派给对应的 `DatabasePusher`。
+  - 接收已生成客户端中的 `SchemaTableProtocol` 元信息, 按 provider 委派给对应的 `DatabasePusher`
   - 默认注册 `SQLitePusher`, 支持外部 `register_pusher` 扩展。
 - `push/sqlite.py`:
   - `_infer_sqlite_type` 将 Python 类型映射为 SQLite 列类型, 处理 `Annotated`/`Union`。
@@ -66,9 +66,9 @@
 - `dclassql -m model.py generate`:
   - 载入模型模块 (`importlib.util`), 收集 dataclass, 生成 typed 代码。
   - 写入生成客户端
+  - 可传 `--push-db` 在生成后立即使用新客户端推送 schema。
 - `dclassql -m model.py push-db`:
-  - 载入模型后, 为每个 datasource 打开连接 (`runtime.datasource.open_sqlite_connection`)。
-  - 调用 `db_push` 应用 schema 与索引。
+  - 载入已有生成客户端并调用其 `push_db`, 因此要求先执行 `generate`。
 - CLI 出错直接抛异常; 统一由 `main()` 捕获并写至 stderr。
 - src/dclassql/client.py 是生成处理的文件, 不要试图直接编辑. 执行 pytest 后就会重建
 

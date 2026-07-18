@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 
 @dataclass(slots=True)
 class ColumnSpec:
     name: str
+    python_type: Any
+    storage_kind: Literal["scalar", "json"]
     optional: bool
     auto_increment: bool
     has_default: bool

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Sequence
+from typing import Any, Sequence
 
-from ..model_inspector import ModelInfo, inspect_models
-from .base import DatabasePusher, ExistingColumn, SchemaDiff, SchemaPlan
+from ..runtime.backends.protocols import SchemaTableProtocol
+from .base import ConfirmRebuildCallback, DatabasePusher
 from .sqlite import SQLITE_PUSHER, SQLitePusher, push_sqlite, _build_sqlite_schema
 
 _PUSHER_REGISTRY: dict[str, DatabasePusher] = {
@@ -22,22 +22,17 @@ def get_pusher(provider: str) -> DatabasePusher:
 
 
 def db_push(
-    models: Sequence[type[Any]],
+    tables: Sequence[SchemaTableProtocol],
     connection: Any,
     *,
+    provider: str,
     sync_indexes: bool = False,
-    confirm_rebuild: Callable[[ModelInfo, SchemaPlan, tuple[ExistingColumn, ...] | None, SchemaDiff], bool] | None = None,
+    confirm_rebuild: ConfirmRebuildCallback | None = None,
 ) -> None:
-    model_infos = inspect_models(models)
-    datasource_configs = {info.datasource for info in model_infos.values()}
-    if len(datasource_configs) != 1:
-        labels = ", ".join(sorted(config.identity for config in datasource_configs))
-        raise ValueError(f"db_push only supports one datasource, got: {labels}")
-    datasource = next(iter(datasource_configs))
-    pusher = get_pusher(datasource.provider)
+    pusher = get_pusher(provider)
     pusher.push(
         connection,
-        list(model_infos.values()),
+        tables,
         sync_indexes=sync_indexes,
         confirm_rebuild=confirm_rebuild,
     )

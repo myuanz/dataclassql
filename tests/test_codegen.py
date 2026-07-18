@@ -489,16 +489,15 @@ def test_generated_client_serializes_unregistered_dataclass_fields_as_json() -> 
     assert "serialize_json_value(data['stamp'])" in code
     assert "deserialize_json_value(row['stamp'], JsonStamp)" in code
 
-    model_info = inspect_models([JsonOrder])["JsonOrder"]
-    create_sql, _ = _build_sqlite_schema(model_info)
+    namespace: dict[str, Any] = {}
+    exec(code, namespace)
+    create_sql, _ = _build_sqlite_schema(namespace["JsonOrderTable"])
     assert '"stamp" TEXT NOT NULL' in create_sql
     assert '"stamps" TEXT NOT NULL' in create_sql
 
-    namespace: dict[str, Any] = {}
-    exec(code, namespace)
     conn = sqlite3.connect(":memory:")
     try:
-        db_push([JsonOrder], conn)
+        db_push([namespace["JsonOrderTable"]], conn, provider="sqlite")
         table = namespace["JsonOrderTable"](SQLiteBackend(conn))
         stored = table.insert(
             {
@@ -554,7 +553,9 @@ def test_model_dataclass_field_without_foreign_key_is_json_column() -> None:
     ]
     assert trade_info.relations == []
 
-    create_sql, _ = _build_sqlite_schema(trade_info)
+    namespace: dict[str, Any] = {}
+    exec(code, namespace)
+    create_sql, _ = _build_sqlite_schema(namespace["JsonModelTradeTable"])
     assert '"order" TEXT NOT NULL' in create_sql
 
 
@@ -757,6 +758,49 @@ def test_generated_client_dynamic_datasource_pushes_and_uses_override_url(tmp_pa
         finally:
             conn.close()
         assert count == 1
+    finally:
+        sys.modules.pop(module_name, None)
+
+
+def test_generated_client_push_db_does_not_reinspect_models(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module_name = "tests.codegen_push_without_reinspect"
+    db_path = tmp_path / "compiled-schema.db"
+    model_module = types.ModuleType(module_name)
+    setattr(model_module, "__datasource__", {"url": f"sqlite:///{db_path.as_posix()}"})
+    sys.modules[module_name] = model_module
+
+    @dataclass
+    class Person:
+        id: int
+        name: str
+
+    Person.__module__ = module_name
+    setattr(model_module, "Person", Person)
+
+    try:
+        generated = generate_client([Person])
+        namespace: dict[str, Any] = {}
+        exec(generated.code, namespace)
+        monkeypatch.setattr(
+            "dclassql.model_inspector.inspect_models",
+            lambda *_args, **_kwargs: pytest.fail("push_db must not inspect models"),
+        )
+
+        client = namespace[generated.client_class_name]()
+        try:
+            client.push_db()
+        finally:
+            client.close()
+
+        conn = sqlite3.connect(db_path)
+        try:
+            columns = conn.execute('PRAGMA table_info("Person")').fetchall()
+        finally:
+            conn.close()
+        assert [name for (_cid, name, *_rest) in columns] == ["id", "name"]
     finally:
         sys.modules.pop(module_name, None)
 

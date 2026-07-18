@@ -3,13 +3,22 @@ from __future__ import annotations
 import sqlite3
 from datetime import date, datetime
 from types import UnionType
-from typing import Annotated, Any, Callable, Iterable, Mapping, Sequence, get_args, get_origin
+from typing import Annotated, Any, Iterable, Mapping, Sequence, get_args, get_origin
 
 from pypika import Query, Table
 from pypika.utils import format_quotes
 
-from ..model_inspector import ColumnInfo, ModelInfo
-from .base import ColumnDeclaration, DatabasePusher, ExistingColumn, SchemaBuilder, SchemaDiff, SchemaPlan
+from ..runtime.backends.metadata import ColumnSpec
+from ..runtime.backends.protocols import SchemaTableProtocol
+from .base import (
+    ColumnDeclaration,
+    ConfirmRebuildCallback,
+    DatabasePusher,
+    ExistingColumn,
+    SchemaBuilder,
+    SchemaDiff,
+    SchemaPlan,
+)
 
 
 TYPE_MAP: Mapping[type[Any], str] = {
@@ -63,7 +72,7 @@ class SQLiteSchemaBuilder(SchemaBuilder):
     def render_column_declaration(
         self,
         *,
-        column: ColumnInfo,
+        column: ColumnSpec,
         pk_columns: tuple[str, ...],
         pk_members: set[str],
         single_inline_pk: bool,
@@ -77,7 +86,7 @@ class SQLiteSchemaBuilder(SchemaBuilder):
             single_inline_pk=single_inline_pk,
         )
 
-    def _build_json_column(self, column: ColumnInfo, pk_members: set[str]) -> ColumnDeclaration:
+    def _build_json_column(self, column: ColumnSpec, pk_members: set[str]) -> ColumnDeclaration:
         primary_key = column.name in pk_members
         not_null = not column.optional and not primary_key
         definition_sql = "TEXT"
@@ -95,7 +104,7 @@ class SQLiteSchemaBuilder(SchemaBuilder):
     def use_inline_primary_key(
         self,
         *,
-        column: ColumnInfo,
+        column: ColumnSpec,
         pk_columns: tuple[str, ...],
         sql_type: str,
     ) -> bool:
@@ -118,15 +127,19 @@ class SQLitePusher(DatabasePusher):
         if not isinstance(conn, sqlite3.Connection):
             raise TypeError("SQLite connections must be sqlite3.Connection")
 
-    def table_exists(self, conn: sqlite3.Connection, info: ModelInfo) -> bool:
+    def table_exists(self, conn: sqlite3.Connection, table: SchemaTableProtocol) -> bool:
         cur = conn.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
-            (info.model.__name__,),
+            (table.table_name,),
         )
         return cur.fetchone() is not None
 
-    def inspect_existing_schema(self, conn: sqlite3.Connection, info: ModelInfo) -> tuple[ExistingColumn, ...] | None:
-        table_name = info.model.__name__
+    def inspect_existing_schema(
+        self,
+        conn: sqlite3.Connection,
+        table: SchemaTableProtocol,
+    ) -> tuple[ExistingColumn, ...] | None:
+        table_name = table.table_name
         quoted = format_quotes(table_name, '"')
         rows = conn.execute(f"PRAGMA table_info({quoted})").fetchall()
         if not rows:
@@ -142,10 +155,10 @@ class SQLitePusher(DatabasePusher):
         ]
         return tuple(columns)
 
-    def fetch_existing_indexes(self, conn: sqlite3.Connection, info: ModelInfo) -> set[str]:
+    def fetch_existing_indexes(self, conn: sqlite3.Connection, table: SchemaTableProtocol) -> set[str]:
         cur = conn.execute(
             "SELECT name FROM sqlite_master WHERE type IN ('index','unique') AND tbl_name = ?",
-            (info.model.__name__,),
+            (table.table_name,),
         )
         return {name for (name,) in cur.fetchall()}
 
@@ -160,7 +173,7 @@ class SQLitePusher(DatabasePusher):
     def rebuild_table(
         self,
         conn: sqlite3.Connection,
-        info: ModelInfo,
+        table: SchemaTableProtocol,
         builder: SchemaBuilder,
         plan: SchemaPlan,
         existing_schema: tuple[ExistingColumn, ...] | None,
@@ -211,8 +224,8 @@ class SQLitePusher(DatabasePusher):
 SQLITE_PUSHER = SQLitePusher()
 
 
-def _build_sqlite_schema(info: ModelInfo) -> tuple[str, list[tuple[str, str]]]:
-    builder = SQLiteSchemaBuilder(info)
+def _build_sqlite_schema(table: SchemaTableProtocol) -> tuple[str, list[tuple[str, str]]]:
+    builder = SQLiteSchemaBuilder(table)
     plan = builder.build()
     index_entries: list[tuple[str, str]] = [
         (definition.name, builder.create_index_sql(definition)) for definition in plan.indexes
@@ -222,9 +235,9 @@ def _build_sqlite_schema(info: ModelInfo) -> tuple[str, list[tuple[str, str]]]:
 
 def push_sqlite(
     conn: sqlite3.Connection,
-    infos: Sequence[ModelInfo],
+    tables: Sequence[SchemaTableProtocol],
     *,
     sync_indexes: bool = False,
-    confirm_rebuild: Callable[[ModelInfo, SchemaPlan, tuple[ExistingColumn, ...] | None, SchemaDiff], bool] | None = None,
+    confirm_rebuild: ConfirmRebuildCallback | None = None,
 ) -> None:
-    SQLITE_PUSHER.push(conn, infos, sync_indexes=sync_indexes, confirm_rebuild=confirm_rebuild)
+    SQLITE_PUSHER.push(conn, tables, sync_indexes=sync_indexes, confirm_rebuild=confirm_rebuild)

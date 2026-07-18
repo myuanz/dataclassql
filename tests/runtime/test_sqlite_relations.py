@@ -72,7 +72,11 @@ def test_lazy_relations(tmp_path):
         exec(module_generated.code, namespace)
         ClientClass = cast(type[Any], namespace[module_generated.client_class_name])
         with open_sqlite_connection(f"sqlite:///{db_path.as_posix()}") as conn_setup:
-            db_push([namespace["LazyUser"], namespace["LazyBirthDay"], namespace["LazyAddress"]], conn_setup)
+            db_push(
+                [namespace["LazyUserTable"], namespace["LazyBirthDayTable"], namespace["LazyAddressTable"]],
+                conn_setup,
+                provider="sqlite",
+            )
         client = ClientClass()
 
         client.lazy_user.insert({"id": 1, "name": "Alice"})
@@ -305,7 +309,11 @@ def test_lazy_descriptor_preserves_plain_slotted_instance_relation(tmp_path):
         exec(module_generated.code, namespace)
         ClientClass = cast(type[Any], namespace[module_generated.client_class_name])
         with open_sqlite_connection(f"sqlite:///{db_path.as_posix()}") as conn_setup:
-            db_push([namespace["SlottedOrder"], namespace["SlottedTrade"]], conn_setup)
+            db_push(
+                [namespace["SlottedOrderTable"], namespace["SlottedTradeTable"]],
+                conn_setup,
+                provider="sqlite",
+            )
         client = ClientClass()
 
         client.slotted_order.insert({"id": 1, "symbol": "rb"})
@@ -367,7 +375,11 @@ def test_trade_entry_and_exit_order_relations(tmp_path):
         exec(module_generated.code, namespace)
         ClientClass = cast(type[Any], namespace[module_generated.client_class_name])
         with open_sqlite_connection(f"sqlite:///{db_path.as_posix()}") as conn_setup:
-            db_push([namespace["TradeOrder"], namespace["Trade"]], conn_setup)
+            db_push(
+                [namespace["TradeOrderTable"], namespace["TradeTable"]],
+                conn_setup,
+                provider="sqlite",
+            )
         client = ClientClass()
 
         client.trade_order.insert({"id": 1, "symbol": "rb"})

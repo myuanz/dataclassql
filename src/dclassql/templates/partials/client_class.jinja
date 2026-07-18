@@ -38,14 +38,16 @@ class {{ client.class_name }}(BaseDBPool):
         *,
         sync_indexes: bool = False,
         force_rebuild: bool = False,
+        confirm_rebuild: ConfirmRebuildCallback | None = None,
     ) -> None:
         db_push(
             (
-{% for binding in client.model_bindings %}                    {{ binding.model_name }},
+{% for binding in client.model_bindings %}                    self.{{ binding.attr_name }},
 {% endfor %}            ),
             self._connection(),
+            provider=self.datasource.provider,
             sync_indexes=sync_indexes,
-            confirm_rebuild=(lambda *_: True) if force_rebuild else None,
+            confirm_rebuild=(lambda *_: True) if force_rebuild else confirm_rebuild,
         )
 
     def close(self) -> None:

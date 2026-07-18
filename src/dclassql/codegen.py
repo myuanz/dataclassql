@@ -56,6 +56,12 @@ class ColumnSpecRender:
     name_repr: str
     '''列名的 Python 字符串字面量形式, 用于生成代码里的 dict key.'''
 
+    python_type_expr: str
+    '''列 Python 类型在生成代码中的表达式.'''
+
+    storage_kind_repr: str
+    '''scalar/json 存储类型的字符串字面量.'''
+
     optional: bool
     '''插入/更新时是否允许 None 或缺省, 来自 Optional/default/factory 判断.'''
 
@@ -349,6 +355,8 @@ def _build_model_context(
         ColumnSpecRender(
             name=column.name,
             name_repr=repr(column.name),
+            python_type_expr=renderer.render(column.python_type),
+            storage_kind_repr=repr(column.storage_kind),
             optional=column.optional,
             auto_increment=column.auto_increment,
             has_default=column.has_default,

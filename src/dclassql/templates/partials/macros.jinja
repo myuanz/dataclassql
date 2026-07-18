@@ -43,7 +43,7 @@ pass
 {%- if column_specs -%}
 column_specs: tuple[ColumnSpec, ...] = (
 {% for spec in column_specs %}
-    ColumnSpec(name={{ spec.name_repr }}, optional={{ spec.optional }}, auto_increment={{ spec.auto_increment }}, has_default={{ spec.has_default }}, has_default_factory={{ spec.has_default_factory }}),
+    ColumnSpec(name={{ spec.name_repr }}, python_type={{ spec.python_type_expr }}, storage_kind={{ spec.storage_kind_repr }}, optional={{ spec.optional }}, auto_increment={{ spec.auto_increment }}, has_default={{ spec.has_default }}, has_default_factory={{ spec.has_default_factory }}),
 {% endfor %}
 )
 {%- else -%}
@@ -79,4 +79,3 @@ relations: tuple[RelationSpec, ...] = (
 relations: tuple[RelationSpec, ...] = ()
 {% endif %}
 {% endmacro %}
-

@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 import pytest
 
@@ -12,9 +12,10 @@ __datasource__ = {
     "url": "sqlite:///test.db",
 }
 
-from dclassql.model_inspector import inspect_models
+from dclassql.codegen import generate_client
 from dclassql.push import db_push
 from dclassql.push.sqlite import _build_sqlite_schema, push_sqlite
+from dclassql.runtime.backends.protocols import SchemaTableProtocol
 
 
 @dataclass
@@ -47,9 +48,16 @@ class Event:
     created_at: datetime
 
 
+def generated_tables(*models: type[Any]) -> list[SchemaTableProtocol]:
+    generated = generate_client(list(models))
+    namespace: dict[str, Any] = {}
+    exec(generated.code, namespace)
+    return [namespace[f"{model.__name__}Table"] for model in models]
+
+
 def test_db_push_creates_table_and_indexes():
-    info = inspect_models([User])["User"]
-    create_sql, index_entries = _build_sqlite_schema(info)
+    table = generated_tables(User)[0]
+    create_sql, index_entries = _build_sqlite_schema(table)
 
     assert create_sql == (
         'CREATE TABLE IF NOT EXISTS "User" '
@@ -63,7 +71,7 @@ def test_db_push_creates_table_and_indexes():
     ]
 
     conn = sqlite3.connect(":memory:")
-    push_sqlite(conn, [info])
+    push_sqlite(conn, [table])
 
     rows = conn.execute(
         "SELECT type,name,sql FROM sqlite_master WHERE tbl_name='User' ORDER BY type,name"
@@ -80,7 +88,7 @@ def test_db_push_creates_table_and_indexes():
     assert index_sqls['uq_User_email'] == 'CREATE UNIQUE INDEX "uq_User_email" ON "User" ("email")'
 
     conn2 = sqlite3.connect(":memory:")
-    db_push([User], conn2)
+    db_push([table], conn2, provider="sqlite")
     assert (
         conn2.execute(
             "SELECT COUNT(*) FROM sqlite_master WHERE tbl_name='User' AND type='table'"
@@ -90,15 +98,15 @@ def test_db_push_creates_table_and_indexes():
 
 
 def test_db_push_infers_type_alias_value():
-    info = inspect_models([AliasUser])["AliasUser"]
-    create_sql, _ = _build_sqlite_schema(info)
+    table = generated_tables(AliasUser)[0]
+    create_sql, _ = _build_sqlite_schema(table)
 
     assert '"kind" TEXT NOT NULL' in create_sql
 
 
 def test_db_push_adds_implicit_id_primary_key_for_model_without_id():
-    info = inspect_models([Event])["Event"]
-    create_sql, _ = _build_sqlite_schema(info)
+    table = generated_tables(Event)[0]
+    create_sql, _ = _build_sqlite_schema(table)
 
     assert create_sql == (
         'CREATE TABLE IF NOT EXISTS "Event" '
@@ -107,7 +115,7 @@ def test_db_push_adds_implicit_id_primary_key_for_model_without_id():
     )
 
     conn = sqlite3.connect(":memory:")
-    push_sqlite(conn, [info])
+    push_sqlite(conn, [table])
     conn.execute(
         'INSERT INTO "Event" ("name","created_at") VALUES (?, ?)',
         ("start", "2026-01-01T00:00:00"),
@@ -118,14 +126,14 @@ def test_db_push_adds_implicit_id_primary_key_for_model_without_id():
 
 
 def test_db_push_sync_indexes_aligns_with_model():
-    info = inspect_models([User])["User"]
+    table = generated_tables(User)[0]
     conn = sqlite3.connect(":memory:")
-    push_sqlite(conn, [info])
+    push_sqlite(conn, [table])
 
     conn.execute('CREATE INDEX "idx_User_extra" ON "User" ("created_at", "name")')
     conn.execute('DROP INDEX "idx_User_name"')
 
-    db_push([User], conn, sync_indexes=True)
+    db_push([table], conn, provider="sqlite", sync_indexes=True)
 
     rows = conn.execute(
         "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='User'"
@@ -147,7 +155,7 @@ def test_db_push_rebuild_requires_confirmation():
     )
 
     with pytest.raises(RuntimeError) as exc:
-        db_push([User], conn)
+        db_push(generated_tables(User), conn, provider="sqlite")
 
     assert "新增列" in str(exc.value)
 
@@ -172,7 +180,7 @@ def test_db_push_rebuilds_table_and_preserves_rows():
         captured_diff["changed"] = tuple(change.name for change in diff.changed)
         return True
 
-    db_push([User], conn, confirm_rebuild=approve_rebuild)
+    db_push(generated_tables(User), conn, provider="sqlite", confirm_rebuild=approve_rebuild)
 
     columns = conn.execute('PRAGMA table_info("User")').fetchall()
     column_names = [name for (_, name, *_rest) in columns]
@@ -210,7 +218,7 @@ def test_db_push_rebuild_drops_extra_columns():
         assert tuple(column.name for column in diff.removed) == ("legacy",)
         return True
 
-    db_push([User], conn, confirm_rebuild=approve)
+    db_push(generated_tables(User), conn, provider="sqlite", confirm_rebuild=approve)
 
     columns = conn.execute('PRAGMA table_info("User")').fetchall()
     column_names = [name for (_, name, *_rest) in columns]
@@ -233,7 +241,7 @@ def test_db_push_rebuild_detects_column_type_change():
         assert changed == {"name": ("type INTEGER -> TEXT",)}
         return True
 
-    db_push([User], conn, confirm_rebuild=approve)
+    db_push(generated_tables(User), conn, provider="sqlite", confirm_rebuild=approve)
 
     column_info = conn.execute('PRAGMA table_info("User")').fetchall()
     types = {name: typ for (_, name, typ, *_rest) in column_info}
@@ -251,6 +259,6 @@ def test_db_push_rebuild_callback_can_abort():
         return False
 
     with pytest.raises(RuntimeError) as exc:
-        db_push([User], conn, confirm_rebuild=reject)
+        db_push(generated_tables(User), conn, provider="sqlite", confirm_rebuild=reject)
 
     assert "模型 User" in str(exc.value)

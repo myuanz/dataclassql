@@ -195,12 +195,19 @@ def test_generate_command_supports_package_target(tmp_path: Path) -> None:
     module_path = write_model(tmp_path, db_path, name="package")
     target_dir = resolve_generated_package_dir(module_path, "package")
     try:
-        exit_code = main(["-m", str(module_path), "generate", "--target", "package"])
+        exit_code = main(["-m", str(module_path), "generate", "--target", "package", "--push-db"])
         assert exit_code == 0
         assert (target_dir / "__init__.py").exists()
         assert (target_dir / "__init__.pyi").exists()
         assert (target_dir / "client.py").exists()
         assert (target_dir / "asdict.pyi").exists()
+        conn = sqlite3.connect(db_path)
+        try:
+            assert conn.execute(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='User'"
+            ).fetchone()[0] == 1
+        finally:
+            conn.close()
     finally:
         shutil.rmtree(target_dir, ignore_errors=True)
 
@@ -208,7 +215,7 @@ def test_generate_command_supports_package_target(tmp_path: Path) -> None:
 def test_push_db_command_creates_schema(tmp_path: Path) -> None:
     db_path = tmp_path / "push.sqlite"
     module_path = write_model(tmp_path, db_path, name="main")
-    exit_code = main(["-m", str(module_path), "push-db"])
+    exit_code = main(["-m", str(module_path), "generate", "--push-db"])
     assert exit_code == 0
 
     conn = sqlite3.connect(db_path)
@@ -219,6 +226,16 @@ def test_push_db_command_creates_schema(tmp_path: Path) -> None:
         assert count == 1
     finally:
         conn.close()
+
+
+def test_push_db_command_requires_generated_client(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    module_path = write_model(tmp_path, tmp_path / "missing-client.sqlite")
+
+    assert main(["-m", str(module_path), "push-db"]) == 1
+    assert "run generate first" in capsys.readouterr().err
 
 
 def test_push_db_command_confirms_rebuild_auto(tmp_path: Path) -> None:
@@ -232,6 +249,7 @@ def test_push_db_command_confirms_rebuild_auto(tmp_path: Path) -> None:
         conn.close()
 
     module_path = write_model(tmp_path, db_path, name="auto")
+    assert main(["-m", str(module_path), "generate"]) == 0
     exit_code = main(["-m", str(module_path), "push-db", "--confirm-rebuild", "auto"])
     assert exit_code == 0
 
@@ -260,6 +278,7 @@ def test_push_db_command_prompt_rebuild_abort(
         conn.close()
 
     module_path = write_model(tmp_path, db_path, name="prompt")
+    assert main(["-m", str(module_path), "generate"]) == 0
     monkeypatch.setattr("builtins.input", lambda _prompt: "n")
     exit_code = main(["-m", str(module_path), "push-db", "--confirm-rebuild", "prompt"])
     assert exit_code == 1
@@ -280,6 +299,7 @@ def test_push_db_command_prompt_rebuild_abort(
 def test_push_db_command_sync_indexes(tmp_path: Path) -> None:
     db_path = tmp_path / "sync.sqlite"
     module_path = write_model(tmp_path, db_path, name="sync")
+    assert main(["-m", str(module_path), "generate"]) == 0
     assert main(["-m", str(module_path), "push-db"]) == 0
 
     conn = sqlite3.connect(db_path)

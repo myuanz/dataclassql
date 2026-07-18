@@ -9,8 +9,7 @@ from typing import Any, cast
 import pytest
 
 from dclassql.codegen import generate_client
-from dclassql.push import db_push
-from dclassql.runtime.datasource import open_sqlite_connection
+from dclassql.model_inspector import DataSourceConfig
 
 __datasource__ = {"url": "sqlite:///:memory:"}
 
@@ -50,13 +49,15 @@ def prepare_database(db_path: Path) -> None:
     if db_path.exists():
         db_path.unlink()
     __datasource__ = {"provider": "sqlite", "url": f"sqlite:///{db_path.as_posix()}"}
-    conn = open_sqlite_connection(__datasource__["url"])
+    module = generate_client([RuntimeUser])
+    namespace: dict[str, Any] = {}
+    exec(module.code, namespace)
+    client = namespace[module.client_class_name](datasource=DataSourceConfig(url=__datasource__["url"]))
     try:
-        db_push([RuntimeUser], conn)
-        conn.execute('DELETE FROM "RuntimeUser"')
-        conn.commit()
+        client.push_db()
+        client.runtime_user.delete_many()
     finally:
-        conn.close()
+        client.close()
 
 
 def build_client() -> tuple[dict[str, Any], Any]:

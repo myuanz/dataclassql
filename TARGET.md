@@ -137,6 +137,7 @@ class UserTable:
   - [x] 关系过滤器
 - [x] echo sql 模式
 - [x] 运行时覆盖 datasource url, 生成客户端类支持 `datasource=DataSourceConfig(...)` 并支持 `client.push_db()`
+- [x] schema 元信息随客户端生成, `client.push_db()` 与 CLI `push-db` 直接使用生成结果, 不在推送时重复解析 model; `generate --push-db` 可生成后立即推送
 - [x] 一个 model 文件生成一个同名 `_client` 包目录, 默认写到 model 同目录, 也可通过 `--target package` 写到 `dclassql` 包内
 - [x] 模块级 `__exclude__` 可排除辅助 dataclass, 未收集为模型的 dataclass 字段按 JSON 值对象写入普通列
 - [ ] 多个数据源文件的客户端
@@ -156,12 +157,12 @@ class UserTable:
 - 完全在 Python 中定义表, 就像写 dataclass 一样, 没有奇怪的 col 或者 field. 通过`def foreign_key(self): yield xxx`, `def index(self): yield xxx`, `def primary_key(self): yield xxx`来标注, 使用见下. 生成表时, 通过传入一个虚假的 self 获取对应的列, 见 @src/dclassql/table_spec.py 中的 TableInfo/FakeSelf/KeySpec/Col. 
 - 虚拟外键, 外键只是查询意义上的东西, 不在数据库生成
 - 与 Prisma 类似的 n+1 机制, 可以在find系列函数里设置include=, 也可以不include, 但在获取对象时即时查询
-- 使用 fake self 机制获取主键、索引、外键、唯键等信息
+- 生成阶段使用 fake self 机制获取并校验主键、索引、外键、唯键等信息
 - 不依赖 fastlite, 只依赖 sqlite-utils
 - 初期仅支持 `insert` / `insert_many` / `find_many` / `find_first` 的代码生成. Insert 支持 dataclass 与 TypedDict 两种结构, WhereDict 会独立生成并把所有列标注为可选
 - 每个模型模块通过模块级 `__datasource__ = {"url": ...}` 指定默认数据源, provider 从 URL scheme 解析(目前仅支持 sqlite), 单个生成客户端只对应一个 datasource
 - 生成结果包含 `DataSourceConfig`、`ForeignKeySpec` 等元信息, 以及 `T{Name}IncludeCol`/`T{Name}SortableCol` 字面量类型别名、`*Insert` dataclass、`*InsertDict`、`*WhereDict`、`*IncludeDict` 与 `*OrderByDict` TypedDict 组合、具体的 `*Table` 表访问类以及按 model 文件命名的聚合客户端类
-- 生成客户端类可通过 `datasource=DataSourceConfig(url=...)` 在运行时覆盖 url, `client.push_db()` 会使用同一线程本地连接推送 schema
+- 生成客户端类可通过 `datasource=DataSourceConfig(url=...)` 在运行时覆盖 url, `client.push_db()` 会使用同一线程本地连接和生成代码中的 schema 元信息推送数据库
 - 每个 model 文件里需要写明数据源. model 文件下可以定义模块变量 `__datasource__ = {'url': 'sqlite:///example.db'}`, 提供器从 url scheme 得到
     - 未来会支持其他数据库, 现在只关注 sqlite
     - 未来会支持从环境变量, 现在先不管
