@@ -2,6 +2,20 @@
 
 本项目从 `0.3.1` 开始记录变更。
 
+## 0.4.2 - 2026-07-18
+
+### Added
+
+- `foreign_key()` 支持将 backref 显式写为 `None`, 用于只保留本模型访问入口的单向关系。
+
+### Changed
+
+- backref 仅接受目标模型上的关系属性或 `None`; 其他值会直接抛出 `TypeError`, 不再静默视为无 backref。
+- 扩展生成客户端中的 `ColumnSpec`，方便 push db 使用。
+- `client.push_db()` 与 CLI `push-db` 不再重复解析 model，默认信任 client 存在。
+- 生成 Client 改为继承 `ClientBase`, 通用连接、backend、推送和关闭逻辑不再写入生成文件。
+- `generate` 增加 `--push-db`, 可在生成客户端后立即推送数据库 schema。
+
 ## 0.4.1 - 2026-07-05
 
 ### Added
