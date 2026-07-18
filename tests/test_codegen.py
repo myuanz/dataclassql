@@ -235,6 +235,11 @@ def test_generate_client_matches_expected_shape() -> None:
 
     data_source_config = namespace['DataSourceConfig']
     generated_client = namespace[module.client_class_name]
+    client_base = namespace["ClientBase"]
+    assert issubclass(generated_client, client_base)
+    assert "push_db" not in generated_client.__dict__
+    assert "close" not in generated_client.__dict__
+    assert "_connection" not in generated_client.__dict__
 
     include_alias = namespace['TUserIncludeCol']
     assert get_origin(include_alias) is Literal

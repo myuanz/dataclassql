@@ -6,12 +6,10 @@ from types import MappingProxyType
 from typing import Any, Literal, Mapping, Sequence, NotRequired, Never, overload
 from typing_extensions import TypedDict
 
-from dclassql import DataSourceConfig, db_push
-from dclassql.db_pool import BaseDBPool, save_local
-from dclassql.push.base import ConfirmRebuildCallback
+from dclassql import DataSourceConfig
 from dclassql.runtime.backends import BackendProtocol, ColumnSpec, ForeignKeySpec, RelationSpec
 from dclassql.runtime.backends.protocols import TableProtocol
-from dclassql.runtime.datasource import open_sqlite_connection
+from dclassql.runtime.client_base import ClientBase
 from dclassql.runtime.json_value import deserialize_json_value, serialize_json_value
 
 from datetime import datetime
@@ -1228,76 +1226,28 @@ class UserBookTable(TableProtocol):
     def delete_many(self, *, where: UserBookWhereDict | None = None, return_records: Literal[True]) -> list[UserBook]: ...
     def delete_many(self, *, where: UserBookWhereDict | None = None, return_records: Literal[False, True] = False) -> int | list[UserBook]:
         return self._backend.delete_many(self, where=where, return_records=return_records)
-class GeneratedClient(BaseDBPool):
+class GeneratedClient(ClientBase):
     datasource: DataSourceConfig = DataSourceConfig(
         url='sqlite:///analytics.db',
         name=None,
     )
 
     def __init__(self, *, datasource: DataSourceConfig = datasource, echo_sql: bool = False) -> None:
-        self.datasource = datasource
-        self._echo_sql = echo_sql
-        self._backend_instance: BackendProtocol | None = None
+        super().__init__(datasource=datasource, echo_sql=echo_sql)
         self.address = AddressTable(self._backend())
         self.birth_day = BirthDayTable(self._backend())
         self.book = BookTable(self._backend())
         self.composite = CompositeTable(self._backend())
         self.user = UserTable(self._backend())
         self.user_book = UserBookTable(self._backend())
-
-    def _backend(self) -> BackendProtocol:
-        if self._backend_instance is None:
-            self._backend_instance = self._make_backend(self.datasource)
-        return self._backend_instance
-
-    def _make_backend(self, datasource: DataSourceConfig) -> BackendProtocol:
-        if datasource.provider == 'sqlite':
-            from dclassql.runtime.backends.sqlite import SQLiteBackend
-            return SQLiteBackend(lambda: self._connection(), echo_sql=self._echo_sql)
-        raise ValueError(f"Unsupported provider '{datasource.provider}'")
-
-    @save_local(key=lambda self, func: (func.__name__, self.datasource.identity))
-    def _connection(self) -> Any:
-        return self._open_connection(self.datasource)
-
-    def _open_connection(self, datasource: DataSourceConfig) -> Any:
-        if datasource.provider == 'sqlite':
-            conn = open_sqlite_connection(datasource.url)
-            self._setup_sqlite_db(conn)
-            return conn
-        raise ValueError(f"Unsupported provider '{datasource.provider}'")
-
-    def push_db(
-        self,
-        *,
-        sync_indexes: bool = False,
-        force_rebuild: bool = False,
-        confirm_rebuild: ConfirmRebuildCallback | None = None,
-    ) -> None:
-        db_push(
-            (
-                    self.address,
-                    self.birth_day,
-                    self.book,
-                    self.composite,
-                    self.user,
-                    self.user_book,
-            ),
-            self._connection(),
-            provider=self.datasource.provider,
-            sync_indexes=sync_indexes,
-            confirm_rebuild=(lambda *_: True) if force_rebuild else confirm_rebuild,
+        self._tables = (
+            self.address,
+            self.birth_day,
+            self.book,
+            self.composite,
+            self.user,
+            self.user_book,
         )
-
-    def close(self) -> None:
-        if self._backend_instance is not None:
-            self._backend_instance.close()
-            self._backend_instance = None
-        self.close_all()
-
-    @classmethod
-    def close_all(cls, verbose: bool = False) -> None:
-        super().close_all(verbose=verbose)
 __all__ = (
     "DataSourceConfig",
     "ForeignKeySpec",

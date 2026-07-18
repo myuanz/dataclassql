@@ -22,7 +22,7 @@
 - `generate_client(models)` 是入口, 先调用 `inspect_models` 收集 dataclass 结构信息 (`ModelInfo` / `ColumnInfo` 等)。
 - `_TypeRenderer` 负责把 Python 类型对象转成字符串表示, 处理 `Annotated`、`UnionType` 等复杂类型。
 - 模板渲染产物包括:
-  - `Client` 类: 维护数据源配置、延迟初始化每个表的后端对象。
+  - `Client` 类: 继承运行时 `ClientBase`, 维护默认数据源并初始化每个类型化表属性和 `_tables`。
   - `*Table` 类: 封装 `insert` / `insert_many` / `find_many` / `find_first` 等方法, 依赖运行时后端。
   - `*Insert` dataclass、`*InsertDict` / `*WhereDict` / `*IncludeDict` / `*OrderByDict` TypedDict, 以及 `T*IncludeCol` / `T*SortableCol` Literal 类型别名。
   - `ForeignKeySpec`、`ColumnSpec`、`RelationSpec` 等元信息用于运行时懒加载和 schema 推送。
@@ -60,6 +60,7 @@
   - 定义懒加载代理 (`_LazyRelationDescriptor`, `_LazyListProxy` 等) 与 `eager()` 帮助函数。
   - `LazyRelationState` 维护加载状态、映射关系, 支持一对一/一对多访问及 backref。
 - `runtime/datasource.py` + `sqlite_adapters.py`: 解析 `sqlite:///...` URL, 注册日期/时间适配器, 构造连接。
+- `runtime/client_base.py`: `ClientBase` 统一实现 backend、连接缓存、`push_db()` 与关闭逻辑, 生成 Client 只提供数据源和表集合。
 
 ## CLI 与工具链
 - 安装后提供 `dclassql` 命令 (在 `pyproject.toml` 注册)。

@@ -1,61 +1,13 @@
-class {{ client.class_name }}(BaseDBPool):
+class {{ client.class_name }}(ClientBase):
     datasource: DataSourceConfig = DataSourceConfig(
         url={{ client.datasource.url_repr }},
         name={{ client.datasource.name_repr }},
     )
 
     def __init__(self, *, datasource: DataSourceConfig = datasource, echo_sql: bool = False) -> None:
-        self.datasource = datasource
-        self._echo_sql = echo_sql
-        self._backend_instance: BackendProtocol | None = None
+        super().__init__(datasource=datasource, echo_sql=echo_sql)
 {% for binding in client.model_bindings %}        self.{{ binding.attr_name }} = {{ binding.model_name }}Table(self._backend())
 {% endfor %}
-
-    def _backend(self) -> BackendProtocol:
-        if self._backend_instance is None:
-            self._backend_instance = self._make_backend(self.datasource)
-        return self._backend_instance
-
-    def _make_backend(self, datasource: DataSourceConfig) -> BackendProtocol:
-        if datasource.provider == 'sqlite':
-            from dclassql.runtime.backends.sqlite import SQLiteBackend
-            return SQLiteBackend(lambda: self._connection(), echo_sql=self._echo_sql)
-        raise ValueError(f"Unsupported provider '{datasource.provider}'")
-
-    @save_local(key=lambda self, func: (func.__name__, self.datasource.identity))
-    def _connection(self) -> Any:
-        return self._open_connection(self.datasource)
-
-    def _open_connection(self, datasource: DataSourceConfig) -> Any:
-        if datasource.provider == 'sqlite':
-            conn = open_sqlite_connection(datasource.url)
-            self._setup_sqlite_db(conn)
-            return conn
-        raise ValueError(f"Unsupported provider '{datasource.provider}'")
-
-    def push_db(
-        self,
-        *,
-        sync_indexes: bool = False,
-        force_rebuild: bool = False,
-        confirm_rebuild: ConfirmRebuildCallback | None = None,
-    ) -> None:
-        db_push(
-            (
-{% for binding in client.model_bindings %}                    self.{{ binding.attr_name }},
-{% endfor %}            ),
-            self._connection(),
-            provider=self.datasource.provider,
-            sync_indexes=sync_indexes,
-            confirm_rebuild=(lambda *_: True) if force_rebuild else confirm_rebuild,
-        )
-
-    def close(self) -> None:
-        if self._backend_instance is not None:
-            self._backend_instance.close()
-            self._backend_instance = None
-        self.close_all()
-
-    @classmethod
-    def close_all(cls, verbose: bool = False) -> None:
-        super().close_all(verbose=verbose)
+        self._tables = (
+{% for binding in client.model_bindings %}            self.{{ binding.attr_name }},
+{% endfor %}        )
