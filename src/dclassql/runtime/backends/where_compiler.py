@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib
 from collections.abc import Mapping as ABCMapping
 from typing import Mapping, Sequence, cast
 
@@ -11,7 +10,7 @@ from pypika.terms import Criterion, ExistsCriterion, Field, Not, Parameter
 from dclassql.typing import IncludeT, InsertT, ModelT, OrderByT, WhereT
 from dclassql.utils.ensure import ensure_sequence, ensure_string
 
-from .protocols import BackendProtocol, RelationSpec, TableProtocol
+from .protocols import BackendProtocol, TableProtocol, TableRelation
 
 
 def combine_and(criteria: Sequence[Criterion | None]) -> Criterion | None:
@@ -66,8 +65,8 @@ class WhereCompiler:
         self._table = table
         self._sql_table = sql_table
         self.params: list[object] = []
-        self._relation_map: dict[str, RelationSpec[TableProtocol]] = {
-            relation.name: relation for relation in getattr(table, "relations", ())
+        self._relation_map: dict[str, TableRelation[TableProtocol]] = {
+            relation.attribute: relation for relation in table.relations
         }
 
     def compile(self, where: Mapping[str, object]) -> Criterion | None:
@@ -220,7 +219,7 @@ class WhereCompiler:
 
     def _compile_relation(
         self,
-        relation: RelationSpec[TableProtocol],
+        relation: TableRelation[TableProtocol],
         value: object,
     ) -> Criterion | None:
         if relation.many:
@@ -229,7 +228,7 @@ class WhereCompiler:
 
     def _compile_relation_single(
         self,
-        relation: RelationSpec[TableProtocol],
+        relation: TableRelation[TableProtocol],
         value: object,
     ) -> Criterion | None:
         if not isinstance(value, ABCMapping):
@@ -244,12 +243,12 @@ class WhereCompiler:
             elif key == "IS_NOT":
                 criteria.append(self._relation_is_not(relation, operand))
             else:
-                raise ValueError(f"Unsupported relation operator '{raw_key}' for relation '{relation.name}'")
+                raise ValueError(f"Unsupported relation operator '{raw_key}' for relation '{relation.attribute}'")
         return combine_and(criteria)
 
     def _compile_relation_many(
         self,
-        relation: RelationSpec[TableProtocol],
+        relation: TableRelation[TableProtocol],
         value: object,
     ) -> Criterion | None:
         if not isinstance(value, ABCMapping):
@@ -264,82 +263,70 @@ class WhereCompiler:
             elif key == "EVERY":
                 criteria.append(self._relation_every(relation, operand))
             else:
-                raise ValueError(f"Unsupported relation operator '{raw_key}' for relation '{relation.name}'")
+                raise ValueError(f"Unsupported relation operator '{raw_key}' for relation '{relation.attribute}'")
         return combine_and(criteria)
 
-    def _relation_is(self, relation: RelationSpec[TableProtocol], operand: object) -> Criterion:
+    def _relation_is(self, relation: TableRelation[TableProtocol], operand: object) -> Criterion:
         query, remote_table, remote_instance = self._relation_subquery(relation)
         if operand is None:
             return ExistsCriterion(query).negate()
         if not isinstance(operand, ABCMapping):
             raise TypeError("Relation IS operand must be mapping or None")
-        criterion = self._compile_remote_filter(relation, operand, remote_table, remote_instance)
+        criterion = self._compile_remote_filter(operand, remote_table, remote_instance)
         if criterion is not None:
             query = query.where(criterion)
         return ExistsCriterion(query)
 
-    def _relation_is_not(self, relation: RelationSpec[TableProtocol], operand: object) -> Criterion:
+    def _relation_is_not(self, relation: TableRelation[TableProtocol], operand: object) -> Criterion:
         query, remote_table, remote_instance = self._relation_subquery(relation)
         if operand is None:
             return ExistsCriterion(query)
         if not isinstance(operand, ABCMapping):
             raise TypeError("Relation IS_NOT operand must be mapping or None")
-        criterion = self._compile_remote_filter(relation, operand, remote_table, remote_instance)
+        criterion = self._compile_remote_filter(operand, remote_table, remote_instance)
         if criterion is not None:
             query = query.where(criterion)
         return ExistsCriterion(query).negate()
 
     def _relation_every(
         self,
-        relation: RelationSpec[TableProtocol],
+        relation: TableRelation[TableProtocol],
         operand: object,
     ) -> Criterion | None:
         if not isinstance(operand, ABCMapping):
             raise TypeError("EVERY operand must be a mapping")
         query, remote_table, remote_instance = self._relation_subquery(relation)
-        criterion = self._compile_remote_filter(relation, operand, remote_table, remote_instance)
+        criterion = self._compile_remote_filter(operand, remote_table, remote_instance)
         if criterion is None:
             return None
         query = query.where(criterion.negate())
         return ExistsCriterion(query).negate()
 
-    def _relation_exists(self, relation: RelationSpec[TableProtocol], operand: object) -> Criterion:
+    def _relation_exists(self, relation: TableRelation[TableProtocol], operand: object) -> Criterion:
         query, remote_table, remote_instance = self._relation_subquery(relation)
         if operand is not None:
             if not isinstance(operand, ABCMapping):
                 raise TypeError("Relation filter expects mapping or None")
-            criterion = self._compile_remote_filter(relation, operand, remote_table, remote_instance)
+            criterion = self._compile_remote_filter(operand, remote_table, remote_instance)
             if criterion is not None:
                 query = query.where(criterion)
         return ExistsCriterion(query)
 
     def _relation_subquery(
         self,
-        relation: RelationSpec[TableProtocol],
+        relation: TableRelation[TableProtocol],
     ) -> tuple[QueryBuilder, Table, TableProtocol]:
-        table_cls = self._resolve_relation_table_cls(relation)
-        remote_instance = table_cls(self._backend)
+        remote_instance = relation.remote_table()(self._backend)
         remote_table = Table(remote_instance.table_name)
         query = Query.from_(remote_table).select(1)
-        for owner_column, target_column in relation.mapping:
-            query = query.where(remote_table.field(target_column) == self._sql_table.field(owner_column))
+        for local_column, remote_column in relation.mapping.items():
+            query = query.where(
+                remote_table.field(remote_column) == self._sql_table.field(local_column)
+            )
         return query, remote_table, remote_instance
-
-    def _resolve_relation_table_cls(self, relation: RelationSpec[TableProtocol]) -> type[TableProtocol]:
-        if relation.table_factory is not None:
-            return relation.table_factory()
-        module_name = relation.table_module
-        if module_name is None:
-            raise RuntimeError(f"Cannot resolve table module for relation '{relation.name}'")
-        module = importlib.import_module(module_name)
-        table_cls = getattr(module, relation.table_name)
-        if not isinstance(table_cls, type):
-            raise TypeError(f"Relation table '{relation.table_name}' must be a class")
-        return table_cls
 
     def _compile_remote_filter(
         self,
-        relation: RelationSpec[TableProtocol],
         operand: Mapping[str, object],
         remote_table: Table,
         remote_instance: TableProtocol,

@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 import pytest
-from dclassql.table_spec import TableInfo, Col
+from dclassql.model_inspector.table_constraints import Col, ColGroup, TableConstraints
 from dclassql.unwarp import unwarp
 
 __datasource__ = {
@@ -44,27 +44,26 @@ class UserBook:
         yield self.created_at
 
 
-def test_table_info():
+def test_table_constraints():
     user = User(id=1, name="Alice", email="alice@example.com", last_login=datetime.now())
     book = Book(id=1, name="1984")
     user_book = UserBook(user_id=unwarp(user.id), book_id=unwarp(book.id), created_at=datetime.now())
 
-    info = TableInfo.from_dc(User)
-    assert info.primary_key.cols == Col('id', table=User)
-    assert [idx.cols for idx in info.index] == [
-        Col('name', table=User),
-        Col('last_login', table=User),
-        (Col('name', table=User), Col('email', table=User)),
+    info = TableConstraints.from_dc(User)
+    assert info.primary_key == ColGroup((Col('id'),))
+    assert [group.cols for group in info.indexes] == [
+        (Col('name'),),
+        (Col('last_login'),),
     ]
-    assert [idx.cols for idx in info.unique_index] == [
-        (Col('name', table=User), Col('email', table=User)),
+    assert [group.cols for group in info.unique_indexes] == [
+        (Col('name'), Col('email')),
     ]
 
-    info = TableInfo.from_dc(Book)
-    assert info.primary_key.cols == Col('id', table=Book)
+    info = TableConstraints.from_dc(Book)
+    assert info.primary_key == ColGroup((Col('id'),))
 
-    info = TableInfo.from_dc(UserBook)
-    assert info.primary_key.cols == (Col('user_id', table=UserBook), Col('book_id', table=UserBook))
+    info = TableConstraints.from_dc(UserBook)
+    assert info.primary_key.cols == (Col('user_id'), Col('book_id'))
     assert user_book.primary_key() == (user.id, book.id)
     assert next(user_book.index()) == user_book.created_at
 
@@ -79,10 +78,10 @@ class A:
         return self.name, self.email
 
 def test_primary_key_with_return():
-    info = TableInfo.from_dc(A)
-    assert info.primary_key.cols == Col('id', table=A)
-    assert [idx.cols for idx in info.index] == [
-        (Col('name', table=A), Col('email', table=A)),
+    info = TableConstraints.from_dc(A)
+    assert info.primary_key == ColGroup((Col('id'),))
+    assert [group.cols for group in info.indexes] == [
+        (Col('name'), Col('email')),
     ]
 
 
@@ -97,4 +96,4 @@ class GeneratorPK:
 
 def test_primary_key_generator_tuple_error():
     with pytest.raises(TypeError, match=r'May be you meant to use "return" instead?'):
-        TableInfo.from_dc(GeneratorPK)
+        TableConstraints.from_dc(GeneratorPK)

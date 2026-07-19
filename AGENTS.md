@@ -12,33 +12,39 @@
 
 ## 目录速览
 - `src/dclassql/codegen.py` + `templates/client_module.py.jinja`: 负责生成客户端模块代码。
-- `src/dclassql/model_inspector.py` 与 `table_spec.py`: 将 dataclass 转换为列、索引、外键等结构描述。
+- `src/dclassql/model_inspector/`: 其下有
+  - `relationships.py` 负责关系表达式解析
+  - `table_constraints.py` 负责单表约束
+  - `graph.py` 负责表间关系图编排
+  - `type_hints.py`: 将字段类型统一解析为 `TypeHint`,
 - `src/dclassql/push/`: 数据库 schema 推送逻辑, 当前实现 `SQLitePusher`。
 - `src/dclassql/runtime/`: 运行时后端、懒加载关系、数据源解析与 sqlite 适配器。
 - `src/dclassql/cli.py`: `dclassql` 命令入口, 提供 `generate` / `push-db` 子命令。
 - `tests/`: 覆盖 CLI、代码生成、schema 推送、运行时、类型检查等场景。
 
 ## 代码生成流水线
-- `generate_client(models)` 是入口, 先调用 `inspect_models` 收集 dataclass 结构信息 (`ModelInfo` / `ColumnInfo` 等)。
+- `ModelGraph.from_models(models)` 统一解析 dataclass、数据源、列、索引、外键和关系;
+- `ClientCompiler` 消费 `ModelGraph`, 构造渲染上下文并生成 `GeneratedModule`
 - `_TypeRenderer` 负责把 Python 类型对象转成字符串表示, 处理 `Annotated`、`UnionType` 等复杂类型。
 - 模板渲染产物包括:
   - `Client` 类: 继承运行时 `ClientBase`, 维护默认数据源并初始化每个类型化表属性和 `_tables`。
   - `*Table` 类: 封装 `insert` / `insert_many` / `find_many` / `find_first` 等方法, 依赖运行时后端。
   - `*Insert` dataclass、`*InsertDict` / `*WhereDict` / `*IncludeDict` / `*OrderByDict` TypedDict, 以及 `T*IncludeCol` / `T*SortableCol` Literal 类型别名。
-  - `ForeignKeySpec`、`ColumnSpec`、`RelationSpec` 等元信息用于运行时懒加载和 schema 推送。
+  - `ForeignKeySpec`、`ColumnSpec`、`TableRelation` 等元信息用于运行时懒加载和 schema 推送
 - 生成代码默认写入 model 同目录的 `*_client` 包, 也可通过 `--target package` 写入安装包。
 
 ## 数据模型解析
-- `model_inspector.inspect_models`:
-  - 使用 `get_type_hints`、`fields` 等 API 解析 dataclass 字段, 判断可选性、默认值、自增主键等。
-  - 借助 `table_spec.TableInfo` 的 fake self 机制处理 `primary_key` / `index` / `unique_index` 方法返回的列定义。
-  - 将模型按 `__datasource__` 聚合为 `DataSourceConfig`, key 为 `name` 或 provider。
+- `model_inspector.ModelGraph`:
+  - 使用 `get_type_hints`、`fields` 等 API 解析 dataclass 字段, 并立即转换为 `TypeHint`。
+  - 按字段名索引的分析数据使用 `FieldTo[T]`, 常用的字段类型与候选连接分别为 `FieldToTypeHint` 和 `FieldToLink`。
+  - `Link` 自带 source、attribute、target 和 cardinality; `foreign_key()` 将本地 Link、可选 backref Link 与列 mapping 组合为 `Relationship`。
+  - 借助 `model_inspector.table_constraints.TableConstraints` 的 fake self 机制处理 `primary_key` / `index` / `unique_index` 方法返回的 `ColGroup`。
 - 主键约定:
   - 未声明 `primary_key()` 时默认主键名为 `id`; 如果 dataclass 没有 `id` 字段, schema 会创建后端对应的隐式自增 `id` 主键列。
   - 隐式 `id` 会出现在 `Insert` / `InsertDict` / `WhereDict` / `OrderByDict` / upsert where 等间接描述里, 查询和写入返回值仍保持原 dataclass 字段, 不给返回对象补 `id`。
 - 关系与外键:
   - `RelationAttribute`/`RelationProxy`/`ForeignKeyComparison` 支持 `self.user.id == self.user_id` 等表达式, 映射为关系和键约束。
-  - 收集 `ForeignKeyInfo` 以驱动运行时 include 与懒加载。
+  - `foreign_key()` 在替换模型 globals/closure 的代理环境中执行, 不修改原始 dataclass。
 
 ## 运行时与数据库推送
 - `push.db_push`:

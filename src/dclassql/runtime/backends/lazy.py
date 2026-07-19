@@ -19,7 +19,7 @@ class LazyRelationState[
     attribute: str
     backend: BackendProtocol
     table_cls: type[Any]
-    mapping: tuple[tuple[str, str], ...]
+    mapping: Mapping[str, str]
     many: bool
     loaded: bool = False
     value: Any = None
@@ -282,9 +282,9 @@ def resolve_lazy_relation(instance: Any, state: LazyRelationState) -> Any:
     state.loading = True
     state.value = [] if state.many else None
     where: dict[str, object] = {}
-    for owner_column, target_column in state.mapping:
-        owner_value = getattr(instance, owner_column, None)
-        if owner_value is None:
+    for local_column, remote_column in state.mapping.items():
+        local_value = getattr(instance, local_column, None)
+        if local_value is None:
             value: Any = [] if state.many else None
             state.loaded = True
             state.value = value
@@ -292,7 +292,7 @@ def resolve_lazy_relation(instance: Any, state: LazyRelationState) -> Any:
             if hasattr(instance, "__dict__"):
                 instance.__dict__[state.attribute] = value
             return value
-        where[target_column] = owner_value
+        where[remote_column] = local_value
 
     table = state.table_cls(state.backend)
     if state.many:
@@ -352,7 +352,7 @@ def ensure_lazy_state[
     attribute: str,
     backend: BackendProtocol,
     table_cls: type[Any],
-    mapping: tuple[tuple[str, str], ...],
+    mapping: Mapping[str, str],
     many: bool,
 ) -> LazyRelationState:
     model_cls = instance.__class__

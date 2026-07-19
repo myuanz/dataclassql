@@ -154,7 +154,7 @@ class UserTable:
 
 # 设计
 
-- 完全在 Python 中定义表, 就像写 dataclass 一样, 没有奇怪的 col 或者 field. 通过`def foreign_key(self): yield xxx`, `def index(self): yield xxx`, `def primary_key(self): yield xxx`来标注, 使用见下. 生成表时, 通过传入一个虚假的 self 获取对应的列, 见 @src/dclassql/table_spec.py 中的 TableInfo/FakeSelf/KeySpec/Col. 
+- 完全在 Python 中定义表, 就像写 dataclass 一样, 没有奇怪的 col 或者 field. 通过`def foreign_key(self): yield xxx`, `def index(self): yield xxx`, `def primary_key(self): yield xxx`来标注, 使用见下. 生成表时, 通过传入一个虚假的 self 获取对应的列, 见 @src/dclassql/model_inspector/table_constraints.py 中的 TableConstraints/FakeSelf/ColGroup/Col.
 - 虚拟外键, 外键只是查询意义上的东西, 不在数据库生成
 - 与 Prisma 类似的 n+1 机制, 可以在find系列函数里设置include=, 也可以不include, 但在获取对象时即时查询
 - 生成阶段使用 fake self 机制获取并校验主键、索引、外键、唯键等信息

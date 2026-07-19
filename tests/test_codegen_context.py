@@ -2,32 +2,33 @@ from __future__ import annotations
 
 from typing import Any
 
-from dclassql.codegen import (
-    _ScalarFilterRegistry,
-    _TypeRenderer,
-    _build_client_context,
-    _build_model_context,
-    _collect_exports,
-)
-from dclassql.model_inspector import inspect_models
+from dclassql.codegen import ClientCompiler
+from dclassql.model_inspector import ModelGraph, inspect_models
 
 from .test_codegen import Address, BirthDay, Book, User, UserBook
 
 
-def _prepare_context(models: list[type[Any]]):
-    model_infos = inspect_models(models)
-    renderer = _TypeRenderer({info.model: name for name, info in model_infos.items()})
-    filter_registry = _ScalarFilterRegistry(renderer)
-    return model_infos, renderer, filter_registry
+def _compiler(models: list[type[Any]]) -> ClientCompiler:
+    return ClientCompiler.from_models(models, client_class_name="UserModelClient")
+
+
+def test_model_graph_indexes_models_and_keeps_inspect_models_compatible() -> None:
+    models = [User, Address, BirthDay, Book, UserBook]
+    graph = ModelGraph.from_models(models)
+
+    assert set(graph.by_name) == {model.__name__ for model in models}
+    assert all(graph.by_model[model] is graph.by_name[model.__name__] for model in models)
+    assert inspect_models(models) == graph.by_name
 
 
 def test_model_context_shapes_insert_and_typeddict_sections() -> None:
-    model_infos, renderer, filter_registry = _prepare_context([User, Address, BirthDay, Book, UserBook])
+    compiler = _compiler([User, Address, BirthDay, Book, UserBook])
 
-    address_ctx = _build_model_context(model_infos["Address"], renderer, model_infos, filter_registry)
+    address_info = compiler.graph.by_name["Address"]
+    address_ctx = compiler.build_model_context(address_info)
 
     assert address_ctx.name == "Address"
-    assert address_ctx.model_info is model_infos["Address"]
+    assert address_ctx.model_info is address_info
 
     id_field = next(field for field in address_ctx.insert_fields if field.name == "id")
     assert id_field.default_expr == "None"
@@ -39,8 +40,11 @@ def test_model_context_shapes_insert_and_typeddict_sections() -> None:
     assert {"id", "location", "user_id", "AND", "OR", "NOT", "user"} <= where_names
 
     assert any(spec.auto_increment for spec in address_ctx.column_specs)
-    assert "NotRequired" in renderer.typing_names
-    relation_names = sorted(rel.name for rel in address_ctx.model_info.relations)
+    assert "NotRequired" in compiler.renderer.typing_names
+    relation_names = sorted(
+        relationship.local.attribute
+        for relationship in compiler.graph.relationships.by_model(Address)
+    )
     assert relation_names == ["user"]
     relation_filter_names = [flt.name for flt in address_ctx.relation_filters]
     assert relation_filter_names == ["AddressUserRelationFilter"]
@@ -49,26 +53,26 @@ def test_model_context_shapes_insert_and_typeddict_sections() -> None:
 
 
 def test_client_context_binds_models_to_datasource_backends() -> None:
-    model_infos, _, _ = _prepare_context([User, Address, BirthDay, Book, UserBook])
+    compiler = _compiler([User, Address, BirthDay, Book, UserBook])
 
-    client_ctx = _build_client_context(model_infos, "UserModelClient")
+    client_ctx = compiler.build_client_context()
 
     assert client_ctx.class_name == "UserModelClient"
     assert client_ctx.datasource.url_repr == "'sqlite:///analytics.db'"
 
     user_binding = next(binding for binding in client_ctx.model_bindings if binding.model_name == "User")
     assert user_binding.attr_name == "user"
-    assert len(client_ctx.model_bindings) == len(model_infos)
+    assert len(client_ctx.model_bindings) == len(compiler.graph.by_name)
 
 
 def test_collect_exports_includes_expected_symbols() -> None:
-    model_infos, renderer, registry = _prepare_context([User, Address, BirthDay])
+    compiler = _compiler([User, Address, BirthDay])
     contexts = [
-        _build_model_context(model_infos[name], renderer, model_infos, registry)
-        for name in sorted(model_infos.keys())
+        compiler.build_model_context(compiler.graph.by_name[name])
+        for name in sorted(compiler.graph.by_name)
     ]
 
-    exports = _collect_exports(contexts, "UserModelClient")
+    exports = compiler.collect_exports(contexts)
 
     assert "UserModelClient" in exports
     assert "DataSourceConfig" in exports

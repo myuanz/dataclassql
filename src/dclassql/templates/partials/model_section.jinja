@@ -9,7 +9,7 @@
 {%- set table_class = name ~ 'Table' -%}
 {%- set include_alias = 'T' ~ name ~ 'IncludeCol' -%}
 {%- set sortable_alias = 'T' ~ name ~ 'SortableCol' -%}
-{%- set include_relations = info.relations | sort(attribute='name', case_sensitive=True) -%}
+{%- set include_relations = model.relationships | sort(attribute='local.attribute', case_sensitive=True) -%}
 {%- set sortable_columns = model.column_specs -%}
 {%- set update_dict_class = name ~ 'UpdateDict' -%}
 {%- set upsert_where_alias = name ~ 'UpsertWhereDict' -%}
@@ -20,7 +20,7 @@
 {% set backend_signature = 'BackendProtocol' %}
 
 {% if include_relations %}
-{% set include_names = include_relations | map(attribute='name') | list %}
+{% set include_names = include_relations | map(attribute='local.attribute') | list %}
 {{ include_alias }} = Literal[{{ include_names | map('tojson') | join(', ') }}]
 {% else %}
 {{ include_alias }} = Literal[()]
@@ -71,7 +71,7 @@ class {{ where_dict_class }}(TypedDict, total=False, closed=True):
 
 class {{ include_dict_class }}(TypedDict, total=False, closed=True):
 {% if include_relations %}
-{% for relation in include_relations %}    {{ relation.name }}: bool
+{% for relation in include_relations %}    {{ relation.local.attribute }}: bool
 {% endfor %}{% else %}
     pass
 {% endif %}
@@ -100,14 +100,14 @@ class {{ table_class }}(TableProtocol):
     indexes: tuple[tuple[str, ...], ...] = {{ model.indexes_literal }}
     unique_indexes: tuple[tuple[str, ...], ...] = {{ model.unique_indexes_literal }}
 {{ macros.foreign_keys(model.foreign_keys)|indent(4, True) }}
-{{ macros.relations(model.relation_entries)|indent(4, True) }}
+{{ macros.relations(model.relationships)|indent(4, True) }}
 {% if model.default_factories %}
 {% for factory in model.default_factories %}    {{ factory.var_name }} = {{ factory.expression }}
 {% endfor %}{% endif %}
 {% if model.primary_value_types and model.primary_key_on_model %}
     def primary_values(self, instance: {{ name }}) -> tuple[{{ model.primary_value_types | join(', ') }}]:
         return (
-            {% for column in model.column_specs if column.name in model.model_info.primary_key %}
+            {% for column in model.column_specs if column.name in model.model_info.constraints.primary_key.names %}
             instance.{{ column.name }},
             {% endfor %}
         )

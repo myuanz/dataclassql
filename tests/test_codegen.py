@@ -15,7 +15,7 @@ from enum import Enum, StrEnum, IntEnum
 import pytest
 
 from dclassql.codegen import generate_client
-from dclassql.model_inspector import inspect_models
+from dclassql.model_inspector import ModelGraph, inspect_models
 from dclassql.push import db_push
 from dclassql.push.sqlite import _build_sqlite_schema
 from dclassql.runtime.backends import SQLiteBackend
@@ -183,6 +183,16 @@ class RelationOrder:
 
 
 @dataclass
+class WrongTargetOrder:
+    id: int
+    customer_id: int
+    customer: RelationCustomer
+
+    def foreign_key(self):
+        yield self.customer.id == self.customer_id, RelationCustomer.orders
+
+
+@dataclass
 class OneWayOrderStatus:
     id: int
 
@@ -205,6 +215,15 @@ class InvalidBackrefOrder:
 
     def foreign_key(self):
         yield self.status.id == self.status_id, "status"
+
+
+@dataclass
+class MissingLocalLinkOrder:
+    id: int
+    status_id: int | None
+
+    def foreign_key(self):
+        yield OneWayOrderStatus.id == self.status_id, None
 
 
 def test_generate_client_matches_expected_shape() -> None:
@@ -258,6 +277,12 @@ def test_generate_client_matches_expected_shape() -> None:
     assert set(get_args(distinct_alias)) == set(column_names)
     expected_ds = data_source_config(url='sqlite:///analytics.db', name=None)
     assert user_table_cls.datasource == expected_ds
+    address_relation = namespace["AddressTable"].relations[0]
+    assert address_relation.remote_table() is user_table_cls
+    assert address_relation.mapping == {"user_id": "id"}
+    assert "remote_table=lambda: UserTable" in code
+    assert "table_factory" not in code
+    assert "table_module" not in code
     insert_payload = user_table_cls.serialize_insert({
         "id": None,
         "name": "A",
@@ -551,12 +576,13 @@ def test_model_dataclass_field_without_foreign_key_is_json_column() -> None:
     assert "serialize_json_value(data['order'])" in code
     assert "deserialize_json_value(row['order'], JsonModelOrder)" in code
 
-    trade_info = inspect_models([JsonModelOrder, JsonModelTrade])["JsonModelTrade"]
+    graph = ModelGraph.from_models([JsonModelOrder, JsonModelTrade])
+    trade_info = graph.by_name["JsonModelTrade"]
     assert [(column.name, column.storage_kind) for column in trade_info.columns] == [
         ("id", "scalar"),
         ("order", "json"),
     ]
-    assert trade_info.relations == []
+    assert graph.relationships.by_model(JsonModelTrade) == ()
 
     namespace: dict[str, Any] = {}
     exec(code, namespace)
@@ -565,39 +591,84 @@ def test_model_dataclass_field_without_foreign_key_is_json_column() -> None:
 
 
 def test_foreign_key_dataclass_field_stays_relation_not_json_column() -> None:
+    assert "orders" not in RelationCustomer.__dict__
     module = generate_client([RelationCustomer, RelationOrder])
+    assert "orders" not in RelationCustomer.__dict__
     code = module.code
     assert "serialize_json_value(data['customer'])" not in code
-    assert "RelationSpec(name='customer'" in code
+    assert 'attribute="customer"' in code
+    assert "remote_table=lambda: RelationCustomerTable" in code
+    assert '"customer_id": "id"' in code
 
-    order_info = inspect_models([RelationCustomer, RelationOrder])["RelationOrder"]
+    graph = ModelGraph.from_models([RelationCustomer, RelationOrder])
+    order_info = graph.by_name["RelationOrder"]
     assert [column.name for column in order_info.columns] == ["id", "customer_id"]
-    assert [(relation.name, relation.target, relation.many) for relation in order_info.relations] == [
+    assert [
+        (
+            relationship.local.attribute,
+            relationship.local.target,
+            relationship.local.many,
+        )
+        for relationship in graph.relationships.by_model(RelationOrder)
+    ] == [
         ("customer", RelationCustomer, False)
     ]
 
-    customer_info = inspect_models([RelationCustomer, RelationOrder])["RelationCustomer"]
+    customer_info = graph.by_name["RelationCustomer"]
     assert [column.name for column in customer_info.columns] == ["id"]
-    assert [(relation.name, relation.target, relation.many) for relation in customer_info.relations] == [
+    assert [
+        (
+            relationship.local.attribute,
+            relationship.local.target,
+            relationship.local.many,
+        )
+        for relationship in graph.relationships.by_model(RelationCustomer)
+    ] == [
         ("orders", RelationOrder, True)
     ]
+    (relationship,) = graph.relationships.by_local_model(RelationOrder)
+    assert repr(relationship.local) == (
+        f"Link({RelationOrder!r}.customer -> {RelationCustomer!r})"
+    )
+    assert repr(relationship.remote) == (
+        f"Link({RelationCustomer!r}.orders -> list[{RelationOrder!r}])"
+    )
+    assert repr(relationship) == (
+        "Relationship(通过`RelationOrder.customer_id == RelationCustomer.id`将"
+        "`RelationOrder.customer` 连接到 `RelationCustomer`；在 `RelationCustomer` 中可通过 "
+        "`RelationCustomer.orders` 访问到 `list[RelationOrder]`)"
+    )
 
 
 def test_foreign_key_accepts_none_backref_for_one_way_relation() -> None:
-    model_infos = inspect_models([OneWayOrderStatus, OneWayOrder])
+    graph = ModelGraph.from_models([OneWayOrderStatus, OneWayOrder])
 
-    order_info = model_infos["OneWayOrder"]
-    assert [(relation.name, relation.target, relation.many) for relation in order_info.relations] == [
+    assert [
+        (
+            relationship.local.attribute,
+            relationship.local.target,
+            relationship.local.many,
+        )
+        for relationship in graph.relationships.by_model(OneWayOrder)
+    ] == [
         ("status", OneWayOrderStatus, False)
     ]
-    assert len(order_info.foreign_keys) == 1
-    foreign_key = order_info.foreign_keys[0]
-    assert foreign_key.local_columns == ("status_id",)
-    assert foreign_key.remote_model is OneWayOrderStatus
-    assert foreign_key.remote_columns == ("id",)
-    assert foreign_key.relation_attribute == "status"
-    assert foreign_key.backref_attribute is None
-    assert model_infos["OneWayOrderStatus"].relations == []
+    assert graph.relationships.by_remote_model(OneWayOrderStatus) == (
+        graph.relationships.by_local_model(OneWayOrder)[0],
+    )
+    (relationship,) = graph.relationships.by_local_model(OneWayOrder)
+    assert relationship.local.source is OneWayOrder
+    assert tuple(column.name for column in relationship.mapping) == ("status_id",)
+    assert relationship.local.attribute == "status"
+    assert relationship.local.target is OneWayOrderStatus
+    assert not relationship.local.many
+    assert tuple(column.name for column in relationship.mapping.values()) == ("id",)
+    assert relationship.remote is None
+    assert repr(relationship) == (
+        "Relationship(通过`OneWayOrder.status_id == OneWayOrderStatus.id`将"
+        "`OneWayOrder.status` 连接到 `OneWayOrderStatus`)"
+    )
+    assert graph.relationships.by_model(OneWayOrderStatus) == ()
 
 
 def test_foreign_key_rejects_invalid_backref() -> None:
@@ -606,6 +677,23 @@ def test_foreign_key_rejects_invalid_backref() -> None:
         match="foreign_key backref must be a relation attribute or None",
     ):
         inspect_models([OneWayOrderStatus, InvalidBackrefOrder])
+
+
+def test_foreign_key_rejects_backref_link_to_another_model() -> None:
+    with pytest.raises(
+        TypeError,
+        match="Relationship backref RelationCustomer.orders must connect "
+        "RelationCustomer to WrongTargetOrder",
+    ):
+        inspect_models([RelationCustomer, RelationOrder, WrongTargetOrder])
+
+
+def test_foreign_key_requires_local_link() -> None:
+    with pytest.raises(
+        TypeError,
+        match="foreign_key comparison must use a Link on the local model",
+    ):
+        inspect_models([OneWayOrderStatus, MissingLocalLinkOrder])
 
 
 def test_generated_client_rejects_slotted_model_without_weakref_slot() -> None:

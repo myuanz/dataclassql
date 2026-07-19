@@ -68,14 +68,15 @@ foreign_keys: tuple[ForeignKeySpec, ...] = ()
 {% endif %}
 {% endmacro %}
 
-{% macro relations(relations) -%}
-{% if relations %}
-relations: tuple[RelationSpec, ...] = (
-    {% for rel in relations %}
-    RelationSpec(name={{ rel.name_repr }}, table_name={{ rel.table_name_repr }}, table_module={{ rel.table_module_expr }}, many={{ rel.many }}, mapping={{ rel.mapping_literal }}, table_factory={{ rel.table_factory_expr }}),
-    {% endfor %}
+{% macro relations(relationships) -%}
+{% if relationships %}
+relations: tuple[TableRelation, ...] = (
+{% for relationship in relationships %}
+    TableRelation(attribute={{ relationship.local.attribute | tojson }}, remote_table=lambda: {{ relationship.local.target.__name__ }}Table, many={{ relationship.local.many }}, mapping={
+{%- for local, remote in relationship.mapping.items() %}{{ local.name | tojson }}: {{ remote.name | tojson }}{% if not loop.last %}, {% endif %}{% endfor %}}),
+{% endfor %}
 )
 {% else %}
-relations: tuple[RelationSpec, ...] = ()
+relations: tuple[TableRelation, ...] = ()
 {% endif %}
-{% endmacro %}
+{%- endmacro %}

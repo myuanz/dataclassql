@@ -139,11 +139,11 @@ def _relation_identity(owner: Any, state: LazyRelationState) -> RelationKey | No
     if not mapping:
         return None
     values: list[tuple[str, Any]] = []
-    for owner_column, target_column in mapping:
-        owner_value = getattr(owner, owner_column, None)
-        if owner_value is None:
+    for local_column, remote_column in mapping.items():
+        local_value = getattr(owner, local_column, None)
+        if local_value is None:
             return None
-        values.append((target_column, owner_value))
+        values.append((remote_column, local_value))
     model_cls = getattr(state.table_cls, 'model', None)
     return (model_cls, tuple(values))
 

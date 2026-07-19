@@ -147,7 +147,7 @@ class Address:
     user: "User"
 
     def foreign_key(self):
-        yield self.user.id == self.user_id, User.addresses # 读作「本模型的 `user 对象的 id` 记录在 `本模型的 user_id 字段`，本模型也可通过 `User.addresses` 访问」
+        yield self.user.id == self.user_id, User.addresses # 读作「本模型外键 `user`的 id 记录在 `user_id`，本模型在 User 那侧可通过 `User.addresses` 访问」
 
 @dataclass
 class User:

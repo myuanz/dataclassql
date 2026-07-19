@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Literal
+from typing import Any, Callable, Literal, Mapping
 
 
 @dataclass(slots=True)
@@ -16,13 +16,11 @@ class ColumnSpec:
 
 
 @dataclass(slots=True)
-class RelationSpec[TTable]:
-    name: str
-    table_name: str
-    table_module: str
+class TableRelation[TTable]:
+    attribute: str
+    remote_table: Callable[[], type[TTable]]
     many: bool
-    mapping: tuple[tuple[str, str], ...]
-    table_factory: Callable[[], type[TTable]] | None = None
+    mapping: Mapping[str, str]
 
 
 @dataclass(slots=True)

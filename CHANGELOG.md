@@ -2,6 +2,11 @@
 
 本项目从 `0.3.1` 开始记录变更。
 
+## 0.5.0 - 
+- 模型解析与客户端代码生成重构为 `ModelGraph -> ClientCompiler -> GeneratedModule` 流水线，优化代码结构。
+- `foreign_key()` 改为在模型代理组成的新 globals 中解析, 不再临时替换原始 dataclass 字段。
+- 新增 `TypeHint` 统一保存字段类型的原始值、解包值、Optional 和集合信息, `ColumnInfo` 不再退回裸 `Any` 类型字段。
+
 ## 0.4.2 - 2026-07-18
 
 ### Added

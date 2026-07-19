@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sys
 from abc import ABC, abstractmethod
 from typing import Any, Literal, Mapping, Sequence, cast, overload
 from weakref import ReferenceType, ref
@@ -15,7 +14,7 @@ from dclassql.runtime.sql_recorder import push_sql
 from dclassql.typing import IncludeT, InsertT, ModelT, OrderByT, UpsertWhereT, WhereT
 
 from .lazy import ensure_lazy_state, finalize_lazy_state, reset_lazy_backref
-from .protocols import BackendProtocol, RelationSpec, TableProtocol
+from .protocols import BackendProtocol, TableProtocol
 from .where_compiler import WhereCompiler
 
 
@@ -445,12 +444,10 @@ class BackendBase(BackendProtocol, ABC):
         if not foreign_keys:
             return
         for fk in foreign_keys:
-            backref = getattr(fk, "backref", None)
+            backref = fk.backref
             if not backref:
                 continue
             remote_model = fk.remote_model
-            if remote_model is None:
-                continue
             key_values: list[Any] = []
             for local_col, remote_col in zip(fk.local_columns, fk.remote_columns):
                 value = getattr(instance, local_col, None)
@@ -528,24 +525,15 @@ class BackendBase(BackendProtocol, ABC):
         if not relations:
             return
 
-        for spec in relations:
-            name = spec.name
-            if spec.table_factory is not None:
-                table_cls = spec.table_factory()
-            else:
-                table_module_name = spec.table_module or table.__class__.__module__
-                module = sys.modules.get(table_module_name)
-                if module is None:
-                    raise RuntimeError(f"Module '{table_module_name}' not loaded for relation '{name}'")
-                table_cls = getattr(module, spec.table_name)
-                table_cls = cast(type[BackendProtocol], table_cls)
+        for relation in relations:
+            name = relation.attribute
             state = ensure_lazy_state(
                 instance=instance,
                 attribute=name,
                 backend=self,
-                table_cls=table_cls,
-                mapping=spec.mapping,
-                many=spec.many,
+                table_cls=relation.remote_table(),
+                mapping=relation.mapping,
+                many=relation.many,
             )
             finalize_lazy_state(instance, state, eager=bool(include_lookup.get(name)))
 

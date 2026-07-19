@@ -4,16 +4,7 @@ import sqlite3
 from collections.abc import Sequence as ABCSequence
 from typing import Any, TypeVar
 
-from dclassql.table_spec import Col
-
 T = TypeVar("T")
-
-
-def ensure_col_sequence(value: Col | tuple[Col, ...]) -> list[Col]:
-    """Normalize a column or tuple of columns into a list."""
-    if isinstance(value, Col):
-        return [value]
-    return list(value)
 
 
 def ensure_sequence(value: object, *, label: str) -> list[object]:

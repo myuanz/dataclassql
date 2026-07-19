@@ -9,7 +9,7 @@ from pypika.terms import Parameter
 from dclassql.model_inspector import DataSourceConfig
 from dclassql.typing import IncludeT, InsertT, ModelT, OrderByT, WhereT, UpsertWhereT
 
-from .metadata import ColumnSpec, ForeignKeySpec, RelationSpec
+from .metadata import ColumnSpec, ForeignKeySpec, TableRelation
 
 ConnectionFactory = Callable[[], sqlite3.Connection]
 
@@ -32,7 +32,7 @@ class TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT](SchemaTableProt
     datasource: DataSourceConfig
     column_specs_by_name: Mapping[str, ColumnSpec]
     foreign_keys: tuple[ForeignKeySpec, ...]
-    relations: tuple[RelationSpec[Any], ...]
+    relations: tuple[TableRelation[Any], ...]
 
     @classmethod
     def serialize_insert(cls, data: InsertT | ModelT | Mapping[str, object]) -> dict[str, object]: ...

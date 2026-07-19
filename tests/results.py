@@ -7,7 +7,7 @@ from typing import Any, Literal, Mapping, Sequence, NotRequired, Never, overload
 from typing_extensions import TypedDict
 
 from dclassql import DataSourceConfig
-from dclassql.runtime.backends import BackendProtocol, ColumnSpec, ForeignKeySpec, RelationSpec
+from dclassql.runtime.backends import BackendProtocol, ColumnSpec, ForeignKeySpec, TableRelation
 from dclassql.runtime.backends.protocols import TableProtocol
 from dclassql.runtime.client_base import ClientBase
 from dclassql.runtime.json_value import deserialize_json_value, serialize_json_value
@@ -137,8 +137,8 @@ class AddressTable(TableProtocol):
         ),
     )
 
-    relations: tuple[RelationSpec, ...] = (
-        RelationSpec(name='user', table_name='UserTable', table_module=__name__, many=False, mapping=(('user_id', 'id'),), table_factory=lambda: UserTable),
+    relations: tuple[TableRelation, ...] = (
+        TableRelation(attribute="user", remote_table=lambda: UserTable, many=False, mapping={"user_id": "id"}),
     )
 
     def primary_values(self, instance: Address) -> tuple[int]:
@@ -312,8 +312,8 @@ class BirthDayTable(TableProtocol):
         ),
     )
 
-    relations: tuple[RelationSpec, ...] = (
-        RelationSpec(name='user', table_name='UserTable', table_module=__name__, many=False, mapping=(('user_id', 'id'),), table_factory=lambda: UserTable),
+    relations: tuple[TableRelation, ...] = (
+        TableRelation(attribute="user", remote_table=lambda: UserTable, many=False, mapping={"user_id": "id"}),
     )
 
     def primary_values(self, instance: BirthDay) -> tuple[int]:
@@ -477,8 +477,8 @@ class BookTable(TableProtocol):
     unique_indexes: tuple[tuple[str, ...], ...] = ()
     foreign_keys: tuple[ForeignKeySpec, ...] = ()
 
-    relations: tuple[RelationSpec, ...] = (
-        RelationSpec(name='users', table_name='UserBookTable', table_module=__name__, many=True, mapping=(('id', 'book_id'),), table_factory=lambda: UserBookTable),
+    relations: tuple[TableRelation, ...] = (
+        TableRelation(attribute="users", remote_table=lambda: UserBookTable, many=True, mapping={"id": "book_id"}),
     )
 
     def primary_values(self, instance: Book) -> tuple[int]:
@@ -672,7 +672,7 @@ class CompositeTable(TableProtocol):
     unique_indexes: tuple[tuple[str, ...], ...] = (('uniq1', 'uniq2'), ('uniq3',),)
     foreign_keys: tuple[ForeignKeySpec, ...] = ()
 
-    relations: tuple[RelationSpec, ...] = ()
+    relations: tuple[TableRelation, ...] = ()
 
     def primary_values(self, instance: Composite) -> tuple[int, int]:
         return (
@@ -839,15 +839,15 @@ class UserUpsertWhereUnique1(TypedDict, closed=True):
 
 UserUpsertWhereDict = UserUpsertWherePK | UserUpsertWhereUnique1
 
-class UserBirthdayRelationFilter(TypedDict, total=False, closed=True):
-    IS: BirthDayWhereDict | None
-    IS_NOT: BirthDayWhereDict | None
-
-
 class UserAddressesRelationFilter(TypedDict, total=False, closed=True):
     SOME: AddressWhereDict | None
     NONE: AddressWhereDict | None
     EVERY: AddressWhereDict
+
+
+class UserBirthdayRelationFilter(TypedDict, total=False, closed=True):
+    IS: BirthDayWhereDict | None
+    IS_NOT: BirthDayWhereDict | None
 
 
 class UserBooksRelationFilter(TypedDict, total=False, closed=True):
@@ -865,8 +865,8 @@ class UserWhereDict(TypedDict, total=False, closed=True):
     status: UserStatus | None
     type: UserType | None | StringFilter
     vip_level: UserVIPLevel | None | IntFilter
-    birthday: UserBirthdayRelationFilter
     addresses: UserAddressesRelationFilter
+    birthday: UserBirthdayRelationFilter
     books: UserBooksRelationFilter
     AND: UserWhereDict | Sequence[UserWhereDict]
     OR: Sequence[UserWhereDict]
@@ -908,10 +908,10 @@ class UserTable(TableProtocol):
     unique_indexes: tuple[tuple[str, ...], ...] = (('name', 'email'),)
     foreign_keys: tuple[ForeignKeySpec, ...] = ()
 
-    relations: tuple[RelationSpec, ...] = (
-        RelationSpec(name='birthday', table_name='BirthDayTable', table_module=__name__, many=False, mapping=(('id', 'user_id'),), table_factory=lambda: BirthDayTable),
-        RelationSpec(name='addresses', table_name='AddressTable', table_module=__name__, many=True, mapping=(('id', 'user_id'),), table_factory=lambda: AddressTable),
-        RelationSpec(name='books', table_name='UserBookTable', table_module=__name__, many=True, mapping=(('id', 'user_id'),), table_factory=lambda: UserBookTable),
+    relations: tuple[TableRelation, ...] = (
+        TableRelation(attribute="addresses", remote_table=lambda: AddressTable, many=True, mapping={"id": "user_id"}),
+        TableRelation(attribute="birthday", remote_table=lambda: BirthDayTable, many=False, mapping={"id": "user_id"}),
+        TableRelation(attribute="books", remote_table=lambda: UserBookTable, many=True, mapping={"id": "user_id"}),
     )
 
     def primary_values(self, instance: User) -> tuple[int]:
@@ -1125,9 +1125,9 @@ class UserBookTable(TableProtocol):
         ),
     )
 
-    relations: tuple[RelationSpec, ...] = (
-        RelationSpec(name='user', table_name='UserTable', table_module=__name__, many=False, mapping=(('user_id', 'id'),), table_factory=lambda: UserTable),
-        RelationSpec(name='book', table_name='BookTable', table_module=__name__, many=False, mapping=(('book_id', 'id'),), table_factory=lambda: BookTable),
+    relations: tuple[TableRelation, ...] = (
+        TableRelation(attribute="user", remote_table=lambda: UserTable, many=False, mapping={"user_id": "id"}),
+        TableRelation(attribute="book", remote_table=lambda: BookTable, many=False, mapping={"book_id": "id"}),
     )
 
     def primary_values(self, instance: UserBook) -> tuple[int, int]:
@@ -1315,8 +1315,8 @@ __all__ = (
     "UserUpsertWhereDict",
     "UserWhereDict",
     "UserTable",
-    "UserBirthdayRelationFilter",
     "UserAddressesRelationFilter",
+    "UserBirthdayRelationFilter",
     "UserBooksRelationFilter",
     "TUserBookIncludeCol",
     "TUserBookSortableCol",

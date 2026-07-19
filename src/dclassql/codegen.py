@@ -10,7 +10,14 @@ from typing import Annotated, Any, Iterable, Mapping, Sequence, Union, get_args,
 
 from jinja2 import Environment, PackageLoader
 
-from .model_inspector import ColumnInfo, ModelInfo, inspect_models, DataSourceConfig
+from .model_inspector import (
+    ColumnInfo,
+    FieldTo,
+    ModelGraph,
+    ModelInfo,
+    Relationship,
+    TypeHint,
+)
 
 
 @dataclass(slots=True)
@@ -108,16 +115,6 @@ class ForeignKeyRender:
 
 
 @dataclass(slots=True)
-class RelationRender:
-    name_repr: str
-    table_name_repr: str
-    many: bool
-    mapping_literal: str
-    table_module_expr: str
-    table_factory_expr: str
-
-
-@dataclass(slots=True)
 class RelationFilterRender:
     name: str
     fields: tuple[TypedDictFieldSpec, ...]
@@ -149,7 +146,7 @@ class ModelRenderContext:
     relation_filters: tuple[RelationFilterRender, ...]
     column_specs: tuple[ColumnSpecRender, ...]
     foreign_keys: tuple[ForeignKeyRender, ...]
-    relation_entries: tuple[RelationRender, ...]
+    relationships: tuple[Relationship, ...]
     primary_key_literal: str
     indexes_literal: str
     unique_indexes_literal: str
@@ -179,6 +176,17 @@ class ClientContext:
     model_bindings: tuple[ClientModelBindingContext, ...]
 
 
+@dataclass(slots=True)
+class _ModelRenderState:
+    info: ModelInfo
+    name: str
+    model_column_names: set[str]
+    db_columns: tuple[ColumnInfo, ...]
+    column_lookup: FieldTo[ColumnInfo]
+    enum_type_map: FieldTo[type[Enum] | None]
+    relationships: tuple[Relationship, ...]
+
+
 _TEMPLATE_NAME = "client_module.py.jinja"
 _ENVIRONMENT: Environment | None = None
 
@@ -195,273 +203,398 @@ def _get_environment() -> Environment:
     return _ENVIRONMENT
 
 
-def generate_client(models: Sequence[type[Any]], *, client_class_name: str = "GeneratedClient") -> GeneratedModule:
-    model_infos = inspect_models(models)
-    renderer = _TypeRenderer({info.model: name for name, info in model_infos.items()})
-    filter_registry = _ScalarFilterRegistry(renderer)
+class ClientCompiler:
+    def __init__(self, graph: ModelGraph, *, client_class_name: str = "GeneratedClient") -> None:
+        self.graph = graph
+        self.client_class_name = client_class_name
+        self.renderer = _TypeRenderer({info.model: name for name, info in graph.by_name.items()})
+        self.filter_registry = _ScalarFilterRegistry(self.renderer)
 
-    model_imports: defaultdict[str, set[str]] = defaultdict(set)
-    for info in model_infos.values():
-        model_imports[info.model.__module__].add(info.model.__name__)
+    @classmethod
+    def from_models(
+        cls,
+        models: Sequence[type[Any]],
+        *,
+        client_class_name: str = "GeneratedClient",
+    ) -> "ClientCompiler":
+        return cls(ModelGraph.from_models(models), client_class_name=client_class_name)
 
-    model_contexts = [
-        _build_model_context(model_infos[name], renderer, model_infos, filter_registry)
-        for name in sorted(model_infos.keys())
-    ]
-
-    combined_imports: defaultdict[str, set[str]] = defaultdict(set)
-    for module, names in model_imports.items():
-        combined_imports[module].update(names)
-    for module, names in renderer.module_imports.items():
-        combined_imports[module].update(names)
-
-    import_blocks = [
-        ImportBlock(module=module, names=tuple(sorted(names)))
-        for module, names in sorted(combined_imports.items())
-    ]
-
-    client_context = _build_client_context(model_infos, client_class_name)
-    exports = _collect_exports(model_contexts, client_class_name)
-    scalar_filters = filter_registry.render_definitions()
-
-    template = _get_environment().get_template(_TEMPLATE_NAME)
-    code = template.render(
-        module_imports=tuple(import_blocks),
-        models=tuple(model_contexts),
-        client=client_context,
-        exports=tuple(exports),
-        scalar_filters=scalar_filters,
-    )
-    if not code.endswith("\n"):
-        code += "\n"
-    asdict_stub = _render_asdict_stub(model_contexts)
-    init_code = _render_init_code(client_class_name)
-    init_stub = _render_init_stub(client_class_name)
-    return GeneratedModule(
-        code=code,
-        asdict_stub=asdict_stub,
-        init_code=init_code,
-        init_stub=init_stub,
-        model_names=tuple(sorted(model_infos.keys())),
-        client_class_name=client_class_name,
-    )
-
-
-def _build_model_context(
-    info: ModelInfo,
-    renderer: "_TypeRenderer",
-    model_infos: Mapping[str, ModelInfo],
-    filter_registry: _ScalarFilterRegistry,
-) -> ModelRenderContext:
-    name = info.model.__name__
-
-    insert_fields: list[InsertFieldSpec] = []
-    typed_dict_fields: list[TypedDictFieldSpec] = []
-    update_fields: list[TypedDictFieldSpec] = []
-    upsert_where_dicts: list[UpsertWhereRender] = []
-    dict_field_map: dict[str, str] = {}
-    enum_type_map: dict[str, type[Enum] | None] = {}
-    model_column_names = {col.name for col in info.columns}
-    db_columns = _build_db_columns(info)
-    column_lookup: dict[str, ColumnInfo] = {col.name: col for col in db_columns}
-    primary_key_on_model = all(column_name in model_column_names for column_name in info.primary_key)
-    for col in db_columns:
-        annotation = _format_insert_annotation(col, renderer)
-        default_fragment = _render_default_fragment(info.model, col)
-        if default_fragment is not None:
-            default_expr = default_fragment
-        elif col.auto_increment:
-            default_expr = "None"
-        else:
-            default_expr = None
-        insert_fields.append(InsertFieldSpec(name=col.name, annotation=annotation, default_expr=default_expr))
-
-        if col.auto_increment:
-            renderer.require_typing("NotRequired")
-            base_annotation = _strip_optional_annotation(annotation)
-            typed_annotation = f"NotRequired[{base_annotation}]"
-        else:
-            typed_annotation = annotation
-        typed_dict_fields.append(TypedDictFieldSpec(name=col.name, annotation=typed_annotation))
-
-        dict_field_map[col.name] = renderer.render(col.python_type)
-
-        enum_type = _resolve_enum_class(col.python_type)
-        enum_type_map[col.name] = enum_type
-
-        update_fields.append(TypedDictFieldSpec(name=col.name, annotation=renderer.render(col.python_type)))
-
-    if info.primary_key:
-        pk_fields: list[TypedDictFieldSpec] = []
-        for pk_col in info.primary_key:
-            col_info = column_lookup[pk_col]
-            annotation = renderer.render(col_info.python_type)
-            pk_fields.append(TypedDictFieldSpec(name=pk_col, annotation=annotation))
-        upsert_where_dicts.append(UpsertWhereRender(name=f"{name}UpsertWherePK", fields=tuple(pk_fields)))
-
-    if info.unique_indexes:
-        for idx, unique_cols in enumerate(info.unique_indexes, start=1):
-            unique_fields: list[TypedDictFieldSpec] = []
-            for col_name in unique_cols:
-                col_info = column_lookup.get(col_name)
-                annotation = renderer.render(col_info.python_type) if col_info else "object"
-                unique_fields.append(TypedDictFieldSpec(name=col_name, annotation=annotation))
-            upsert_where_dicts.append(
-                UpsertWhereRender(name=f"{name}UpsertWhereUnique{idx}", fields=tuple(unique_fields))
-            )
-
-    if not upsert_where_dicts:
-        renderer.require_typing("Never")
-
-    where_fields: list[WhereFieldSpec] = []
-    for col in db_columns:
-        annotation = renderer.render(col.python_type)
-        if "None" not in annotation:
-            annotation = f"{annotation} | None"
-        filter_name = filter_registry.register(col.python_type)
-        if filter_name is not None and filter_name not in annotation:
-            annotation = f"{annotation} | {filter_name}"
-        where_fields.append(WhereFieldSpec(name=col.name, annotation=annotation))
-
-    relation_filters: list[RelationFilterRender] = []
-    for relation in info.relations:
-        filter_name = f"{name}{_to_pascal_case(relation.name)}RelationFilter"
-        remote_where_dict = f"{relation.target.__name__}WhereDict"
-        if relation.many:
-            relation_fields = (
-                TypedDictFieldSpec(name="SOME", annotation=f"{remote_where_dict} | None"),
-                TypedDictFieldSpec(name="NONE", annotation=f"{remote_where_dict} | None"),
-                TypedDictFieldSpec(name="EVERY", annotation=remote_where_dict),
-            )
-        else:
-            relation_fields = (
-                TypedDictFieldSpec(name="IS", annotation=f"{remote_where_dict} | None"),
-                TypedDictFieldSpec(name="IS_NOT", annotation=f"{remote_where_dict} | None"),
-            )
-        relation_filters.append(RelationFilterRender(name=filter_name, fields=relation_fields))
-        where_fields.append(WhereFieldSpec(name=relation.name, annotation=filter_name))
-
-    renderer.require_typing("Sequence")
-    where_dict_name = f"{name}WhereDict"
-    where_fields.extend(
-        [
-            WhereFieldSpec(name="AND", annotation=f"{where_dict_name} | Sequence[{where_dict_name}]"),
-            WhereFieldSpec(name="OR", annotation=f"Sequence[{where_dict_name}]"),
-            WhereFieldSpec(name="NOT", annotation=f"{where_dict_name} | Sequence[{where_dict_name}]"),
+    def compile(self) -> GeneratedModule:
+        model_contexts = [
+            self.build_model_context(self.graph.by_name[name])
+            for name in sorted(self.graph.by_name)
         ]
-    )
+        import_blocks = self._build_import_blocks()
+        client_context = self.build_client_context()
+        exports = self.collect_exports(model_contexts)
 
-    column_specs = [
-        ColumnSpecRender(
-            name=column.name,
-            name_repr=repr(column.name),
-            python_type_expr=renderer.render(column.python_type),
-            storage_kind_repr=repr(column.storage_kind),
-            optional=column.optional,
-            auto_increment=column.auto_increment,
-            has_default=column.has_default,
-            has_default_factory=column.has_default_factory,
-            returned_field=column.name in model_column_names,
-            mapping_value_expr=_format_mapping_value_expr(column, enum_type_map.get(column.name)),
-            insert_value_expr=_format_insert_value_expr(
-                column,
-                enum_type_map.get(column.name),
-                returned_field=column.name in model_column_names,
+        template = _get_environment().get_template(_TEMPLATE_NAME)
+        code = template.render(
+            module_imports=tuple(import_blocks),
+            models=tuple(model_contexts),
+            client=client_context,
+            exports=tuple(exports),
+            scalar_filters=self.filter_registry.render_definitions(),
+        )
+        if not code.endswith("\n"):
+            code += "\n"
+        return GeneratedModule(
+            code=code,
+            asdict_stub=_render_asdict_stub(model_contexts),
+            init_code=_render_init_code(self.client_class_name),
+            init_stub=_render_init_stub(self.client_class_name),
+            model_names=tuple(sorted(self.graph.by_name)),
+            client_class_name=self.client_class_name,
+        )
+
+    def _build_import_blocks(self) -> list[ImportBlock]:
+        imports: defaultdict[str, set[str]] = defaultdict(set)
+        for info in self.graph.by_name.values():
+            imports[info.model.__module__].add(info.model.__name__)
+        for module, names in self.renderer.module_imports.items():
+            imports[module].update(names)
+        return [
+            ImportBlock(module=module, names=tuple(sorted(names)))
+            for module, names in sorted(imports.items())
+        ]
+
+    def _model_state(self, info: ModelInfo) -> _ModelRenderState:
+        db_columns = _build_db_columns(info)
+        return _ModelRenderState(
+            info=info,
+            name=info.model.__name__,
+            model_column_names={column.name for column in info.columns},
+            db_columns=db_columns,
+            column_lookup=FieldTo.from_mapping({column.name: column for column in db_columns}),
+            enum_type_map=FieldTo.from_mapping({
+                column.name: _resolve_enum_class(column.type_hint.source)
+                for column in db_columns
+            }),
+            relationships=self.graph.relationships.by_model(info.model),
+        )
+
+    def build_model_context(self, info: ModelInfo) -> ModelRenderContext:
+        state = self._model_state(info)
+        insert_fields, typed_dict_fields, update_fields, dict_field_map = self._build_column_fields(state)
+        upsert_where_dicts = self._build_upsert_where(state)
+        where_fields, relation_filters = self._build_where_fields(state)
+        row_assignments, default_factories = self._build_row_assignments(state)
+        datasource = info.datasource
+        constraints = info.constraints
+        primary_key = constraints.primary_key.names
+        indexes = tuple(group.names for group in constraints.indexes)
+        unique_indexes = tuple(group.names for group in constraints.unique_indexes)
+
+        return ModelRenderContext(
+            name=state.name,
+            datasource_expr=f"DataSourceConfig(url={datasource.url!r}, name={datasource.name!r})",
+            table_name_literal=repr(state.name),
+            insert_fields=tuple(insert_fields),
+            typed_dict_fields=tuple(typed_dict_fields),
+            update_fields=tuple(update_fields),
+            upsert_where_dicts=tuple(upsert_where_dicts),
+            dict_fields=tuple(self._build_dict_fields(state, dict_field_map)),
+            where_fields=tuple(where_fields),
+            relation_filters=tuple(relation_filters),
+            column_specs=tuple(self._build_column_specs(state)),
+            foreign_keys=tuple(self._build_foreign_keys(info)),
+            relationships=state.relationships,
+            primary_key_literal=_tuple_literal(primary_key),
+            indexes_literal=_tuple_literal(indexes) if indexes else "()",
+            unique_indexes_literal=_tuple_literal(unique_indexes) if unique_indexes else "()",
+            primary_value_types=tuple(
+                self.renderer.render(state.column_lookup[name].type_hint.source)
+                for name in primary_key
             ),
-            is_enum=enum_type_map.get(column.name) is not None,
+            primary_key_on_model=all(name in state.model_column_names for name in primary_key),
+            row_assignments=tuple(row_assignments),
+            default_factories=tuple(default_factories),
+            model_info=info,
         )
-        for column in db_columns
-    ]
 
-    foreign_keys = [
-        ForeignKeyRender(
-            local_columns_literal=_tuple_literal(fk.local_columns),
-            remote_model=fk.remote_model.__name__,
-            remote_columns_literal=_tuple_literal(fk.remote_columns),
-            backref_repr=repr(fk.backref_attribute),
-        )
-        for fk in info.foreign_keys
-    ]
+    def _build_column_fields(
+        self,
+        state: _ModelRenderState,
+    ) -> tuple[
+        list[InsertFieldSpec],
+        list[TypedDictFieldSpec],
+        list[TypedDictFieldSpec],
+        FieldTo[str],
+    ]:
+        insert_fields: list[InsertFieldSpec] = []
+        typed_dict_fields: list[TypedDictFieldSpec] = []
+        update_fields: list[TypedDictFieldSpec] = []
+        dict_field_map: dict[str, str] = {}
+        for column in state.db_columns:
+            annotation = _format_insert_annotation(column, self.renderer)
+            default_expr = _render_default_fragment(state.info.model, column)
+            if default_expr is None and column.auto_increment:
+                default_expr = "None"
+            insert_fields.append(InsertFieldSpec(column.name, annotation, default_expr))
 
-    relation_entries = [
-        RelationRender(
-            name_repr=repr(entry["name"]),
-            table_name_repr=repr(entry["table_name"]),
-            many=entry["many"],
-            mapping_literal=_tuple_literal(entry["mapping"]),
-            table_module_expr=entry["table_module_expr"],
-            table_factory_expr=entry["table_factory_expr"],
-        )
-        for entry in _build_relation_entries(info, model_infos)
-    ]
-
-    datasource_values = info.datasource
-    datasource_expr = (
-        f"DataSourceConfig(url={repr(datasource_values.url)}, name={repr(datasource_values.name)})"
-    )
-
-    indexes_literal = _tuple_literal(tuple(tuple(idx) for idx in info.indexes)) if info.indexes else "()"
-    unique_indexes_literal = (
-        _tuple_literal(tuple(tuple(idx) for idx in info.unique_indexes)) if info.unique_indexes else "()"
-    )
-
-    row_assignments, default_factories = _build_row_assignment_context(info, enum_type_map, renderer)
-    primary_value_types: list[str] = []
-    for column_name in info.primary_key:
-        column = column_lookup[column_name]
-        primary_value_types.append(renderer.render(column.python_type))
-
-    relation_lookup = {relation.name: relation for relation in info.relations}
-    dataclass_fields = fields(info.model)
-    dict_fields: list[TypedDictFieldSpec] = []
-    for field_obj in dataclass_fields:
-        field_name = field_obj.name
-        dict_annotation = dict_field_map.get(field_name)
-        if dict_annotation is not None:
-            dict_fields.append(TypedDictFieldSpec(name=field_name, annotation=dict_annotation))
-            continue
-        relation = relation_lookup.get(field_name)
-        if relation is not None:
-            target_dict = f"{relation.target.__name__}Dict"
-            if relation.many:
-                annotation = f"list[{target_dict}]"
+            if column.auto_increment:
+                self.renderer.require_typing("NotRequired")
+                typed_annotation = f"NotRequired[{_strip_optional_annotation(annotation)}]"
             else:
-                annotation = f"{target_dict} | None"
-            dict_fields.append(TypedDictFieldSpec(name=field_name, annotation=annotation))
-            continue
-        rendered = renderer.render(field_obj.type)
-        dict_fields.append(TypedDictFieldSpec(name=field_name, annotation=rendered))
+                typed_annotation = annotation
+            typed_dict_fields.append(TypedDictFieldSpec(column.name, typed_annotation))
 
-    return ModelRenderContext(
-        name=name,
-        datasource_expr=datasource_expr,
-        table_name_literal=repr(name),
-        insert_fields=tuple(insert_fields),
-        typed_dict_fields=tuple(typed_dict_fields),
-        update_fields=tuple(update_fields),
-        upsert_where_dicts=tuple(upsert_where_dicts),
-        dict_fields=tuple(dict_fields),
-        where_fields=tuple(where_fields),
-        relation_filters=tuple(relation_filters),
-        column_specs=tuple(column_specs),
-        foreign_keys=tuple(foreign_keys),
-        relation_entries=tuple(relation_entries),
-        primary_key_literal=_tuple_literal(info.primary_key),
-        indexes_literal=indexes_literal,
-        unique_indexes_literal=unique_indexes_literal,
-        primary_value_types=tuple(primary_value_types),
-        primary_key_on_model=primary_key_on_model,
-        row_assignments=tuple(row_assignments),
-        default_factories=tuple(default_factories),
-        model_info=info,
-    )
+            rendered_type = self.renderer.render(column.type_hint.source)
+            dict_field_map[column.name] = rendered_type
+            update_fields.append(TypedDictFieldSpec(column.name, rendered_type))
+        return (
+            insert_fields,
+            typed_dict_fields,
+            update_fields,
+            FieldTo.from_mapping(dict_field_map),
+        )
+
+    def _build_upsert_where(self, state: _ModelRenderState) -> list[UpsertWhereRender]:
+        result: list[UpsertWhereRender] = []
+        primary_key = state.info.constraints.primary_key.names
+        if primary_key:
+            fields = tuple(
+                TypedDictFieldSpec(
+                    name,
+                    self.renderer.render(state.column_lookup[name].type_hint.source),
+                )
+                for name in primary_key
+            )
+            result.append(UpsertWhereRender(f"{state.name}UpsertWherePK", fields))
+        for index, group in enumerate(state.info.constraints.unique_indexes, start=1):
+            fields = tuple(
+                TypedDictFieldSpec(
+                    name,
+                    self.renderer.render(state.column_lookup[name].type_hint.source)
+                    if name in state.column_lookup
+                    else "object",
+                )
+                for name in group.names
+            )
+            result.append(UpsertWhereRender(f"{state.name}UpsertWhereUnique{index}", fields))
+        if not result:
+            self.renderer.require_typing("Never")
+        return result
+
+    def _build_where_fields(
+        self,
+        state: _ModelRenderState,
+    ) -> tuple[list[WhereFieldSpec], list[RelationFilterRender]]:
+        where_fields: list[WhereFieldSpec] = []
+        for column in state.db_columns:
+            annotation = self.renderer.render(column.type_hint.source)
+            if "None" not in annotation:
+                annotation = f"{annotation} | None"
+            filter_name = self.filter_registry.register(column.type_hint.source)
+            if filter_name is not None and filter_name not in annotation:
+                annotation = f"{annotation} | {filter_name}"
+            where_fields.append(WhereFieldSpec(column.name, annotation))
+
+        relation_filters: list[RelationFilterRender] = []
+        for relationship in state.relationships:
+            local = relationship.local
+            filter_name = f"{state.name}{_to_pascal_case(local.attribute)}RelationFilter"
+            remote_where = f"{local.target.__name__}WhereDict"
+            if local.many:
+                fields_ = (
+                    TypedDictFieldSpec("SOME", f"{remote_where} | None"),
+                    TypedDictFieldSpec("NONE", f"{remote_where} | None"),
+                    TypedDictFieldSpec("EVERY", remote_where),
+                )
+            else:
+                fields_ = (
+                    TypedDictFieldSpec("IS", f"{remote_where} | None"),
+                    TypedDictFieldSpec("IS_NOT", f"{remote_where} | None"),
+                )
+            relation_filters.append(RelationFilterRender(filter_name, fields_))
+            where_fields.append(WhereFieldSpec(local.attribute, filter_name))
+
+        self.renderer.require_typing("Sequence")
+        where_dict = f"{state.name}WhereDict"
+        where_fields.extend(
+            (
+                WhereFieldSpec("AND", f"{where_dict} | Sequence[{where_dict}]"),
+                WhereFieldSpec("OR", f"Sequence[{where_dict}]"),
+                WhereFieldSpec("NOT", f"{where_dict} | Sequence[{where_dict}]"),
+            )
+        )
+        return where_fields, relation_filters
+
+    def _build_column_specs(self, state: _ModelRenderState) -> list[ColumnSpecRender]:
+        return [
+            ColumnSpecRender(
+                name=column.name,
+                name_repr=repr(column.name),
+                python_type_expr=self.renderer.render(column.type_hint.source),
+                storage_kind_repr=repr(column.storage_kind),
+                optional=column.optional,
+                auto_increment=column.auto_increment,
+                has_default=column.has_default,
+                has_default_factory=column.has_default_factory,
+                returned_field=column.name in state.model_column_names,
+                mapping_value_expr=_format_mapping_value_expr(column, state.enum_type_map[column.name]),
+                insert_value_expr=_format_insert_value_expr(
+                    column,
+                    state.enum_type_map[column.name],
+                    returned_field=column.name in state.model_column_names,
+                ),
+                is_enum=state.enum_type_map[column.name] is not None,
+            )
+            for column in state.db_columns
+        ]
+
+    def _build_foreign_keys(self, info: ModelInfo) -> list[ForeignKeyRender]:
+        return [
+            ForeignKeyRender(
+                local_columns_literal=_tuple_literal(
+                    tuple(column.name for column in relationship.mapping.keys())
+                ),
+                remote_model=relationship.local.target.__name__,
+                remote_columns_literal=_tuple_literal(
+                    tuple(column.name for column in relationship.mapping.values())
+                ),
+                backref_repr=repr(
+                    relationship.remote.attribute
+                    if relationship.remote is not None
+                    else None
+                ),
+            )
+            for relationship in self.graph.relationships.by_local_model(info.model)
+        ]
+
+    def _build_dict_fields(
+        self,
+        state: _ModelRenderState,
+        column_types: FieldTo[str],
+    ) -> list[TypedDictFieldSpec]:
+        relations = FieldTo.from_mapping({
+            relationship.local.attribute: relationship
+            for relationship in state.relationships
+        })
+        result: list[TypedDictFieldSpec] = []
+        for field_obj in fields(state.info.model):
+            if field_obj.name in column_types:
+                result.append(TypedDictFieldSpec(field_obj.name, column_types[field_obj.name]))
+                continue
+            relation = relations.get(field_obj.name)
+            if relation is not None:
+                local = relation.local
+                target = f"{local.target.__name__}Dict"
+                annotation = f"list[{target}]" if local.many else f"{target} | None"
+                result.append(TypedDictFieldSpec(field_obj.name, annotation))
+                continue
+            result.append(TypedDictFieldSpec(field_obj.name, self.renderer.render(field_obj.type)))
+        return result
+
+    def _build_row_assignments(
+        self,
+        state: _ModelRenderState,
+    ) -> tuple[list[RowAssignmentRender], list[DefaultFactoryRender]]:
+        column_map = FieldTo.from_mapping({column.name: column for column in state.info.columns})
+        relation_defaults = FieldTo.from_mapping({
+            relationship.local.attribute: (
+                "[]" if relationship.local.many else "None"
+            )
+            for relationship in state.relationships
+        })
+        assignments: list[RowAssignmentRender] = []
+        factories: list[DefaultFactoryRender] = []
+        for field_obj in fields(state.info.model):
+            expression, factory = self._resolve_row_assignment(
+                state.info.model,
+                field_obj,
+                column_map,
+                state.enum_type_map,
+                relation_defaults,
+            )
+            assignments.append(RowAssignmentRender(field_obj.name, expression))
+            if factory is not None:
+                factories.append(factory)
+        return assignments, factories
+
+    def _resolve_row_assignment(
+        self,
+        model: type[Any],
+        field_obj: Any,
+        column_map: FieldTo[ColumnInfo],
+        enum_types: FieldTo[type[Enum] | None],
+        relation_defaults: FieldTo[str],
+    ) -> tuple[str, DefaultFactoryRender | None]:
+        column = column_map.get(field_obj.name)
+        if column is not None:
+            return self._column_value_expression(column, enum_types.get(field_obj.name)), None
+        if field_obj.default is not MISSING:
+            return f"{model.__name__}.__dataclass_fields__[{field_obj.name!r}].default", None
+        if field_obj.default_factory is not MISSING:
+            name = f"_{model.__name__}_{field_obj.name}_default_factory"
+            expression = f"{model.__name__}.__dataclass_fields__[{field_obj.name!r}].default_factory"
+            return f"{name}()", DefaultFactoryRender(name, expression)
+        if field_obj.name in relation_defaults:
+            return relation_defaults[field_obj.name], None
+        return _infer_field_fallback(field_obj.type), None
+
+    def _column_value_expression(self, column: ColumnInfo, enum_type: type[Enum] | None) -> str:
+        value = f"row[{column.name!r}]"
+        if column.storage_kind == "json":
+            return f"deserialize_json_value({value}, {self.renderer.render(column.type_hint.source)})"
+        if enum_type is None:
+            return value
+        converted = f"{enum_type.__name__}({value})"
+        return f"({converted} if {value} is not None else None)" if column.optional else converted
+
+    def build_client_context(self) -> ClientContext:
+        datasources = {info.datasource for info in self.graph.by_name.values()}
+        if len(datasources) != 1:
+            labels = ", ".join(
+                f"{datasource.identity}({datasource.url!r})"
+                for datasource in sorted(datasources, key=lambda item: item.identity)
+            )
+            raise ValueError(f"Generated Client can only use one datasource, got: {labels}")
+        datasource = next(iter(datasources))
+        return ClientContext(
+            class_name=self.client_class_name,
+            datasource=ClientDataSourceContext(repr(datasource.url), repr(datasource.name)),
+            model_bindings=tuple(
+                ClientModelBindingContext(_camel_to_snake(name), name)
+                for name in sorted(self.graph.by_name)
+            ),
+        )
+
+    def collect_exports(self, contexts: Sequence[ModelRenderContext]) -> list[str]:
+        exports = ["DataSourceConfig", "ForeignKeySpec", self.client_class_name]
+        for context in contexts:
+            name = context.name
+            exports.extend(
+                (
+                    f"T{name}IncludeCol",
+                    f"T{name}SortableCol",
+                    f"T{name}DistinctCol",
+                    f"{name}IncludeDict",
+                    f"{name}OrderByDict",
+                    f"{name}Dict",
+                    f"{name}Insert",
+                    f"{name}InsertDict",
+                    f"{name}UpdateDict",
+                    f"{name}UpsertWhereDict",
+                    f"{name}WhereDict",
+                    f"{name}Table",
+                )
+            )
+            exports.extend(relation_filter.name for relation_filter in context.relation_filters)
+        return exports
+
+
+def generate_client(models: Sequence[type[Any]], *, client_class_name: str = "GeneratedClient") -> GeneratedModule:
+    return ClientCompiler.from_models(models, client_class_name=client_class_name).compile()
 
 
 def _build_db_columns(info: ModelInfo) -> tuple[ColumnInfo, ...]:
-    if info.primary_key == ("id",) and all(column.name != "id" for column in info.columns):
+    if info.constraints.primary_key.names == ("id",) and all(
+        column.name != "id" for column in info.columns
+    ):
         implicit_id = ColumnInfo(
             name="id",
-            python_type=int,
+            type_hint=TypeHint.parse(int),
             optional=False,
             auto_increment=True,
             storage_kind="scalar",
@@ -472,59 +605,6 @@ def _build_db_columns(info: ModelInfo) -> tuple[ColumnInfo, ...]:
         )
         return (implicit_id, *info.columns)
     return tuple(info.columns)
-
-
-def _build_client_context(model_infos: Mapping[str, ModelInfo], client_class_name: str) -> ClientContext:
-    datasource_configs = {info.datasource for info in model_infos.values()}
-    if len(datasource_configs) != 1:
-        labels = ", ".join(
-            f"{ds.identity}({ds.url!r})" for ds in sorted(datasource_configs, key=lambda item: item.identity)
-        )
-        raise ValueError(f"Generated Client can only use one datasource, got: {labels}")
-    datasource = next(iter(datasource_configs))
-    datasource_item = ClientDataSourceContext(
-        url_repr=repr(datasource.url),
-        name_repr=repr(datasource.name),
-    )
-
-    model_bindings = [
-        ClientModelBindingContext(
-            attr_name=_camel_to_snake(name),
-            model_name=name,
-        )
-        for name in sorted(model_infos.keys())
-    ]
-
-    return ClientContext(
-        class_name=client_class_name,
-        datasource=datasource_item,
-        model_bindings=tuple(model_bindings),
-    )
-
-
-def _collect_exports(model_contexts: Sequence[ModelRenderContext], client_class_name: str) -> list[str]:
-    exports: list[str] = ["DataSourceConfig", "ForeignKeySpec", client_class_name]
-    for context in model_contexts:
-        name = context.name
-        exports.extend(
-            [
-                f"T{name}IncludeCol",
-                f"T{name}SortableCol",
-                f"T{name}DistinctCol",
-                f"{name}IncludeDict",
-                f"{name}OrderByDict",
-                f"{name}Dict",
-                f"{name}Insert",
-                f"{name}InsertDict",
-                f"{name}UpdateDict",
-                f"{name}UpsertWhereDict",
-                f"{name}WhereDict",
-                f"{name}Table",
-            ]
-        )
-        for relation_filter in context.relation_filters:
-            exports.append(relation_filter.name)
-    return exports
 
 
 def _render_asdict_stub(model_contexts: Sequence[ModelRenderContext]) -> str:
@@ -551,123 +631,6 @@ def _render_init_stub(client_class_name: str) -> str:
         "__all__: list[str]\n"
     )
     return code
-
-
-def _build_relation_entries(info: ModelInfo, model_infos: Mapping[str, ModelInfo]) -> list[dict[str, Any]]:
-    entries: list[dict[str, Any]] = []
-    if not info.relations:
-        return entries
-
-    target_index: dict[str, ModelInfo] = {name: model for name, model in model_infos.items()}
-
-    for relation in info.relations:
-        target_model = relation.target
-        target_info = target_index.get(target_model.__name__)
-        if target_info is None:
-            continue
-
-        mapping: tuple[tuple[str, str], ...] | None = None
-        if not relation.many:
-            for fk in info.foreign_keys:
-                if fk.remote_model is target_model and fk.relation_attribute == relation.name:
-                    mapping = tuple((local, remote) for local, remote in zip(fk.local_columns, fk.remote_columns))
-                    break
-            if mapping is None:
-                for fk in target_info.foreign_keys:
-                    if fk.remote_model is info.model and fk.backref_attribute == relation.name:
-                        mapping = tuple((remote, local) for remote, local in zip(fk.remote_columns, fk.local_columns))
-                        break
-        else:
-            for fk in target_info.foreign_keys:
-                if fk.remote_model is info.model and fk.backref_attribute == relation.name:
-                    mapping = tuple((remote, local) for remote, local in zip(fk.remote_columns, fk.local_columns))
-                    break
-        if mapping is None:
-            continue
-        if target_model.__module__ == info.model.__module__:
-            module_expr = "__name__"
-        else:
-            module_expr = repr(target_model.__module__)
-        table_class_name = f"{target_model.__name__}Table"
-        entries.append(
-            {
-                "name": relation.name,
-                "table_name": table_class_name,
-                "many": relation.many,
-                "mapping": mapping,
-                "table_module_expr": module_expr,
-                "table_factory_expr": f"lambda: {table_class_name}",
-            }
-        )
-    return entries
-
-
-def _build_row_assignment_context(
-    info: ModelInfo,
-    enum_type_map: Mapping[str, type[Enum] | None],
-    renderer: "_TypeRenderer",
-) -> tuple[list[RowAssignmentRender], list[DefaultFactoryRender]]:
-    dataclass_fields = fields(info.model)
-    column_map = {column.name: column for column in info.columns}
-    relation_defaults: dict[str, str] = {
-        relation.name: "[]" if relation.many else "None" for relation in info.relations
-    }
-    assignments: list[RowAssignmentRender] = []
-    default_factories: list[DefaultFactoryRender] = []
-    for field_obj in dataclass_fields:
-        assignment_expr, default_factory = _resolve_row_assignment(
-            info.model,
-            field_obj,
-            column_map,
-            enum_type_map,
-            relation_defaults,
-            renderer,
-        )
-        assignments.append(RowAssignmentRender(field_name=field_obj.name, value_expr=assignment_expr))
-        if default_factory is not None:
-            default_factories.append(default_factory)
-    return assignments, default_factories
-
-
-def _resolve_row_assignment(
-    model_cls: type[Any],
-    field_obj: Any,
-    column_map: Mapping[str, ColumnInfo],
-    enum_type_map: Mapping[str, type[Enum] | None],
-    relation_defaults: Mapping[str, str],
-    renderer: "_TypeRenderer",
-) -> tuple[str, DefaultFactoryRender | None]:
-    name = field_obj.name
-    column_info = column_map.get(name)
-    if column_info is not None:
-        enum_type = enum_type_map.get(name)
-        return _column_value_expression(column_info, enum_type, renderer), None
-    if field_obj.default is not MISSING:
-        return f"{model_cls.__name__}.__dataclass_fields__[{name!r}].default", None
-    if field_obj.default_factory is not MISSING:
-        var_name = f"_{model_cls.__name__}_{name}_default_factory"
-        expr = f"{model_cls.__name__}.__dataclass_fields__[{name!r}].default_factory"
-        return f"{var_name}()", DefaultFactoryRender(var_name=var_name, expression=expr)
-    relation_expr = relation_defaults.get(name)
-    if relation_expr is not None:
-        return relation_expr, None
-    return _infer_field_fallback(field_obj.type), None
-
-
-def _column_value_expression(
-    column: ColumnInfo,
-    enum_type: type[Enum] | None,
-    renderer: "_TypeRenderer",
-) -> str:
-    base_expr = f"row[{column.name!r}]"
-    if column.storage_kind == "json":
-        return f"deserialize_json_value({base_expr}, {renderer.render(column.python_type)})"
-    if enum_type is None:
-        return base_expr
-    converter = enum_type.__name__
-    if column.optional:
-        return f"({converter}({base_expr}) if {base_expr} is not None else None)"
-    return f"{converter}({base_expr})"
 
 
 def _format_mapping_value_expr(column: ColumnInfo, enum_type: type[Enum] | None) -> str:
@@ -735,7 +698,7 @@ def _resolve_enum_class(annotation: Any) -> type[Enum] | None:
 
 
 def _format_insert_annotation(col: ColumnInfo, renderer: "_TypeRenderer") -> str:
-    annotation = renderer.render(col.python_type)
+    annotation = renderer.render(col.type_hint.source)
     needs_optional = col.auto_increment
     if needs_optional and "None" not in annotation:
         annotation = f"{annotation} | None"
