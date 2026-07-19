@@ -440,16 +440,13 @@ class BackendBase(BackendProtocol, ABC):
         table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
         instance: ModelT,
     ) -> None:
-        foreign_keys = table.foreign_keys
-        if not foreign_keys:
-            return
-        for fk in foreign_keys:
-            backref = fk.backref
+        for relation in table.relations:
+            backref = relation.backref
             if not backref:
                 continue
-            remote_model = fk.remote_model
+            remote_model = relation.remote_table().model
             key_values: list[Any] = []
-            for local_col, remote_col in zip(fk.local_columns, fk.remote_columns):
+            for local_col in relation.mapping:
                 value = getattr(instance, local_col, None)
                 if value is None:
                     key_values = []

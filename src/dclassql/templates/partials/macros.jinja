@@ -51,29 +51,12 @@ column_specs: tuple[ColumnSpec, ...] = ()
 {%- endif %}
 {%- endmacro %}
 
-{% macro foreign_keys(foreign_keys) -%}
-{% if foreign_keys %}
-foreign_keys: tuple[ForeignKeySpec, ...] = (
-{% for fk in foreign_keys %}
-    ForeignKeySpec(
-        local_columns={{ fk.local_columns_literal }},
-        remote_model={{ fk.remote_model }},
-        remote_columns={{ fk.remote_columns_literal }},
-        backref={{ fk.backref_repr }},
-    ),
-{% endfor %}
-)
-{% else %}
-foreign_keys: tuple[ForeignKeySpec, ...] = ()
-{% endif %}
-{% endmacro %}
-
 {% macro relations(relationships) -%}
 {% if relationships %}
 relations: tuple[TableRelation, ...] = (
 {% for relationship in relationships %}
     TableRelation(attribute={{ relationship.local.attribute | tojson }}, remote_table=lambda: {{ relationship.local.target.__name__ }}Table, many={{ relationship.local.many }}, mapping={
-{%- for local, remote in relationship.mapping.items() %}{{ local.name | tojson }}: {{ remote.name | tojson }}{% if not loop.last %}, {% endif %}{% endfor %}}),
+{%- for local, remote in relationship.mapping.items() %}{{ local.name | tojson }}: {{ remote.name | tojson }}{% if not loop.last %}, {% endif %}{% endfor %}}, backref={% if not relationship.is_reversed and relationship.remote is not none %}{{ relationship.remote.attribute | tojson }}{% else %}None{% endif %}),
 {% endfor %}
 )
 {% else %}

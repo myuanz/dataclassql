@@ -263,6 +263,15 @@ def test_lazy_relations(tmp_path):
         ]
         assert [user.id for user in users_address_every_contains] == [1, 2]
 
+        second_user = user_included[1]
+        assert second_user.addresses == []
+        client.lazy_address.insert({"id": 2, "user_id": 2, "location": "Office"})
+        with record_sql() as sqls:
+            assert len(second_user.addresses) == 1
+        assert sqls == [
+            ('SELECT "id","user_id","location" FROM "LazyAddress" WHERE "user_id"=?;', (2,))
+        ]
+
     finally:
         if ClientClass is not None:
             ClientClass.close_all()
@@ -419,6 +428,123 @@ def test_trade_entry_and_exit_order_relations(tmp_path):
         assert exit_order.entry_trades == []
         assert [item.id for item in exit_order.exit_trades] == [10]
 
+    finally:
+        if ClientClass is not None:
+            ClientClass.close_all()
+        sys.modules.pop(generated_module_name, None)
+        sys.modules.pop(module_name, None)
+
+
+def test_explicit_join_model_many_to_many_relations(tmp_path):
+    module_name = "tests.dynamic_many_to_many_relations"
+    generated_module_name = "tests.generated_many_to_many_relations"
+    db_path = tmp_path / "many_to_many_relations.db"
+    module = types.ModuleType(module_name)
+    setattr(module, "__datasource__", {"url": f"sqlite:///{db_path.as_posix()}"})
+
+    @dataclass
+    class ManyUser:
+        id: int
+        name: str
+        books: list['ManyUserBook']
+
+    ManyUser.__module__ = module_name
+    setattr(module, "ManyUser", ManyUser)
+
+    @dataclass
+    class ManyBook:
+        id: int
+        title: str
+        users: list['ManyUserBook']
+
+    ManyBook.__module__ = module_name
+    setattr(module, "ManyBook", ManyBook)
+
+    @dataclass
+    class ManyUserBook:
+        user_id: int
+        book_id: int
+        user: ManyUser
+        book: ManyBook
+
+        def primary_key(self):
+            return self.user_id, self.book_id
+
+        def foreign_key(self):
+            yield self.user.id == self.user_id, ManyUser.books
+            yield self.book.id == self.book_id, ManyBook.users
+
+    ManyUserBook.__module__ = module_name
+    setattr(module, "ManyUserBook", ManyUserBook)
+
+    sys.modules[module_name] = module
+    ClientClass: type[Any] | None = None
+    try:
+        generated = generate_client([ManyUser, ManyBook, ManyUserBook])
+        generated_module = types.ModuleType(generated_module_name)
+        namespace = generated_module.__dict__
+        namespace["__name__"] = generated_module_name
+        sys.modules[generated_module_name] = generated_module
+        exec(generated.code, namespace)
+        ClientClass = cast(type[Any], namespace[generated.client_class_name])
+
+        with open_sqlite_connection(f"sqlite:///{db_path.as_posix()}") as connection:
+            db_push(
+                [
+                    namespace["ManyUserTable"],
+                    namespace["ManyBookTable"],
+                    namespace["ManyUserBookTable"],
+                ],
+                connection,
+                provider="sqlite",
+            )
+
+        client = ClientClass()
+        client.many_user.insert({"id": 1, "name": "Alice"})
+        client.many_user.insert({"id": 2, "name": "Bob"})
+        client.many_book.insert({"id": 1, "title": "Database"})
+        client.many_book.insert({"id": 2, "title": "Python"})
+        client.many_user_book.insert({"user_id": 1, "book_id": 1})
+        client.many_user_book.insert({"user_id": 1, "book_id": 2})
+
+        alice = client.many_user.find_first(
+            where={"id": 1},
+            include={"books": True},
+        )
+        assert alice is not None
+        assert sorted(link.book.title for link in alice.books) == ["Database", "Python"]
+
+        database = client.many_book.find_first(
+            where={"id": 1},
+            include={"users": True},
+        )
+        assert database is not None
+        assert [link.user.name for link in database.users] == ["Alice"]
+
+        python_readers = client.many_user.find_many(
+            where={
+                "books": {
+                    "SOME": {
+                        "book": {
+                            "IS": {"title": "Python"},
+                        },
+                    },
+                },
+            },
+        )
+        assert [user.name for user in python_readers] == ["Alice"]
+
+        bob = client.many_user.find_first(where={"id": 2}, include={"books": True})
+        python = client.many_book.find_first(where={"id": 2}, include={"users": True})
+        assert bob is not None
+        assert python is not None
+        assert bob.books == []
+        assert [link.user_id for link in python.users] == [1]
+
+        client.many_user_book.insert({"user_id": 2, "book_id": 2})
+
+        assert [link.book_id for link in bob.books] == [2]
+        assert [link.user_id for link in python.users] == [1, 2]
     finally:
         if ClientClass is not None:
             ClientClass.close_all()

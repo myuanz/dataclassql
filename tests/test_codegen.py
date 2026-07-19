@@ -600,6 +600,13 @@ def test_foreign_key_dataclass_field_stays_relation_not_json_column() -> None:
     assert "remote_table=lambda: RelationCustomerTable" in code
     assert '"customer_id": "id"' in code
 
+    namespace: dict[str, Any] = {}
+    exec(code, namespace)
+    (customer_relation,) = namespace["RelationCustomerTable"].relations
+    (order_relation,) = namespace["RelationOrderTable"].relations
+    assert customer_relation.backref is None
+    assert order_relation.backref == "orders"
+
     graph = ModelGraph.from_models([RelationCustomer, RelationOrder])
     order_info = graph.by_name["RelationOrder"]
     assert [column.name for column in order_info.columns] == ["id", "customer_id"]
@@ -627,6 +634,9 @@ def test_foreign_key_dataclass_field_stays_relation_not_json_column() -> None:
         ("orders", RelationOrder, True)
     ]
     (relationship,) = graph.relationships.by_local_model(RelationOrder)
+    assert not relationship.is_reversed
+    (reverse_relationship,) = graph.relationships.by_model(RelationCustomer)
+    assert reverse_relationship.is_reversed
     assert repr(relationship.local) == (
         f"Link({RelationOrder!r}.customer -> {RelationCustomer!r})"
     )

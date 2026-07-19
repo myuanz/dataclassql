@@ -38,6 +38,8 @@ class Relationship:
     local: Link
     remote: Link | None
     mapping: Mapping[Col, Col]
+    is_reversed: bool
+    '''标记当前关系是否由原始 foreign_key() 关系反向派生，原生的那方拥有真正的外键'''
 
     def reversed(self) -> 'Relationship':
         if self.remote is None:
@@ -46,6 +48,7 @@ class Relationship:
             local=self.remote,
             remote=self.local,
             mapping={remote: local for local, remote in self.mapping.items()},
+            is_reversed=not self.is_reversed,
         )
 
     def __repr__(self) -> str:
@@ -282,6 +285,7 @@ def _inspect_model_relationships(
                 mapping={
                     local_col._to_base(): remote_col._to_base(),
                 },
+                is_reversed=False,
             )
         )
     return relationships

@@ -21,11 +21,4 @@ class TableRelation[TTable]:
     remote_table: Callable[[], type[TTable]]
     many: bool
     mapping: Mapping[str, str]
-
-
-@dataclass(slots=True)
-class ForeignKeySpec:
-    local_columns: tuple[str, ...]
-    remote_model: type[Any]
-    remote_columns: tuple[str, ...]
-    backref: str | None
+    backref: str | None = None

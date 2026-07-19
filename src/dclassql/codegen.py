@@ -107,14 +107,6 @@ class RowAssignmentRender:
 
 
 @dataclass(slots=True)
-class ForeignKeyRender:
-    local_columns_literal: str
-    remote_model: str
-    remote_columns_literal: str
-    backref_repr: str
-
-
-@dataclass(slots=True)
 class RelationFilterRender:
     name: str
     fields: tuple[TypedDictFieldSpec, ...]
@@ -145,7 +137,6 @@ class ModelRenderContext:
     where_fields: tuple[WhereFieldSpec, ...]
     relation_filters: tuple[RelationFilterRender, ...]
     column_specs: tuple[ColumnSpecRender, ...]
-    foreign_keys: tuple[ForeignKeyRender, ...]
     relationships: tuple[Relationship, ...]
     primary_key_literal: str
     indexes_literal: str
@@ -297,7 +288,6 @@ class ClientCompiler:
             where_fields=tuple(where_fields),
             relation_filters=tuple(relation_filters),
             column_specs=tuple(self._build_column_specs(state)),
-            foreign_keys=tuple(self._build_foreign_keys(info)),
             relationships=state.relationships,
             primary_key_literal=_tuple_literal(primary_key),
             indexes_literal=_tuple_literal(indexes) if indexes else "()",
@@ -443,25 +433,6 @@ class ClientCompiler:
             for column in state.db_columns
         ]
 
-    def _build_foreign_keys(self, info: ModelInfo) -> list[ForeignKeyRender]:
-        return [
-            ForeignKeyRender(
-                local_columns_literal=_tuple_literal(
-                    tuple(column.name for column in relationship.mapping.keys())
-                ),
-                remote_model=relationship.local.target.__name__,
-                remote_columns_literal=_tuple_literal(
-                    tuple(column.name for column in relationship.mapping.values())
-                ),
-                backref_repr=repr(
-                    relationship.remote.attribute
-                    if relationship.remote is not None
-                    else None
-                ),
-            )
-            for relationship in self.graph.relationships.by_local_model(info.model)
-        ]
-
     def _build_dict_fields(
         self,
         state: _ModelRenderState,
@@ -561,7 +532,7 @@ class ClientCompiler:
         )
 
     def collect_exports(self, contexts: Sequence[ModelRenderContext]) -> list[str]:
-        exports = ["DataSourceConfig", "ForeignKeySpec", self.client_class_name]
+        exports = ["DataSourceConfig", "TableRelation", self.client_class_name]
         for context in contexts:
             name = context.name
             exports.extend(

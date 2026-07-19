@@ -76,7 +76,7 @@ def test_collect_exports_includes_expected_symbols() -> None:
 
     assert "UserModelClient" in exports
     assert "DataSourceConfig" in exports
-    assert "ForeignKeySpec" in exports
+    assert "TableRelation" in exports
     for name in ("User", "Address", "BirthDay"):
         assert f"{name}Table" in exports
         assert f"T{name}IncludeCol" in exports

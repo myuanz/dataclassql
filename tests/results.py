@@ -7,7 +7,7 @@ from typing import Any, Literal, Mapping, Sequence, NotRequired, Never, overload
 from typing_extensions import TypedDict
 
 from dclassql import DataSourceConfig
-from dclassql.runtime.backends import BackendProtocol, ColumnSpec, ForeignKeySpec, TableRelation
+from dclassql.runtime.backends import BackendProtocol, ColumnSpec, TableRelation
 from dclassql.runtime.backends.protocols import TableProtocol
 from dclassql.runtime.client_base import ClientBase
 from dclassql.runtime.json_value import deserialize_json_value, serialize_json_value
@@ -128,17 +128,8 @@ class AddressTable(TableProtocol):
 
     indexes: tuple[tuple[str, ...], ...] = ()
     unique_indexes: tuple[tuple[str, ...], ...] = ()
-    foreign_keys: tuple[ForeignKeySpec, ...] = (
-        ForeignKeySpec(
-            local_columns=('user_id',),
-            remote_model=User,
-            remote_columns=('id',),
-            backref='addresses',
-        ),
-    )
-
     relations: tuple[TableRelation, ...] = (
-        TableRelation(attribute="user", remote_table=lambda: UserTable, many=False, mapping={"user_id": "id"}),
+        TableRelation(attribute="user", remote_table=lambda: UserTable, many=False, mapping={"user_id": "id"}, backref="addresses"),
     )
 
     def primary_values(self, instance: Address) -> tuple[int]:
@@ -303,17 +294,8 @@ class BirthDayTable(TableProtocol):
 
     indexes: tuple[tuple[str, ...], ...] = ()
     unique_indexes: tuple[tuple[str, ...], ...] = ()
-    foreign_keys: tuple[ForeignKeySpec, ...] = (
-        ForeignKeySpec(
-            local_columns=('user_id',),
-            remote_model=User,
-            remote_columns=('id',),
-            backref='birthday',
-        ),
-    )
-
     relations: tuple[TableRelation, ...] = (
-        TableRelation(attribute="user", remote_table=lambda: UserTable, many=False, mapping={"user_id": "id"}),
+        TableRelation(attribute="user", remote_table=lambda: UserTable, many=False, mapping={"user_id": "id"}, backref="birthday"),
     )
 
     def primary_values(self, instance: BirthDay) -> tuple[int]:
@@ -475,10 +457,8 @@ class BookTable(TableProtocol):
 
     indexes: tuple[tuple[str, ...], ...] = (('name',),)
     unique_indexes: tuple[tuple[str, ...], ...] = ()
-    foreign_keys: tuple[ForeignKeySpec, ...] = ()
-
     relations: tuple[TableRelation, ...] = (
-        TableRelation(attribute="users", remote_table=lambda: UserBookTable, many=True, mapping={"id": "book_id"}),
+        TableRelation(attribute="users", remote_table=lambda: UserBookTable, many=True, mapping={"id": "book_id"}, backref=None),
     )
 
     def primary_values(self, instance: Book) -> tuple[int]:
@@ -670,8 +650,6 @@ class CompositeTable(TableProtocol):
 
     indexes: tuple[tuple[str, ...], ...] = ()
     unique_indexes: tuple[tuple[str, ...], ...] = (('uniq1', 'uniq2'), ('uniq3',),)
-    foreign_keys: tuple[ForeignKeySpec, ...] = ()
-
     relations: tuple[TableRelation, ...] = ()
 
     def primary_values(self, instance: Composite) -> tuple[int, int]:
@@ -906,12 +884,10 @@ class UserTable(TableProtocol):
 
     indexes: tuple[tuple[str, ...], ...] = (('name',), ('name', 'email'), ('last_login',),)
     unique_indexes: tuple[tuple[str, ...], ...] = (('name', 'email'),)
-    foreign_keys: tuple[ForeignKeySpec, ...] = ()
-
     relations: tuple[TableRelation, ...] = (
-        TableRelation(attribute="addresses", remote_table=lambda: AddressTable, many=True, mapping={"id": "user_id"}),
-        TableRelation(attribute="birthday", remote_table=lambda: BirthDayTable, many=False, mapping={"id": "user_id"}),
-        TableRelation(attribute="books", remote_table=lambda: UserBookTable, many=True, mapping={"id": "user_id"}),
+        TableRelation(attribute="addresses", remote_table=lambda: AddressTable, many=True, mapping={"id": "user_id"}, backref=None),
+        TableRelation(attribute="birthday", remote_table=lambda: BirthDayTable, many=False, mapping={"id": "user_id"}, backref=None),
+        TableRelation(attribute="books", remote_table=lambda: UserBookTable, many=True, mapping={"id": "user_id"}, backref=None),
     )
 
     def primary_values(self, instance: User) -> tuple[int]:
@@ -1110,24 +1086,9 @@ class UserBookTable(TableProtocol):
 
     indexes: tuple[tuple[str, ...], ...] = (('created_at',),)
     unique_indexes: tuple[tuple[str, ...], ...] = ()
-    foreign_keys: tuple[ForeignKeySpec, ...] = (
-        ForeignKeySpec(
-            local_columns=('user_id',),
-            remote_model=User,
-            remote_columns=('id',),
-            backref='books',
-        ),
-        ForeignKeySpec(
-            local_columns=('book_id',),
-            remote_model=Book,
-            remote_columns=('id',),
-            backref='users',
-        ),
-    )
-
     relations: tuple[TableRelation, ...] = (
-        TableRelation(attribute="user", remote_table=lambda: UserTable, many=False, mapping={"user_id": "id"}),
-        TableRelation(attribute="book", remote_table=lambda: BookTable, many=False, mapping={"book_id": "id"}),
+        TableRelation(attribute="user", remote_table=lambda: UserTable, many=False, mapping={"user_id": "id"}, backref="books"),
+        TableRelation(attribute="book", remote_table=lambda: BookTable, many=False, mapping={"book_id": "id"}, backref="users"),
     )
 
     def primary_values(self, instance: UserBook) -> tuple[int, int]:
@@ -1250,7 +1211,7 @@ class GeneratedClient(ClientBase):
         )
 __all__ = (
     "DataSourceConfig",
-    "ForeignKeySpec",
+    "TableRelation",
     "GeneratedClient",
     "TAddressIncludeCol",
     "TAddressSortableCol",

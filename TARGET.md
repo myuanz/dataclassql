@@ -151,6 +151,7 @@ class UserTable:
   - [x] delete_many 同 update_many
 - [x] 提供 record_sql 上下文以捕获精确 SQL 与参数, 便于调试
 - [x] 模型没有 `id` 字段且未显式声明 `primary_key()` 时, schema 推送自动补后端对应的隐式自增 `id` 主键列; 生成客户端在 Insert/Where/OrderBy 等间接描述里暴露该 `id`, 查询和写入返回值仍保持原 dataclass 字段
+- [x] 关系运行时元信息统一使用 `TableRelation`, 懒加载、关系过滤和 backref 失效共享同一份列映射
 
 # 设计
 
@@ -161,7 +162,7 @@ class UserTable:
 - 不依赖 fastlite, 只依赖 sqlite-utils
 - 初期仅支持 `insert` / `insert_many` / `find_many` / `find_first` 的代码生成. Insert 支持 dataclass 与 TypedDict 两种结构, WhereDict 会独立生成并把所有列标注为可选
 - 每个模型模块通过模块级 `__datasource__ = {"url": ...}` 指定默认数据源, provider 从 URL scheme 解析(目前仅支持 sqlite), 单个生成客户端只对应一个 datasource
-- 生成结果包含 `DataSourceConfig`、`ForeignKeySpec` 等元信息, 以及 `T{Name}IncludeCol`/`T{Name}SortableCol` 字面量类型别名、`*Insert` dataclass、`*InsertDict`、`*WhereDict`、`*IncludeDict` 与 `*OrderByDict` TypedDict 组合、具体的 `*Table` 表访问类以及按 model 文件命名的聚合客户端类
+- 生成结果包含 `DataSourceConfig`、`TableRelation` 等元信息, 以及 `T{Name}IncludeCol`/`T{Name}SortableCol` 字面量类型别名、`*Insert` dataclass、`*InsertDict`、`*WhereDict`、`*IncludeDict` 与 `*OrderByDict` TypedDict 组合、具体的 `*Table` 表访问类以及按 model 文件命名的聚合客户端类
 - 生成客户端类可通过 `datasource=DataSourceConfig(url=...)` 在运行时覆盖 url, `client.push_db()` 会使用同一线程本地连接和生成代码中的 schema 元信息推送数据库
 - 每个 model 文件里需要写明数据源. model 文件下可以定义模块变量 `__datasource__ = {'url': 'sqlite:///example.db'}`, 提供器从 url scheme 得到
     - 未来会支持其他数据库, 现在只关注 sqlite

@@ -99,7 +99,6 @@ class {{ table_class }}(TableProtocol):
 
     indexes: tuple[tuple[str, ...], ...] = {{ model.indexes_literal }}
     unique_indexes: tuple[tuple[str, ...], ...] = {{ model.unique_indexes_literal }}
-{{ macros.foreign_keys(model.foreign_keys)|indent(4, True) }}
 {{ macros.relations(model.relationships)|indent(4, True) }}
 {% if model.default_factories %}
 {% for factory in model.default_factories %}    {{ factory.var_name }} = {{ factory.expression }}

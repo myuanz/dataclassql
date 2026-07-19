@@ -30,7 +30,7 @@
   - `Client` 类: 继承运行时 `ClientBase`, 维护默认数据源并初始化每个类型化表属性和 `_tables`。
   - `*Table` 类: 封装 `insert` / `insert_many` / `find_many` / `find_first` 等方法, 依赖运行时后端。
   - `*Insert` dataclass、`*InsertDict` / `*WhereDict` / `*IncludeDict` / `*OrderByDict` TypedDict, 以及 `T*IncludeCol` / `T*SortableCol` Literal 类型别名。
-  - `ForeignKeySpec`、`ColumnSpec`、`TableRelation` 等元信息用于运行时懒加载和 schema 推送
+  - `ColumnSpec`、`TableRelation` 等元信息用于运行时懒加载和 schema 推送
 - 生成代码默认写入 model 同目录的 `*_client` 包, 也可通过 `--target package` 写入安装包。
 
 ## 数据模型解析
