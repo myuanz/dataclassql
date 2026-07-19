@@ -9,7 +9,7 @@ from collections.abc import Sequence as ABCSequence
 from dataclasses import dataclass, fields
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal, Mapping, NotRequired, Sequence, get_args, get_origin, get_type_hints
+from typing import Any, Literal, Mapping, NotRequired, Optional, Sequence, get_args, get_origin, get_type_hints
 from enum import Enum, StrEnum, IntEnum
 
 import pytest
@@ -152,6 +152,13 @@ class JsonOrder:
     id: int
     stamp: JsonStamp
     stamps: list[JsonStamp]
+
+
+@dataclass
+class TypingOptionalOrder:
+    id: int
+    quantity: Optional[int]
+    stamp: Optional[JsonStamp]
 
 
 @dataclass
@@ -565,6 +572,34 @@ def test_generated_client_serializes_unregistered_dataclass_fields_as_json() -> 
             "2026-01-02T03:04:06",
             2,
         )
+    finally:
+        conn.close()
+
+
+def test_typing_optional_is_normalized_across_codegen_schema_and_json() -> None:
+    module = generate_client([TypingOptionalOrder])
+    assert "quantity: int | None | IntFilter" in module.code
+    assert "deserialize_json_value(row['stamp'], JsonStamp | None)" in module.code
+
+    namespace: dict[str, Any] = {}
+    exec(module.code, namespace)
+    create_sql, _ = _build_sqlite_schema(namespace["TypingOptionalOrderTable"])
+    assert '"quantity" INTEGER' in create_sql
+    assert '"stamp" TEXT' in create_sql
+
+    conn = sqlite3.connect(":memory:")
+    try:
+        db_push([namespace["TypingOptionalOrderTable"]], conn, provider="sqlite")
+        table = namespace["TypingOptionalOrderTable"](SQLiteBackend(conn))
+        stored = table.insert(
+            {
+                "id": None,
+                "quantity": 3,
+                "stamp": JsonStamp(dt=datetime(2026, 1, 2, 3, 4, 5), idx=1),
+            }
+        )
+        assert stored.quantity == 3
+        assert stored.stamp == JsonStamp(dt=datetime(2026, 1, 2, 3, 4, 5), idx=1)
     finally:
         conn.close()
 

@@ -228,11 +228,11 @@ def _inspect_links(
         type_hint = type_hints.get(name)
         if type_hint is None:
             continue
-        if isinstance(type_hint.value, type) and type_hint.value in registry.values():
+        if isinstance(type_hint.value_type, type) and type_hint.value_type in registry.values():
             links[name] = Link(
                 source=model,
                 attribute=name,
-                target=type_hint.value,
+                target=type_hint.value_type,
                 many=type_hint.is_collection,
             )
     return FieldTo.from_mapping(links)

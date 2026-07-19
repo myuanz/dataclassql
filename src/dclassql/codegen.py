@@ -6,7 +6,7 @@ from dataclasses import MISSING, dataclass, field, fields
 from datetime import date, datetime
 from enum import Enum
 from types import UnionType
-from typing import Annotated, Any, Iterable, Mapping, Sequence, Union, get_args, get_origin, Literal
+from typing import Any, Iterable, Mapping, Sequence, Union, Literal
 
 from jinja2 import Environment, PackageLoader
 
@@ -258,7 +258,7 @@ class ClientCompiler:
             db_columns=db_columns,
             column_lookup=FieldTo.from_mapping({column.name: column for column in db_columns}),
             enum_type_map=FieldTo.from_mapping({
-                column.name: _resolve_enum_class(column.type_hint.source)
+                column.name: column.type_hint.enum_type
                 for column in db_columns
             }),
             relationships=self.graph.relationships.by_model(info.model),
@@ -375,7 +375,7 @@ class ClientCompiler:
             annotation = self.renderer.render(column.type_hint.source)
             if "None" not in annotation:
                 annotation = f"{annotation} | None"
-            filter_name = self.filter_registry.register(column.type_hint.source)
+            filter_name = self.filter_registry.register(column.type_hint)
             if filter_name is not None and filter_name not in annotation:
                 annotation = f"{annotation} | {filter_name}"
             where_fields.append(WhereFieldSpec(column.name, annotation))
@@ -502,7 +502,7 @@ class ClientCompiler:
             return f"{name}()", DefaultFactoryRender(name, expression)
         if field_obj.name in relation_defaults:
             return relation_defaults[field_obj.name], None
-        return _infer_field_fallback(field_obj.type), None
+        return _infer_field_fallback(TypeHint.parse(field_obj.type)), None
 
     def _column_value_expression(self, column: ColumnInfo, enum_type: type[Enum] | None) -> str:
         value = f"row[{column.name!r}]"
@@ -633,39 +633,13 @@ def _format_insert_value_expr(
     return f"{value_expr}.value"
 
 
-def _infer_field_fallback(annotation: Any) -> str:
-    target = _unwrap_annotation(annotation)
-    origin = get_origin(target)
-    candidate = origin or target
+def _infer_field_fallback(type_hint: TypeHint) -> str:
+    type_hint = type_hint.without_optional()
+    candidate = type_hint.origin or type_hint.annotation
     collection_map: dict[type[Any], str] = {list: "list", set: "set", frozenset: "frozenset"}
     if isinstance(candidate, type) and candidate in collection_map:
         return f"{collection_map[candidate]}()"
     return "None"
-
-
-def _unwrap_annotation(annotation: Any) -> Any:
-    union_origins = (Union, UnionType)
-    current = annotation
-    while True:
-        origin = get_origin(current)
-        if origin is Annotated:
-            args = get_args(current)
-            if args:
-                current = args[0]
-                continue
-        if origin in union_origins:
-            args = [arg for arg in get_args(current) if arg is not type(None)]
-            if len(args) == 1:
-                current = args[0]
-                continue
-        return current
-
-
-def _resolve_enum_class(annotation: Any) -> type[Enum] | None:
-    target = _unwrap_annotation(annotation)
-    if isinstance(target, type) and issubclass(target, Enum):
-        return target
-    return None
 
 
 def _format_insert_annotation(col: ColumnInfo, renderer: "_TypeRenderer") -> str:
@@ -749,35 +723,6 @@ class _FilterFieldTemplate:
 class _FilterTemplate:
     alias: str
     fields: tuple[_FilterFieldTemplate, ...]
-
-
-def _resolve_scalar_base(tp: Any) -> type[Any] | None:
-    origin = get_origin(tp)
-    if origin is Annotated:
-        return _resolve_scalar_base(get_args(tp)[0])
-    if origin is UnionType:
-        args = [arg for arg in get_args(tp) if arg is not type(None)]
-        if len(args) == 1:
-            return _resolve_scalar_base(args[0])
-        return None
-    if origin is not None:
-        return None
-    if isinstance(tp, type):
-        if tp is bool:
-            return bool
-        if issubclass(tp, str):
-            return str
-        if issubclass(tp, bytes):
-            return bytes
-        if issubclass(tp, datetime):
-            return datetime
-        if issubclass(tp, date):
-            return date
-        if issubclass(tp, float):
-            return float
-        if issubclass(tp, int):
-            return int
-    return None
 
 
 _SCALAR_FILTER_TEMPLATES: dict[type[Any], _FilterTemplate] = {
@@ -875,8 +820,8 @@ class _ScalarFilterRegistry:
         self._renderer = renderer
         self._definitions: dict[str, ScalarFilterRender] = {}
 
-    def register(self, annotation: Any) -> str | None:
-        base_type = _resolve_scalar_base(annotation)
+    def register(self, type_hint: TypeHint) -> str | None:
+        base_type = type_hint.scalar_base
         if base_type is None:
             return None
         template = _SCALAR_FILTER_TEMPLATES.get(base_type)
@@ -918,22 +863,23 @@ class _TypeRenderer:
                 self._module_imports[alias_module].add(alias_name)
                 return alias_name
             return self.render(alias_value)
+        type_hint = TypeHint.parse(tp)
+        tp = type_hint.annotation
+        origin = type_hint.origin
+        args = type_hint.args
         if tp is Any:
             return "Any"
         if tp is type(None):
             return "None"
-        if isinstance(tp, UnionType):
-            parts = [self.render(arg) for arg in get_args(tp)]
+        if origin in (UnionType, Union):
+            parts = [self.render(arg) for arg in args]
             return " | ".join(dict.fromkeys(parts))
-        origin = get_origin(tp)
-        if origin is Annotated:
-            return self.render(get_args(tp)[0])
         if origin is Literal:
             self._typing_imports.add("Literal")
-            values = ", ".join(repr(value) for value in get_args(tp))
+            values = ", ".join(repr(value) for value in args)
             return f"Literal[{values}]"
         if origin in (list, set, frozenset):
-            args = get_args(tp) or (Any,)
+            args = args or (Any,)
             if origin is set:
                 container = "set"
             elif origin is frozenset:
@@ -942,12 +888,11 @@ class _TypeRenderer:
                 container = "list"
             return f"{container}[{self.render(args[0])}]"
         if origin is tuple:
-            args = get_args(tp)
             if len(args) == 2 and args[1] is Ellipsis:
                 return f"tuple[{self.render(args[0])}, ...]"
             return f"tuple[{', '.join(self.render(arg) for arg in args)}]"
         if origin is dict:
-            key, value = get_args(tp) or (Any, Any)
+            key, value = args or (Any, Any)
             return f"dict[{self.render(key)}, {self.render(value)}]"
         if origin is None:
             pass

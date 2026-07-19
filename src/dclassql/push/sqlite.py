@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import date, datetime
-from types import UnionType
-from typing import Annotated, Any, Iterable, Mapping, Sequence, get_args, get_origin
+from typing import Any, Iterable, Mapping, Sequence
 
 from pypika import Query, Table
 from pypika.utils import format_quotes
 
+from ..model_inspector import TypeHint
 from ..runtime.backends.metadata import ColumnSpec
 from ..runtime.backends.protocols import SchemaTableProtocol
 from .base import (
@@ -33,20 +33,9 @@ TYPE_MAP: Mapping[type[Any], str] = {
 
 
 def _infer_sqlite_type(annotation: Any) -> str:
-    if (alias_value := getattr(annotation, "__value__", None)) is not None:
-        # PEP 695
-        return _infer_sqlite_type(alias_value)
-    origin = get_origin(annotation)
-    if origin is UnionType or isinstance(annotation, UnionType):
-        args = [arg for arg in get_args(annotation) if arg is not type(None)]
-        if len(args) == 1:
-            return _infer_sqlite_type(args[0])
-        if not args:
-            return "TEXT"
-    if origin is Annotated:
-        inner_args = get_args(annotation)
-        if inner_args:
-            return _infer_sqlite_type(inner_args[0])
+    type_hint = TypeHint.parse(annotation).without_optional()
+    annotation = type_hint.annotation
+    origin = type_hint.origin
     if origin is None and isinstance(annotation, type):
         if annotation in TYPE_MAP:
             return TYPE_MAP[annotation]

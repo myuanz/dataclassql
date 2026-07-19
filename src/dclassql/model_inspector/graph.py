@@ -48,7 +48,7 @@ class ColumnInfo:
                     auto_increment=(
                         name == "id"
                         and name in primary_key
-                        and type_hint.value is int
+                        and type_hint.value_type is int
                     ),
                     storage_kind="json" if type_hint.is_dataclass else "scalar",
                     has_default=has_default,

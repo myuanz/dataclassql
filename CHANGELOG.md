@@ -6,6 +6,8 @@
 - 模型解析与客户端代码生成重构为 `ModelGraph -> ClientCompiler -> GeneratedModule` 流水线，优化代码结构。
 - `foreign_key()` 改为在模型代理组成的新 globals 中解析, 不再临时替换原始 dataclass 字段。
 - 新增 `TypeHint` 统一保存字段类型的原始值、解包值、Optional 和集合信息, `ColumnInfo` 不再退回裸 `Any` 类型字段。
+- `TypeHint` 统一保存 `annotation`、`origin`、`args` 和 `value_type`, 代码生成、JSON 反序列化与 SQLite 类型推断共享同一份类型解析结果。
+- 关系运行时元信息统一为 `TableRelation`, 懒加载、关系过滤和 backref 失效共享同一份列映射。
 
 ## 0.4.2 - 2026-07-18
 
