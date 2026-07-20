@@ -40,7 +40,6 @@ def test_model_context_shapes_insert_and_typeddict_sections() -> None:
     assert {"id", "location", "user_id", "AND", "OR", "NOT", "user"} <= where_names
 
     assert any(spec.auto_increment for spec in address_ctx.column_specs)
-    assert "NotRequired" in compiler.renderer.typing_names
     relation_names = sorted(
         relationship.local.attribute
         for relationship in compiler.graph.relationships.by_model(Address)

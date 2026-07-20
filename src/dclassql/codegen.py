@@ -174,7 +174,6 @@ class _ModelRenderState:
     model_column_names: set[str]
     db_columns: tuple[ColumnInfo, ...]
     column_lookup: FieldTo[ColumnInfo]
-    enum_type_map: FieldTo[type[Enum] | None]
     relationships: tuple[Relationship, ...]
 
 
@@ -198,7 +197,7 @@ class ClientCompiler:
     def __init__(self, graph: ModelGraph, *, client_class_name: str = "GeneratedClient") -> None:
         self.graph = graph
         self.client_class_name = client_class_name
-        self.renderer = _TypeRenderer({info.model: name for name, info in graph.by_name.items()})
+        self.renderer = TypeHintRenderer({info.model: name for name, info in graph.by_name.items()})
         self.filter_registry = _ScalarFilterRegistry(self.renderer)
 
     @classmethod
@@ -257,10 +256,6 @@ class ClientCompiler:
             model_column_names={column.name for column in info.columns},
             db_columns=db_columns,
             column_lookup=FieldTo.from_mapping({column.name: column for column in db_columns}),
-            enum_type_map=FieldTo.from_mapping({
-                column.name: column.type_hint.enum_type
-                for column in db_columns
-            }),
             relationships=self.graph.relationships.by_model(info.model),
         )
 
@@ -293,7 +288,7 @@ class ClientCompiler:
             indexes_literal=_tuple_literal(indexes) if indexes else "()",
             unique_indexes_literal=_tuple_literal(unique_indexes) if unique_indexes else "()",
             primary_value_types=tuple(
-                self.renderer.render(state.column_lookup[name].type_hint.source)
+                self.renderer.render(state.column_lookup[name].type_hint)
                 for name in primary_key
             ),
             primary_key_on_model=all(name in state.model_column_names for name in primary_key),
@@ -323,13 +318,12 @@ class ClientCompiler:
             insert_fields.append(InsertFieldSpec(column.name, annotation, default_expr))
 
             if column.auto_increment:
-                self.renderer.require_typing("NotRequired")
                 typed_annotation = f"NotRequired[{_strip_optional_annotation(annotation)}]"
             else:
                 typed_annotation = annotation
             typed_dict_fields.append(TypedDictFieldSpec(column.name, typed_annotation))
 
-            rendered_type = self.renderer.render(column.type_hint.source)
+            rendered_type = self.renderer.render(column.type_hint)
             dict_field_map[column.name] = rendered_type
             update_fields.append(TypedDictFieldSpec(column.name, rendered_type))
         return (
@@ -346,7 +340,7 @@ class ClientCompiler:
             fields = tuple(
                 TypedDictFieldSpec(
                     name,
-                    self.renderer.render(state.column_lookup[name].type_hint.source),
+                    self.renderer.render(state.column_lookup[name].type_hint),
                 )
                 for name in primary_key
             )
@@ -355,15 +349,13 @@ class ClientCompiler:
             fields = tuple(
                 TypedDictFieldSpec(
                     name,
-                    self.renderer.render(state.column_lookup[name].type_hint.source)
+                    self.renderer.render(state.column_lookup[name].type_hint)
                     if name in state.column_lookup
                     else "object",
                 )
                 for name in group.names
             )
             result.append(UpsertWhereRender(f"{state.name}UpsertWhereUnique{index}", fields))
-        if not result:
-            self.renderer.require_typing("Never")
         return result
 
     def _build_where_fields(
@@ -372,10 +364,10 @@ class ClientCompiler:
     ) -> tuple[list[WhereFieldSpec], list[RelationFilterRender]]:
         where_fields: list[WhereFieldSpec] = []
         for column in state.db_columns:
-            annotation = self.renderer.render(column.type_hint.source)
+            annotation = self.renderer.render(column.type_hint)
             if "None" not in annotation:
                 annotation = f"{annotation} | None"
-            filter_name = self.filter_registry.register(column.type_hint)
+            filter_name = self.filter_registry.register(column.scalar_base)
             if filter_name is not None and filter_name not in annotation:
                 annotation = f"{annotation} | {filter_name}"
             where_fields.append(WhereFieldSpec(column.name, annotation))
@@ -399,7 +391,6 @@ class ClientCompiler:
             relation_filters.append(RelationFilterRender(filter_name, fields_))
             where_fields.append(WhereFieldSpec(local.attribute, filter_name))
 
-        self.renderer.require_typing("Sequence")
         where_dict = f"{state.name}WhereDict"
         where_fields.extend(
             (
@@ -415,20 +406,19 @@ class ClientCompiler:
             ColumnSpecRender(
                 name=column.name,
                 name_repr=repr(column.name),
-                python_type_expr=self.renderer.render(column.type_hint.source),
+                python_type_expr=self.renderer.render(column.type_hint),
                 storage_kind_repr=repr(column.storage_kind),
                 optional=column.optional,
                 auto_increment=column.auto_increment,
                 has_default=column.has_default,
                 has_default_factory=column.has_default_factory,
                 returned_field=column.name in state.model_column_names,
-                mapping_value_expr=_format_mapping_value_expr(column, state.enum_type_map[column.name]),
+                mapping_value_expr=_format_mapping_value_expr(column),
                 insert_value_expr=_format_insert_value_expr(
                     column,
-                    state.enum_type_map[column.name],
                     returned_field=column.name in state.model_column_names,
                 ),
-                is_enum=state.enum_type_map[column.name] is not None,
+                is_enum=column.enum_type is not None,
             )
             for column in state.db_columns
         ]
@@ -454,7 +444,9 @@ class ClientCompiler:
                 annotation = f"list[{target}]" if local.many else f"{target} | None"
                 result.append(TypedDictFieldSpec(field_obj.name, annotation))
                 continue
-            result.append(TypedDictFieldSpec(field_obj.name, self.renderer.render(field_obj.type)))
+            result.append(
+                TypedDictFieldSpec(field_obj.name, self.renderer.render(TypeHint(field_obj.type)))
+            )
         return result
 
     def _build_row_assignments(
@@ -475,7 +467,6 @@ class ClientCompiler:
                 state.info.model,
                 field_obj,
                 column_map,
-                state.enum_type_map,
                 relation_defaults,
             )
             assignments.append(RowAssignmentRender(field_obj.name, expression))
@@ -488,12 +479,11 @@ class ClientCompiler:
         model: type[Any],
         field_obj: Any,
         column_map: FieldTo[ColumnInfo],
-        enum_types: FieldTo[type[Enum] | None],
         relation_defaults: FieldTo[str],
     ) -> tuple[str, DefaultFactoryRender | None]:
         column = column_map.get(field_obj.name)
         if column is not None:
-            return self._column_value_expression(column, enum_types.get(field_obj.name)), None
+            return self._column_value_expression(column), None
         if field_obj.default is not MISSING:
             return f"{model.__name__}.__dataclass_fields__[{field_obj.name!r}].default", None
         if field_obj.default_factory is not MISSING:
@@ -502,15 +492,15 @@ class ClientCompiler:
             return f"{name}()", DefaultFactoryRender(name, expression)
         if field_obj.name in relation_defaults:
             return relation_defaults[field_obj.name], None
-        return _infer_field_fallback(TypeHint.parse(field_obj.type)), None
+        return _infer_field_fallback(TypeHint(field_obj.type)), None
 
-    def _column_value_expression(self, column: ColumnInfo, enum_type: type[Enum] | None) -> str:
+    def _column_value_expression(self, column: ColumnInfo) -> str:
         value = f"row[{column.name!r}]"
         if column.storage_kind == "json":
-            return f"deserialize_json_value({value}, {self.renderer.render(column.type_hint.source)})"
-        if enum_type is None:
+            return f"deserialize_json_value({value}, {self.renderer.render(column.type_hint)})"
+        if column.enum_type is None:
             return value
-        converted = f"{enum_type.__name__}({value})"
+        converted = f"{column.enum_type.__name__}({value})"
         return f"({converted} if {value} is not None else None)" if column.optional else converted
 
     def build_client_context(self) -> ClientContext:
@@ -565,10 +555,12 @@ def _build_db_columns(info: ModelInfo) -> tuple[ColumnInfo, ...]:
     ):
         implicit_id = ColumnInfo(
             name="id",
-            type_hint=TypeHint.parse(int),
+            type_hint=TypeHint(int),
             optional=False,
             auto_increment=True,
             storage_kind="scalar",
+            scalar_base=int,
+            enum_type=None,
             has_default=False,
             default_value=None,
             has_default_factory=False,
@@ -604,10 +596,10 @@ def _render_init_stub(client_class_name: str) -> str:
     return code
 
 
-def _format_mapping_value_expr(column: ColumnInfo, enum_type: type[Enum] | None) -> str:
+def _format_mapping_value_expr(column: ColumnInfo) -> str:
     if column.storage_kind == "json":
         return f"serialize_json_value(data[{column.name!r}])"
-    if enum_type is None:
+    if column.enum_type is None:
         return f"data[{column.name!r}]"
     value_expr = f"data[{column.name!r}]"
     if column.optional:
@@ -617,7 +609,6 @@ def _format_mapping_value_expr(column: ColumnInfo, enum_type: type[Enum] | None)
 
 def _format_insert_value_expr(
     column: ColumnInfo,
-    enum_type: type[Enum] | None,
     *,
     returned_field: bool = True,
 ) -> str:
@@ -625,7 +616,7 @@ def _format_insert_value_expr(
         return f"getattr(data, {column.name!r}, None)"
     if column.storage_kind == "json":
         return f"serialize_json_value(data.{column.name})"
-    if enum_type is None:
+    if column.enum_type is None:
         return f"data.{column.name}"
     value_expr = f"data.{column.name}"
     if column.optional:
@@ -634,16 +625,16 @@ def _format_insert_value_expr(
 
 
 def _infer_field_fallback(type_hint: TypeHint) -> str:
-    type_hint = type_hint.without_optional()
-    candidate = type_hint.origin or type_hint.annotation
+    type_hint = type_hint.without_transparent_wrappers()
+    candidate = type_hint.origin or type_hint.source
     collection_map: dict[type[Any], str] = {list: "list", set: "set", frozenset: "frozenset"}
     if isinstance(candidate, type) and candidate in collection_map:
         return f"{collection_map[candidate]}()"
     return "None"
 
 
-def _format_insert_annotation(col: ColumnInfo, renderer: "_TypeRenderer") -> str:
-    annotation = renderer.render(col.type_hint.source)
+def _format_insert_annotation(col: ColumnInfo, renderer: "TypeHintRenderer") -> str:
+    annotation = renderer.render(col.type_hint)
     needs_optional = col.auto_increment
     if needs_optional and "None" not in annotation:
         annotation = f"{annotation} | None"
@@ -816,19 +807,18 @@ _SCALAR_FILTER_TEMPLATES: dict[type[Any], _FilterTemplate] = {
 
 
 class _ScalarFilterRegistry:
-    def __init__(self, renderer: "_TypeRenderer") -> None:
+    def __init__(self, renderer: "TypeHintRenderer") -> None:
         self._renderer = renderer
         self._definitions: dict[str, ScalarFilterRender] = {}
 
-    def register(self, type_hint: TypeHint) -> str | None:
-        base_type = type_hint.scalar_base
+    def register(self, base_type: type[Any] | None) -> str | None:
         if base_type is None:
             return None
         template = _SCALAR_FILTER_TEMPLATES.get(base_type)
         if template is None:
             return None
         if template.alias not in self._definitions:
-            base_annotation = self._renderer.render(base_type)
+            base_annotation = self._renderer.render(TypeHint(base_type))
             fields: list[TypedDictFieldSpec] = []
             for field_template in template.fields:
                 field_annotation = field_template.annotation_template.format(
@@ -836,8 +826,6 @@ class _ScalarFilterRegistry:
                     self=template.alias,
                 )
                 fields.append(TypedDictFieldSpec(name=field_template.name, annotation=field_annotation))
-                if field_template.require_sequence:
-                    self._renderer.require_typing("Sequence")
             self._definitions[template.alias] = ScalarFilterRender(
                 name=template.alias,
                 fields=tuple(fields),
@@ -848,34 +836,32 @@ class _ScalarFilterRegistry:
         return tuple(self._definitions[name] for name in sorted(self._definitions))
 
 
-class _TypeRenderer:
+class TypeHintRenderer:
     def __init__(self, model_map: Mapping[type[Any], str]) -> None:
         self._model_map = dict(model_map)
         self._module_imports: defaultdict[str, set[str]] = defaultdict(set) # {module: set of names}
-        self._typing_imports: set[str] = set()
 
-    def render(self, tp: Any) -> str:
-        alias_value = getattr(tp, "__value__", None)
-        if alias_value is not None:
-            alias_name = getattr(tp, "__name__", None)
-            alias_module = getattr(tp, "__module__", None)
-            if isinstance(alias_name, str) and isinstance(alias_module, str):
-                self._module_imports[alias_module].add(alias_name)
-                return alias_name
-            return self.render(alias_value)
-        type_hint = TypeHint.parse(tp)
-        tp = type_hint.annotation
+    def render(self, type_hint: TypeHint) -> str:
+        tp = type_hint.source
+        if type_hint.is_alias:
+            self._module_imports[tp.__module__].add(tp.__name__)
+            return tp.__name__
         origin = type_hint.origin
         args = type_hint.args
         if tp is Any:
             return "Any"
         if tp is type(None):
             return "None"
+        if type_hint.is_annotated:
+            inner, *metadata = args
+            values = ", ".join(
+                [self.render(TypeHint(inner)), *(repr(value) for value in metadata)]
+            )
+            return f"Annotated[{values}]"
         if origin in (UnionType, Union):
-            parts = [self.render(arg) for arg in args]
+            parts = [self.render(TypeHint(arg)) for arg in args]
             return " | ".join(dict.fromkeys(parts))
         if origin is Literal:
-            self._typing_imports.add("Literal")
             values = ", ".join(repr(value) for value in args)
             return f"Literal[{values}]"
         if origin in (list, set, frozenset):
@@ -886,14 +872,14 @@ class _TypeRenderer:
                 container = "frozenset"
             else:
                 container = "list"
-            return f"{container}[{self.render(args[0])}]"
+            return f"{container}[{self.render(TypeHint(args[0]))}]"
         if origin is tuple:
             if len(args) == 2 and args[1] is Ellipsis:
-                return f"tuple[{self.render(args[0])}, ...]"
-            return f"tuple[{', '.join(self.render(arg) for arg in args)}]"
+                return f"tuple[{self.render(TypeHint(args[0]))}, ...]"
+            return f"tuple[{', '.join(self.render(TypeHint(arg)) for arg in args)}]"
         if origin is dict:
             key, value = args or (Any, Any)
-            return f"dict[{self.render(key)}, {self.render(value)}]"
+            return f"dict[{self.render(TypeHint(key))}, {self.render(TypeHint(value))}]"
         if origin is None:
             pass
         if isinstance(tp, type):
@@ -912,10 +898,3 @@ class _TypeRenderer:
     @property
     def module_imports(self) -> defaultdict[str, set[str]]:
         return self._module_imports
-
-    @property
-    def typing_names(self) -> set[str]:
-        return set(self._typing_imports)
-
-    def require_typing(self, name: str) -> None:
-        self._typing_imports.add(name)

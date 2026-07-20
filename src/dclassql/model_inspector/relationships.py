@@ -1,11 +1,11 @@
 from collections import defaultdict
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, is_dataclass
 from types import CellType, FunctionType
 from typing import Any, Iterable, Mapping, Self, Sequence
 
 from .fields import FieldTo
 from .table_constraints import Col
-from .type_hints import FieldToTypeHint
+from .type_hints import FieldToTypeHint, TypeHint
 
 
 @dataclass(slots=True, frozen=True)
@@ -223,18 +223,47 @@ def _inspect_links(
     registry: Mapping[str, type[Any]],
 ) -> FieldToLink:
     links: dict[str, Link] = {}
+    registered_models = set(registry.values())
     for field in fields(model):
         name = field.name
         type_hint = type_hints.get(name)
         if type_hint is None:
             continue
-        if isinstance(type_hint.value_type, type) and type_hint.value_type in registry.values():
-            links[name] = Link(
-                source=model,
-                attribute=name,
-                target=type_hint.value_type,
-                many=type_hint.is_collection,
-            )
+        core_hint = type_hint.without_transparent_wrappers()
+        if isinstance(core_hint.source, type) and is_dataclass(core_hint.source):
+            # 经典形式 `field: dataclass`
+            target = core_hint.source
+            many = False
+        elif (
+            not type_hint.has_optional_wrapper
+            and core_hint.origin is list
+            and len(core_hint.args) == 1
+        ):
+            # 没有可空包装，用 list 包装，且其中包且仅包了一个元素
+            item_hint = TypeHint(core_hint.args[0])
+            if item_hint.has_optional_wrapper:
+                # 第一个元素还不是带可空包装的
+                continue
+            item_hint = item_hint.without_transparent_wrappers()
+            # 那么剥掉首元素的 Annotated 壳后
+            if not isinstance(item_hint.source, type) or not is_dataclass(
+                item_hint.source
+            ):
+                # 首元素必须是 dataclass 类型
+                continue
+            # 那么最终就可以确定是 `field: list[dataclass]`
+            target = item_hint.source
+            many = True
+        else:
+            continue
+        if target not in registered_models:
+            continue
+        links[name] = Link(
+            source=model,
+            attribute=name,
+            target=target,
+            many=many,
+        )
     return FieldTo.from_mapping(links)
 
 

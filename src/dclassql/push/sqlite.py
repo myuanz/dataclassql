@@ -33,8 +33,8 @@ TYPE_MAP: Mapping[type[Any], str] = {
 
 
 def _infer_sqlite_type(annotation: Any) -> str:
-    type_hint = TypeHint.parse(annotation).without_optional()
-    annotation = type_hint.annotation
+    type_hint = TypeHint(annotation).without_transparent_wrappers()
+    annotation = type_hint.source
     origin = type_hint.origin
     if origin is None and isinstance(annotation, type):
         if annotation in TYPE_MAP:

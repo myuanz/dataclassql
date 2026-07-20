@@ -6,6 +6,7 @@ from typing import Any, Callable, Literal, Mapping
 
 @dataclass(slots=True)
 class ColumnSpec:
+    '''生成的 client 中需要知道的 Column 规格'''
     name: str
     python_type: Any
     storage_kind: Literal["scalar", "json"]

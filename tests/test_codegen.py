@@ -9,7 +9,19 @@ from collections.abc import Sequence as ABCSequence
 from dataclasses import dataclass, fields
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal, Mapping, NotRequired, Optional, Sequence, get_args, get_origin, get_type_hints
+from typing import (
+    Annotated,
+    Any,
+    Literal,
+    Mapping,
+    NotRequired,
+    Optional,
+    Sequence,
+    TypedDict,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
 from enum import Enum, StrEnum, IntEnum
 
 import pytest
@@ -154,11 +166,95 @@ class JsonOrder:
     stamps: list[JsonStamp]
 
 
+class JsonPayload(TypedDict):
+    stamp: JsonStamp
+    count: int
+
+
+@dataclass
+class JsonMixedOrder:
+    id: int
+    payload: JsonPayload
+    payloads: list[JsonPayload]
+    mixed: tuple[JsonStamp, int, JsonPayload]
+    by_name: dict[str, JsonPayload]
+
+
+@dataclass
+class JsonScalarCollections:
+    id: int
+    names: list[str]
+    counts: dict[str, int]
+    mixed: tuple[str, int]
+
+
+@dataclass
+class InvalidUnionOrder:
+    id: int
+    payload: JsonStamp | int
+
+
+@dataclass
+class InvalidSetOrder:
+    id: int
+    payload: set[int]
+
+
+@dataclass
+class InvalidJsonKeyOrder:
+    id: int
+    payload: dict[int, JsonStamp]
+
+
+@dataclass
+class InvalidBareListOrder:
+    id: int
+    payload: list
+
+
+@dataclass
+class InvalidBareDictOrder:
+    id: int
+    payload: dict
+
+
+class InvalidNestedPayload(TypedDict):
+    value: int | str
+
+
+@dataclass
+class InvalidNestedUnionOrder:
+    id: int
+    payload: InvalidNestedPayload
+
+
+@dataclass
+class InvalidNullableBackrefParent:
+    id: int
+    children: list[InvalidNullableBackrefChild | None]
+
+
+@dataclass
+class InvalidNullableBackrefChild:
+    id: int
+    parent_id: int
+    parent: InvalidNullableBackrefParent
+
+    def foreign_key(self):
+        yield self.parent.id == self.parent_id, InvalidNullableBackrefParent.children
+
+
 @dataclass
 class TypingOptionalOrder:
     id: int
     quantity: Optional[int]
     stamp: Optional[JsonStamp]
+
+
+@dataclass
+class AnnotatedOptionalOrder:
+    id: int
+    quantity: Annotated[int | None, "metadata"]
 
 
 @dataclass
@@ -576,6 +672,103 @@ def test_generated_client_serializes_unregistered_dataclass_fields_as_json() -> 
         conn.close()
 
 
+def test_generated_client_round_trips_typed_dict_and_heterogeneous_tuple() -> None:
+    module = generate_client([JsonMixedOrder])
+    namespace: dict[str, Any] = {}
+    exec(module.code, namespace)
+
+    columns = namespace["JsonMixedOrderTable"].column_specs
+    assert [(column.name, column.storage_kind) for column in columns] == [
+        ("id", "scalar"),
+        ("payload", "json"),
+        ("payloads", "json"),
+        ("mixed", "json"),
+        ("by_name", "json"),
+    ]
+    create_sql, _ = _build_sqlite_schema(namespace["JsonMixedOrderTable"])
+    assert create_sql.count(" TEXT NOT NULL") == 4
+
+    stamp = JsonStamp(dt=datetime(2026, 1, 2, 3, 4, 5), idx=1)
+    payload: JsonPayload = {"stamp": stamp, "count": 2}
+    conn = sqlite3.connect(":memory:")
+    try:
+        db_push([namespace["JsonMixedOrderTable"]], conn, provider="sqlite")
+        table = namespace["JsonMixedOrderTable"](SQLiteBackend(conn))
+        stored = table.insert(
+            {
+                "id": None,
+                "payload": payload,
+                "payloads": [payload],
+                "mixed": (stamp, 3, payload),
+                "by_name": {"first": payload},
+            }
+        )
+
+        assert stored.payload == payload
+        assert stored.payloads == [payload]
+        assert stored.mixed == (stamp, 3, payload)
+        assert stored.by_name == {"first": payload}
+    finally:
+        conn.close()
+
+
+def test_generated_client_round_trips_scalar_json_collections() -> None:
+    module = generate_client([JsonScalarCollections])
+    namespace: dict[str, Any] = {}
+    exec(module.code, namespace)
+
+    columns = namespace["JsonScalarCollectionsTable"].column_specs
+    assert [(column.name, column.storage_kind) for column in columns] == [
+        ("id", "scalar"),
+        ("names", "json"),
+        ("counts", "json"),
+        ("mixed", "json"),
+    ]
+
+    conn = sqlite3.connect(":memory:")
+    try:
+        db_push([namespace["JsonScalarCollectionsTable"]], conn, provider="sqlite")
+        table = namespace["JsonScalarCollectionsTable"](SQLiteBackend(conn))
+        stored = table.insert(
+            {
+                "id": None,
+                "names": ["a", "b"],
+                "counts": {"a": 1, "b": 2},
+                "mixed": ("a", 1),
+            }
+        )
+
+        assert stored.names == ["a", "b"]
+        assert stored.counts == {"a": 1, "b": 2}
+        assert stored.mixed == ("a", 1)
+    finally:
+        conn.close()
+
+
+@pytest.mark.parametrize(
+    ("model", "message"),
+    [
+        (InvalidUnionOrder, "Only Optional"),
+        (InvalidSetOrder, "annotations are not supported"),
+        (InvalidJsonKeyOrder, "JSON dict keys must be str"),
+        (InvalidBareListOrder, "Unsupported column annotation"),
+        (InvalidBareDictOrder, "Unsupported column annotation"),
+        (InvalidNestedUnionOrder, "Only Optional"),
+    ],
+)
+def test_codegen_rejects_unsupported_json_annotations(
+    model: type[Any],
+    message: str,
+) -> None:
+    with pytest.raises(TypeError, match=message):
+        generate_client([model])
+
+
+def test_nullable_list_item_cannot_be_a_relation_backref() -> None:
+    with pytest.raises(TypeError, match="backref must be a relation attribute"):
+        generate_client([InvalidNullableBackrefParent, InvalidNullableBackrefChild])
+
+
 def test_typing_optional_is_normalized_across_codegen_schema_and_json() -> None:
     module = generate_client([TypingOptionalOrder])
     assert "quantity: int | None | IntFilter" in module.code
@@ -602,6 +795,19 @@ def test_typing_optional_is_normalized_across_codegen_schema_and_json() -> None:
         assert stored.stamp == JsonStamp(dt=datetime(2026, 1, 2, 3, 4, 5), idx=1)
     finally:
         conn.close()
+
+
+def test_annotated_shell_is_preserved_in_generated_types() -> None:
+    module = generate_client([AnnotatedOptionalOrder])
+
+    assert "from typing import Annotated" in module.code
+    assert "quantity: Annotated[int | None, 'metadata']" in module.code
+
+    namespace: dict[str, Any] = {}
+    exec(module.code, namespace)
+    create_sql, _ = _build_sqlite_schema(namespace["AnnotatedOptionalOrderTable"])
+    assert '"quantity" INTEGER' in create_sql
+    assert '"quantity" INTEGER NOT NULL' not in create_sql
 
 
 def test_model_dataclass_field_without_foreign_key_is_json_column() -> None:

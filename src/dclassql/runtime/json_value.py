@@ -3,7 +3,8 @@ from collections.abc import Mapping
 from dataclasses import fields, is_dataclass
 from datetime import date, datetime
 from enum import Enum
-from typing import Any, get_type_hints
+from functools import cache
+from typing import Any, get_type_hints, is_typeddict
 
 from dclassql.model_inspector import TypeHint
 
@@ -23,7 +24,7 @@ def deserialize_json_value(value: object, annotation: Any) -> object:
         text = value
     else:
         raise TypeError(f"JSON column value must be str or bytes, got {type(value)!r}")
-    return _from_json_value(json.loads(text), annotation)
+    return _from_json_value(json.loads(text), TypeHint(annotation))
 
 
 def _to_json_value(value: object) -> object:
@@ -39,30 +40,44 @@ def _to_json_value(value: object) -> object:
         return {str(key): _to_json_value(item) for key, item in value.items()}
     if isinstance(value, list | tuple):
         return [_to_json_value(item) for item in value]
+    if isinstance(value, set | frozenset):
+        raise TypeError("set and frozenset are not supported in JSON values")
     return value
 
 
-def _from_json_value(value: object, annotation: Any) -> object:
-    type_hint = TypeHint.parse(annotation).without_optional()
-    annotation = type_hint.annotation
+def _from_json_value(value: object, type_hint: TypeHint) -> object:
+    if value is None:
+        return None
+    type_hint = type_hint.without_transparent_wrappers()
+    annotation = type_hint.source
     origin = type_hint.origin
     args = type_hint.args
     if origin is list:
-        item_type = args[0] if args else Any
+        item_hint = TypeHint(args[0]) if args else TypeHint(Any)
         if not isinstance(value, list):
             raise TypeError(f"Expected JSON list for {annotation!r}")
-        return [_from_json_value(item, item_type) for item in value]
+        return [_from_json_value(item, item_hint) for item in value]
     if origin is tuple:
         if not isinstance(value, list):
             raise TypeError(f"Expected JSON list for {annotation!r}")
         if len(args) == 2 and args[1] is Ellipsis:
-            return tuple(_from_json_value(item, args[0]) for item in value)
-        return tuple(_from_json_value(item, item_type) for item, item_type in zip(value, args))
+            item_hint = TypeHint(args[0])
+            return tuple(_from_json_value(item, item_hint) for item in value)
+        item_hints = tuple(TypeHint(arg) for arg in args)
+        if len(value) != len(item_hints):
+            raise TypeError(
+                f"Expected {len(item_hints)} JSON items for {annotation!r}, "
+                f"got {len(value)}"
+            )
+        return tuple(
+            _from_json_value(item, child)
+            for item, child in zip(value, item_hints)
+        )
     if origin is dict:
-        value_type = args[1] if len(args) == 2 else Any
+        value_hint = TypeHint(args[1])
         if not isinstance(value, dict):
             raise TypeError(f"Expected JSON object for {annotation!r}")
-        return {key: _from_json_value(item, value_type) for key, item in value.items()}
+        return {key: _from_json_value(item, value_hint) for key, item in value.items()}
     if annotation is datetime:
         if not isinstance(value, str):
             raise TypeError("datetime JSON value must be a string")
@@ -73,14 +88,33 @@ def _from_json_value(value: object, annotation: Any) -> object:
         return date.fromisoformat(value)
     if isinstance(annotation, type) and issubclass(annotation, Enum):
         return annotation(value)
+    if isinstance(annotation, type) and is_typeddict(annotation):
+        if not isinstance(value, dict):
+            raise TypeError(f"Expected JSON object for {annotation.__name__}")
+        return {
+            name: _from_json_value(value[name], field_hint)
+            for name, field_hint in _field_hints(annotation).items()
+            if name in value
+        }
     if isinstance(annotation, type) and is_dataclass(annotation):
         if not isinstance(value, dict):
             raise TypeError(f"Expected JSON object for {annotation.__name__}")
-        hints = get_type_hints(annotation)
-        payload = {
-            field.name: _from_json_value(value[field.name], hints.get(field.name, field.type))
-            for field in fields(annotation)
-            if field.name in value
-        }
+        field_hints = _field_hints(annotation)
+        payload: dict[str, object] = {}
+        for field in fields(annotation):
+            if field.name not in value:
+                continue
+            field_hint = field_hints.get(field.name)
+            if field_hint is None:
+                field_hint = TypeHint(field.type)
+            payload[field.name] = _from_json_value(value[field.name], field_hint)
         return annotation(**payload)
     return value
+
+
+@cache
+def _field_hints(annotation: type[Any]) -> dict[str, TypeHint]:
+    return {
+        name: TypeHint(field_annotation)
+        for name, field_annotation in get_type_hints(annotation).items()
+    }
