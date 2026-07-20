@@ -171,6 +171,34 @@ def test_insert_many_generates_sequential_ids(tmp_path: Path):
     client.__class__.close_all()
 
 
+def test_insert_many_uses_union_of_mapping_payload_columns(tmp_path: Path):
+    db_path = tmp_path / "runtime_union.db"
+    prepare_database(db_path)
+    _, client = build_client()
+    user_table = client.runtime_user
+
+    with record_sql() as sqls:
+        inserted = user_table.insert_many(
+            [
+                {"name": "OnlyName"},
+                {"name": "WithEmail", "email": "with@example.com"},
+            ],
+            batch_size=10,
+        )
+
+    assert sqls == [
+        (
+            'INSERT INTO "RuntimeUser" ("name","email") VALUES (?,?),(?,?) RETURNING "id", "name", "email";',
+            ("OnlyName", None, "WithEmail", "with@example.com"),
+        )
+    ]
+    assert [(row.name, row.email) for row in inserted] == [
+        ("OnlyName", None),
+        ("WithEmail", "with@example.com"),
+    ]
+    client.__class__.close_all()
+
+
 def test_backend_thread_local(tmp_path: Path):
     db_path = tmp_path / "runtime.db"
     prepare_database(db_path)

@@ -50,8 +50,13 @@ class SQLiteBackend(BackendBase):
         if not items:
             return []
 
-        payloads = [table.serialize_insert(item) for item in items]
-        column_names = [spec.name for spec in table.column_specs if spec.name in payloads[0]]
+        payloads: list[dict[str, object]] = []
+        payload_columns = set[str]()
+        for item in items:
+            payload = table.serialize_insert(item)
+            payloads.append(payload)
+            payload_columns.update(payload)
+        column_names = [spec.name for spec in table.column_specs if spec.name in payload_columns]
         if not column_names:
             raise ValueError("Insert payload cannot be empty")
 
