@@ -131,7 +131,7 @@ class SQLiteBackend(BackendBase):
         *,
         where: WhereT | None = None,
         include: Mapping[str, bool] | None = None,
-        order_by: Mapping[str, str] | None = None,
+        order_by: OrderByT | None = None,
         distinct: Sequence[str] | str | None = None,
         take: int | None = None,
         skip: int | None = None,
@@ -154,12 +154,10 @@ class SQLiteBackend(BackendBase):
 
         partition_fields = [sql_table.field(col) for col in distinct_columns]
         order_pairs: list[tuple[Any, Order]] = []
-        if order_by:
-            for col, direction in order_by.items():
-                direction_lower = direction.lower()
-                if direction_lower not in {"asc", "desc"}:
-                    raise ValueError("order_by direction must be 'asc' or 'desc'")
-                order_pairs.append((sql_table.field(col), Order[direction_lower]))
+        normalized_order_by = self._normalize_order_by(table, order_by)
+        if normalized_order_by:
+            for col, order in normalized_order_by:
+                order_pairs.append((sql_table.field(col), order))
         else:
             for col in distinct_columns:
                 order_pairs.append((sql_table.field(col), Order.asc))
@@ -172,10 +170,8 @@ class SQLiteBackend(BackendBase):
         sub = inner_query.as_("__d")
         outer_query: QueryBuilder = self.query_cls.from_(sub).select(sub.star).where(sub.rn == 1)
 
-        if order_by:
-            for col, direction in order_by.items():
-                direction_lower = direction.lower()
-                outer_query = outer_query.orderby(getattr(sub, col), order=Order[direction_lower])
+        for col, order in normalized_order_by:
+            outer_query = outer_query.orderby(getattr(sub, col), order=order)
 
         if take is not None:
             outer_query = outer_query.limit(take)

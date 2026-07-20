@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+import warnings
 from typing import Any, Literal, Mapping, Sequence, cast, overload
 from weakref import ReferenceType, ref
 
@@ -11,7 +12,7 @@ from pypika.terms import Criterion, Parameter
 from pypika.utils import format_quotes
 
 from dclassql.runtime.sql_recorder import push_sql
-from dclassql.typing import IncludeT, InsertT, ModelT, OrderByT, UpsertWhereT, WhereT
+from dclassql.typing import IncludeT, InsertT, ModelT, OrderByT, OrderDirection, UpsertWhereT, WhereT
 
 from .lazy import ensure_lazy_state, finalize_lazy_state, reset_lazy_backref
 from .protocols import BackendProtocol, TableProtocol
@@ -186,7 +187,7 @@ class BackendBase(BackendProtocol, ABC):
         *,
         where: WhereT | None = None,
         include: Mapping[str, bool] | None = None,
-        order_by: Mapping[str, str] | None = None,
+        order_by: OrderByT | None = None,
         distinct: Sequence[str] | str | None = None,
         take: int | None = None,
         skip: int | None = None,
@@ -217,7 +218,7 @@ class BackendBase(BackendProtocol, ABC):
         table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
         sql_table: Table,
         where: WhereT | None,
-        order_by: Mapping[str, str] | None,
+        order_by: OrderByT | None,
     ) -> tuple[QueryBuilder, list[Any]]:
         select_query: QueryBuilder = self.query_cls.from_(sql_table).select(
             *[sql_table.field(spec.name) for spec in table.column_specs]
@@ -230,14 +231,8 @@ class BackendBase(BackendProtocol, ABC):
                 select_query = select_query.where(criterion)
                 params.extend(where_params)
 
-        if order_by:
-            for column, direction in order_by.items():
-                if column not in table.column_specs_by_name:
-                    raise KeyError(f"Unknown column '{column}' in order_by clause")
-                direction_lower = direction.lower()
-                if direction_lower not in {"asc", "desc"}:
-                    raise ValueError("order_by direction must be 'asc' or 'desc'")
-                select_query = select_query.orderby(sql_table.field(column), order=Order[direction_lower])
+        for column, order in self._normalize_order_by(table, order_by):
+            select_query = select_query.orderby(sql_table.field(column), order=order)
 
         return select_query, params
 
@@ -247,7 +242,7 @@ class BackendBase(BackendProtocol, ABC):
         *,
         where: WhereT | None = None,
         include: Mapping[str, bool] | None = None,
-        order_by: Mapping[str, str] | None = None,
+        order_by: OrderByT | None = None,
         distinct: Sequence[str] | str | None = None,
         skip: int | None = None,
     ) -> ModelT | None:
@@ -592,6 +587,21 @@ class BackendBase(BackendProtocol, ABC):
             if column not in valid_columns:
                 raise KeyError(f"Unknown column '{column}' in distinct clause")
         return columns
+
+    def _normalize_order_by(
+        self,
+        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        order_by: Mapping[str, OrderDirection] | None,
+    ) -> tuple[tuple[str, Order], ...]:
+        if not order_by:
+            return ()
+        result: list[tuple[str, Order]] = []
+        for column, direction in order_by.items():
+            if direction not in Order.__members__:
+                raise ValueError(f'{direction=} is not in [desc, asc]')
+
+            result.append((column, Order[direction]))
+        return tuple(result)
 
     def _deduplicate_rows(
         self,

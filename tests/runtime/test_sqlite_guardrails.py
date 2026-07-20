@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -18,6 +19,9 @@ def test_find_many_rejects_unknown_columns(tmp_path: Path):
 
     with pytest.raises(ValueError):
         user_table.find_many(order_by={"name": "sideways"})
+
+    with pytest.raises(sqlite3.OperationalError):
+        user_table.find_many(order_by={"bad": "asc"}, distinct="email")
     client.__class__.close_all()
 
 
