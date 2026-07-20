@@ -18,6 +18,7 @@ from .protocols import ConnectionFactory, TableProtocol
 
 class SQLiteBackend(BackendBase):
     query_cls = SQLLiteQuery
+    _single_row_mutation_savepoint = "dclassql_single_row_mutation"
 
     def __init__(self, source: sqlite3.Connection | ConnectionFactory | "SQLiteBackend", *, echo_sql: bool = False) -> None:
         super().__init__(echo_sql=echo_sql)
@@ -124,6 +125,25 @@ class SQLiteBackend(BackendBase):
         connection = self._acquire_connection()
         result = self._execute_sql(connection, sql, params, fetch=False, auto_commit=auto_commit)
         return result
+
+    def _begin_transaction(self) -> None:
+        self._acquire_connection().execute(
+            f"SAVEPOINT {self._single_row_mutation_savepoint}"
+        )
+
+    def _commit_transaction(self) -> None:
+        self._acquire_connection().execute(
+            f"RELEASE SAVEPOINT {self._single_row_mutation_savepoint}"
+        )
+
+    def _rollback_transaction(self) -> None:
+        connection = self._acquire_connection()
+        connection.execute(
+            f"ROLLBACK TO SAVEPOINT {self._single_row_mutation_savepoint}"
+        )
+        connection.execute(
+            f"RELEASE SAVEPOINT {self._single_row_mutation_savepoint}"
+        )
 
     def find_many(
         self,

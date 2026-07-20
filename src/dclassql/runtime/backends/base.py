@@ -31,6 +31,25 @@ class BackendBase(BackendProtocol, ABC):
         self._identity_map: dict[tuple[type[Any], tuple[Any, ...]], list[ReferenceType[object]]] = {}
         self._echo_sql = echo_sql
 
+    def _execute_returning_transaction(
+        self,
+        sql: str,
+        params: Sequence[object],
+        *,
+        allow_empty: bool,
+    ) -> list[dict[str, object]]:
+        self._begin_transaction()
+        try:
+            rows = list(self.query_raw(sql, params, auto_commit=False))
+            if len(rows) == 1 or (allow_empty and not rows):
+                self._commit_transaction()
+            else:
+                self._rollback_transaction()
+            return rows
+        except BaseException:
+            self._rollback_transaction()
+            raise
+
     def insert(
         self,
         table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
@@ -97,7 +116,11 @@ class BackendBase(BackendProtocol, ABC):
         returning_columns = [spec.name for spec in table.column_specs]
         sql_with_returning = self._append_returning(sql, returning_columns)
 
-        rows = self.query_raw(sql_with_returning, params, auto_commit=True)
+        rows = self._execute_returning_transaction(
+            sql_with_returning,
+            params,
+            allow_empty=False,
+        )
         if len(rows) != 1:
             raise RuntimeError(f"update() expected exactly 1 row, got {len(rows)}")
 
@@ -273,11 +296,13 @@ class BackendBase(BackendProtocol, ABC):
         sql = self._render_query(delete_query)
         returning_columns = [spec.name for spec in table.column_specs]
         sql_with_returning = self._append_returning(sql, returning_columns)
-        rows = self.query_raw(sql_with_returning, params, auto_commit=True)
+        rows = self._execute_returning_transaction(
+            sql_with_returning,
+            params,
+            allow_empty=True,
+        )
         if not rows:
             return None
-        if len(rows) != 1:
-            raise RuntimeError(f"delete() expected exactly 1 row, got {len(rows)}")
 
         row = rows[0]
         include_map = include or {}
@@ -418,6 +443,18 @@ class BackendBase(BackendProtocol, ABC):
         if not results:
             raise RuntimeError("Inserted row could not be reloaded")
         return results[0]
+
+    @abstractmethod
+    def _begin_transaction(self) -> None:
+        raise NotImplementedError
+
+    @abstractmethod
+    def _commit_transaction(self) -> None:
+        raise NotImplementedError
+
+    @abstractmethod
+    def _rollback_transaction(self) -> None:
+        raise NotImplementedError
 
     def query_raw(self, sql: str, params: Sequence[object] | None = None, auto_commit: bool = False) -> Sequence[dict[str, object]]:
         raise NotImplementedError

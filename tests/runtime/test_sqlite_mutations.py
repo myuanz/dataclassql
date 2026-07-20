@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from dclassql import record_sql
 
 from .conftest import build_client, prepare_database
@@ -131,6 +133,34 @@ def test_update_many_supports_count_and_records(tmp_path: Path) -> None:
 
     remaining = user_table.find_many(order_by={"id": "asc"})
     assert [row.name for row in remaining] == ["Renamed", "Bar", "Baz"]
+    client.__class__.close_all()
+
+
+def test_single_row_mutations_roll_back_when_where_matches_multiple(tmp_path: Path) -> None:
+    db_path = tmp_path / "single_row_guard.db"
+    prepare_database(db_path)
+    namespace, client = build_client()
+    user_table = client.runtime_user
+
+    _insert_three(namespace, user_table)
+
+    with pytest.raises(RuntimeError, match=r"update\(\) expected exactly 1 row, got 2"):
+        user_table.update(data={"name": "Changed"}, where={"email": {"IN": ["bar@example.com", "baz@example.com"]}})
+
+    assert [row.name for row in user_table.find_many(order_by={"id": "asc"})] == [
+        "Foo",
+        "Bar",
+        "Baz",
+    ]
+
+    with pytest.raises(RuntimeError, match=r"delete\(\) expected exactly 1 row, got 2"):
+        user_table.delete(where={"email": {"IN": ["bar@example.com", "baz@example.com"]}})
+
+    assert [row.name for row in user_table.find_many(order_by={"id": "asc"})] == [
+        "Foo",
+        "Bar",
+        "Baz",
+    ]
     client.__class__.close_all()
 
 
