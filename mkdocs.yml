@@ -1,0 +1,4 @@
+site_name: DataclassQL
+site_url: https://dataclassql.myuan.fun/
+theme:
+  name: material
