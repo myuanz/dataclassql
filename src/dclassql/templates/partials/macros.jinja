@@ -56,7 +56,7 @@ column_specs: tuple[ColumnSpec, ...] = ()
 relations: tuple[TableRelation, ...] = (
 {% for relationship in relationships %}
     TableRelation(attribute={{ relationship.local.attribute | tojson }}, remote_table=lambda: {{ relationship.local.target.__name__ }}Table, many={{ relationship.local.many }}, mapping={
-{%- for local, remote in relationship.mapping.items() %}{{ local.name | tojson }}: {{ remote.name | tojson }}{% if not loop.last %}, {% endif %}{% endfor %}}, backref={% if not relationship.is_reversed and relationship.remote is not none %}{{ relationship.remote.attribute | tojson }}{% else %}None{% endif %}),
+{%- for local, remote in relationship.mapping.items() %}{{ local.name | tojson }}: {{ remote.name | tojson }}{% if not loop.last %}, {% endif %}{% endfor %}}),
 {% endfor %}
 )
 {% else %}

@@ -36,6 +36,15 @@ class TableConstraints:
     indexes: tuple[ColGroup, ...]
     unique_indexes: tuple[ColGroup, ...]
 
+    def is_unique(self, columns: Iterable[str]) -> bool:
+        column_names = tuple(columns)
+        groups = (self.primary_key, *self.unique_indexes)
+        return any(
+            len(group.names) == len(column_names)
+            and set(group.names) == set(column_names)
+            for group in groups
+        )
+
     @staticmethod
     def _coerce_cols(value: Any) -> tuple[Col, ...]:
         if isinstance(value, Col):

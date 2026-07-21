@@ -2,29 +2,43 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol, SupportsIndex, TypeVar, cast, runtime_checkable
+from typing import Any, Protocol, SupportsIndex, TypeVar, cast, runtime_checkable
 from weakref import WeakKeyDictionary
 
 from .protocols import BackendProtocol
 
 
 @dataclass(slots=True)
-class LazyRelationState[
-    ModelT,
-    InsertT,
-    WhereT: Mapping[str, object],
-    IncludeT: Mapping[str, bool],
-    OrderByT: Mapping[str, Literal['asc', 'desc']],
-]:
+class LazyRelationState:
     attribute: str
     backend: BackendProtocol
     table_cls: type[Any]
     mapping: Mapping[str, str]
     many: bool
-    loaded: bool = False
+    materialized: bool = False
     value: Any = None
-    loading: bool = False
     model_cls: type[Any] | None = None
+
+
+@dataclass(slots=True)
+class _LazyRelationQuery:
+    owner: Any
+    relation: LazyRelationState
+    resolved: bool = False
+    value: Any = None
+    resolving: bool = False
+
+    def resolve(self) -> Any:
+        if self.resolved or self.resolving:
+            return self.value
+        self.resolving = True
+        self.value = [] if self.relation.many else None
+        try:
+            self.value = resolve_lazy_relation(self.owner, self.relation)
+            self.resolved = True
+            return self.value
+        finally:
+            self.resolving = False
 
 
 class _LazyRelationDescriptor:
@@ -46,12 +60,9 @@ class _LazyRelationDescriptor:
         state = state_map.get(self.name)
         if state is None:
             return self._get_original_value(instance)
-        if state.loaded:
+        if state.materialized:
             return state.value
-        value = ensure_lazy_placeholder(instance, state)
-        if hasattr(instance, "__dict__"):
-            instance.__dict__[self.name] = value
-        return value
+        return ensure_lazy_placeholder(instance, state)
 
     def _get_original_value(self, instance: Any) -> Any:
         original = self.original
@@ -71,48 +82,29 @@ class _LazyRelationDescriptor:
         if state_map is not None:
             state = state_map.get(self.name)
             if state is not None:
-                state.loaded = True
+                state.materialized = True
                 state.value = value
-                state.loading = False
         self._set_original_value(instance, value)
         if hasattr(instance, "__dict__"):
             instance.__dict__[self.name] = value
 
 
-class _LazyProxyBase:
-    __slots__ = ()
+class _LazyListProxy(list[Any]):
+    __slots__ = ("_lazy_query",)
 
-
-class _LazyListProxy(_LazyProxyBase, list[Any]):
-    __slots__ = ("_lazy_owner", "_lazy_state")
-
-    def __init__(self, owner: Any | Iterable[Any] | None = None, state: LazyRelationState | None = None) -> None:
-        super().__init__()
-        if state is None:
-            iterable: Iterable[Any] | None = owner if isinstance(owner, Iterable) else None
-            if iterable is not None:
-                list.__init__(self, iterable)
-            else:
-                list.__init__(self)
-            object.__setattr__(self, "_lazy_owner", None)
-            object.__setattr__(self, "_lazy_state", None)
-            return
-        if owner is None:
-            raise TypeError("owner is required when state is provided")
+    def __init__(self, owner: Any, state: LazyRelationState) -> None:
         list.__init__(self)
-        object.__setattr__(self, "_lazy_owner", owner)
-        object.__setattr__(self, "_lazy_state", state)
+        object.__setattr__(self, "_lazy_query", _LazyRelationQuery(owner, state))
 
     def _lazy_resolve(self) -> list[Any]:
-        state = cast(LazyRelationState, object.__getattribute__(self, "_lazy_state"))
-        owner = object.__getattribute__(self, "_lazy_owner")
-        return cast(list[Any], resolve_lazy_relation(owner, state))
+        query = cast(_LazyRelationQuery, object.__getattribute__(self, "_lazy_query"))
+        return cast(list[Any], query.resolve())
 
     def __repr__(self) -> str:
-        state = cast(LazyRelationState, object.__getattribute__(self, "_lazy_state"))
-        if not state.loaded:
-            return f"<LazyRelationList {state.attribute} (lazy)>"
-        return repr(state.value)
+        query = cast(_LazyRelationQuery, object.__getattribute__(self, "_lazy_query"))
+        if not query.resolved:
+            return f"<LazyRelationList {query.relation.attribute} (lazy)>"
+        return repr(query.value)
 
     def __str__(self) -> str:
         return self.__repr__()
@@ -183,26 +175,26 @@ def _ensure_lazy_single_proxy_class(model_cls: type[Any]) -> type[Any]:
     if cached is not None:
         return cached
 
+    field_names = frozenset(getattr(model_cls, "__dataclass_fields__", ()))
+
     def __init__(self: Any, owner: Any, state: LazyRelationState) -> None:
-        object.__setattr__(self, "_lazy_owner", owner)
-        object.__setattr__(self, "_lazy_state", state)
+        object.__setattr__(self, "_lazy_query", _LazyRelationQuery(owner, state))
 
     def _lazy_resolve(self: Any) -> Any:
-        state = cast(LazyRelationState, object.__getattribute__(self, "_lazy_state"))
-        owner = object.__getattribute__(self, "_lazy_owner")
-        return resolve_lazy_relation(owner, state)
+        query = cast(_LazyRelationQuery, object.__getattribute__(self, "_lazy_query"))
+        return query.resolve()
 
     def __repr__(self: Any) -> str:
-        state = cast(LazyRelationState, object.__getattribute__(self, "_lazy_state"))
-        if not state.loaded:
+        query = cast(_LazyRelationQuery, object.__getattribute__(self, "_lazy_query"))
+        if not query.resolved:
             return f"<LazyRelation {model_cls.__name__} (lazy)>"
-        return repr(state.value)
+        return repr(query.value)
 
     def __str__(self: Any) -> str:
-        state = cast(LazyRelationState, object.__getattribute__(self, "_lazy_state"))
-        if not state.loaded:
+        query = cast(_LazyRelationQuery, object.__getattribute__(self, "_lazy_query"))
+        if not query.resolved:
             return f"<LazyRelation {model_cls.__name__} (lazy)>"
-        return str(state.value)
+        return str(query.value)
 
     def __bool__(self: Any) -> bool:
         return bool(_lazy_resolve(self))
@@ -214,38 +206,30 @@ def _ensure_lazy_single_proxy_class(model_cls: type[Any]) -> type[Any]:
         return hash(_lazy_resolve(self))
 
     def __setattr__(self: Any, name: str, value: Any) -> None:
-        if name in {"_lazy_owner", "_lazy_state"}:
+        if name == "_lazy_query":
             object.__setattr__(self, name, value)
             return
         target = _lazy_resolve(self)
         setattr(target, name, value)
-        state = cast(LazyRelationState, object.__getattribute__(self, "_lazy_state"))
-        state.value = target
-        state.loaded = True
 
     def __delattr__(self: Any, name: str) -> None:
-        if name in {"_lazy_owner", "_lazy_state"}:
+        if name == "_lazy_query":
             raise AttributeError(name)
         target = _lazy_resolve(self)
         delattr(target, name)
 
     def __getattribute__(self: Any, name: str) -> Any:
-        if name in {"_lazy_owner", "_lazy_state"}:
+        if name == "_lazy_query":
             return object.__getattribute__(self, name)
+        if name in field_names:
+            return getattr(_lazy_resolve(self), name)
         try:
             return object.__getattribute__(self, name)
         except AttributeError:
-            pass
-        state = cast(LazyRelationState, object.__getattribute__(self, "_lazy_state"))
-        if state.loaded:
-            value = state.value
-        else:
-            owner = object.__getattribute__(self, "_lazy_owner")
-            value = resolve_lazy_relation(owner, state)
-        return getattr(value, name)
+            return getattr(_lazy_resolve(self), name)
 
     namespace: dict[str, Any] = {
-        "__slots__": ("_lazy_owner", "_lazy_state"),
+        "__slots__": ("_lazy_query",),
         "__init__": __init__,
         "_lazy_resolve": _lazy_resolve,
         "__repr__": __repr__,
@@ -259,39 +243,18 @@ def _ensure_lazy_single_proxy_class(model_cls: type[Any]) -> type[Any]:
         "__lazy_marker__": True,
     }
 
-    proxy_cls = type(f"{model_cls.__name__}LazyRelationProxy", (model_cls, _LazyProxyBase), namespace)
+    proxy_cls = type(f"{model_cls.__name__}LazyRelationProxy", (model_cls,), namespace)
     proxy_cls.__module__ = model_cls.__module__
     _LAZY_SINGLE_PROXY_CLASS_CACHE[model_cls] = proxy_cls
     return proxy_cls
 
 
-def _lazy_resolve(self: Any) -> Any:
-    state = object.__getattribute__(self, "_lazy_state")
-    owner = object.__getattribute__(self, "_lazy_owner")
-    if state is None or owner is None:
-        return self
-    state = cast(LazyRelationState, state)
-    return resolve_lazy_relation(owner, state)
-
-
 def resolve_lazy_relation(instance: Any, state: LazyRelationState) -> Any:
-    if state.loaded:
-        return state.value
-    if state.loading:
-        return state.value
-    state.loading = True
-    state.value = [] if state.many else None
     where: dict[str, object] = {}
     for local_column, remote_column in state.mapping.items():
         local_value = getattr(instance, local_column, None)
         if local_value is None:
-            value: Any = [] if state.many else None
-            state.loaded = True
-            state.value = value
-            state.loading = False
-            if hasattr(instance, "__dict__"):
-                instance.__dict__[state.attribute] = value
-            return value
+            return [] if state.many else None
         where[remote_column] = local_value
 
     table = state.table_cls(state.backend)
@@ -302,12 +265,6 @@ def resolve_lazy_relation(instance: Any, state: LazyRelationState) -> Any:
 
     if state.many and loaded is None:
         loaded = []
-
-    state.loaded = True
-    state.value = loaded
-    state.loading = False
-    if hasattr(instance, "__dict__"):
-        instance.__dict__[state.attribute] = loaded
     return loaded
 
 
@@ -323,31 +280,12 @@ def _create_lazy_single_proxy(owner: Any, state: LazyRelationState) -> Any:
 
 
 def ensure_lazy_placeholder(instance: Any, state: LazyRelationState) -> Any:
-    if state.loaded:
-        return state.value
-    existing = state.value
-    if isinstance(existing, _LazyProxyBase):
-        return existing
-    if state.loading:
-        return existing
     if state.many:
-        proxy = _LazyListProxy(instance, state)
-    else:
-        proxy = _create_lazy_single_proxy(instance, state)
-    state.value = proxy
-    state.loading = False
-    if hasattr(instance, "__dict__"):
-        instance.__dict__[state.attribute] = proxy
-    return proxy
+        return _LazyListProxy(instance, state)
+    return _create_lazy_single_proxy(instance, state)
 
 
-def ensure_lazy_state[
-    ModelT,
-    InsertT,
-    WhereT: Mapping[str, object],
-    IncludeT: Mapping[str, bool],
-    OrderByT: Mapping[str, Literal['asc', 'desc']],
-](
+def ensure_lazy_state(
     instance: Any,
     attribute: str,
     backend: BackendProtocol,
@@ -383,25 +321,10 @@ def ensure_lazy_state[
 
 def finalize_lazy_state(instance: Any, state: LazyRelationState, eager: bool) -> None:
     if eager:
-        resolve_lazy_relation(instance, state)
+        state.value = resolve_lazy_relation(instance, state)
+        state.materialized = True
     else:
-        state.loaded = False
-        state.loading = False
-        if not isinstance(state.value, _LazyProxyBase):
-            state.value = None
+        state.materialized = False
+        state.value = None
         if hasattr(instance, "__dict__"):
             instance.__dict__.pop(state.attribute, None)
-
-
-def reset_lazy_backref(owner: Any, attribute: str) -> None:
-    state_map = LAZY_RELATION_STATE.get(owner)
-    if state_map is None:
-        return
-    state = state_map.get(attribute)
-    if state is None:
-        return
-    state.loaded = False
-    state.loading = False
-    state.value = [] if state.many else None
-    if hasattr(owner, "__dict__"):
-        owner.__dict__.pop(attribute, None)

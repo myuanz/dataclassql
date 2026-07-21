@@ -4,7 +4,7 @@ from dataclasses import dataclass, asdict as dataclass_asdict
 from pathlib import Path
 from typing import Any
 
-from dclassql import asdict
+from dclassql import asdict, record_sql
 from dclassql.codegen import generate_client
 from dclassql.model_inspector import DataSourceConfig
 
@@ -32,6 +32,9 @@ class RuntimeProfile:
 
     def primary_key(self) -> int:
         return self.id
+
+    def unique_index(self):
+        return self.user_id
 
     def foreign_key(self):
         yield self.user.id == self.user_id, RuntimeAuthor.profile
@@ -102,8 +105,8 @@ def test_asdict_handles_lazy_relations(tmp_path: Path) -> None:
     assert {entry["title"] for entry in fetched_result["posts"]} == {"first", "second"}
 
     keep_result = asdict(fetched)
-    assert keep_result["profile"]["bio"] == "hi"
-    assert len(keep_result["posts"]) == 2
+    assert keep_result["profile"] is None
+    assert keep_result["posts"] == []
 
     skip_result = asdict(fetched, relation_policy="skip")
     assert skip_result["profile"] is None
@@ -114,5 +117,23 @@ def test_asdict_handles_lazy_relations(tmp_path: Path) -> None:
     assert sequence_result[0] == keep_result
 
     assert dataclass_asdict(fetched) == keep_result
+
+    included = author_table.find_first(
+        where={"id": author.id},
+        include={"profile": True, "posts": True},
+    )
+    assert included is not None
+    included_result = asdict(included)
+    assert included_result["profile"]["bio"] == "hi"
+    assert len(included_result["posts"]) == 2
+
+    post_table.insert(PostInsert(id=22, user_id=author.id, title="third"))
+    with record_sql() as sqls:
+        snapshot_result = asdict(included)
+    assert sqls == []
+    assert snapshot_result == included_result
+
+    refreshed_result = asdict(fetched, relation_policy="fetch")
+    assert len(refreshed_result["posts"]) == 3
 
     client.__class__.close_all()

@@ -329,6 +329,108 @@ class MissingLocalLinkOrder:
         yield OneWayOrderStatus.id == self.status_id, None
 
 
+@dataclass
+class MissingTargetColumnParent:
+    id: int
+    children: list['MissingTargetColumnChild']
+
+
+@dataclass
+class MissingTargetColumnChild:
+    id: int
+    parent_id: int
+    parent: MissingTargetColumnParent
+
+    def foreign_key(self):
+        yield self.parent.missing == self.parent_id, MissingTargetColumnParent.children  # type: ignore[attr-defined]
+
+
+@dataclass
+class DuplicateBackrefParent:
+    id: int
+    children: list['DuplicateBackrefChild']
+
+
+@dataclass
+class DuplicateBackrefChild:
+    id: int
+    first_parent_id: int
+    second_parent_id: int
+    first_parent: DuplicateBackrefParent
+    second_parent: DuplicateBackrefParent
+
+    def foreign_key(self):
+        yield self.first_parent.id == self.first_parent_id, DuplicateBackrefParent.children
+        yield self.second_parent.id == self.second_parent_id, DuplicateBackrefParent.children
+
+
+@dataclass
+class MismatchedColumnParent:
+    id: int
+    children: list['MismatchedColumnChild']
+
+
+@dataclass
+class MismatchedColumnChild:
+    id: int
+    parent_id: str
+    parent: MismatchedColumnParent
+
+    def foreign_key(self):
+        yield self.parent.id == self.parent_id, MismatchedColumnParent.children
+
+
+@dataclass
+class NonUniqueProfileParent:
+    id: int
+    profile: 'NonUniqueProfile | None'
+
+
+@dataclass
+class NonUniqueProfile:
+    id: int
+    parent_id: int
+    parent: NonUniqueProfileParent
+
+    def foreign_key(self):
+        yield self.parent.id == self.parent_id, NonUniqueProfileParent.profile
+
+
+@dataclass
+class SelfRelationNode:
+    id: int
+    parent_id: int | None
+    parent: 'SelfRelationNode | None'
+    children: list['SelfRelationNode']
+
+    def foreign_key(self):
+        yield self.parent and self.parent.id == self.parent_id, SelfRelationNode.children
+
+
+@dataclass
+class CompositeRelationParent:
+    tenant_id: int
+    id: int
+    children: list['CompositeRelationChild']
+
+    def primary_key(self):
+        return self.tenant_id, self.id
+
+
+@dataclass
+class CompositeRelationChild:
+    id: int
+    tenant_id: int
+    parent_id: int
+    parent: CompositeRelationParent
+
+    def foreign_key(self):
+        yield (
+            self.parent.tenant_id == self.tenant_id,
+            self.parent.id == self.parent_id,
+        ), CompositeRelationParent.children
+
+
 def test_generate_client_matches_expected_shape() -> None:
     module = generate_client([User, Address, BirthDay, Book, UserBook, Composite])
     code = module.code
@@ -845,8 +947,8 @@ def test_foreign_key_dataclass_field_stays_relation_not_json_column() -> None:
     exec(code, namespace)
     (customer_relation,) = namespace["RelationCustomerTable"].relations
     (order_relation,) = namespace["RelationOrderTable"].relations
-    assert customer_relation.backref is None
-    assert order_relation.backref == "orders"
+    assert not hasattr(customer_relation, "backref")
+    assert not hasattr(order_relation, "backref")
 
     graph = ModelGraph.from_models([RelationCustomer, RelationOrder])
     order_info = graph.by_name["RelationOrder"]
@@ -945,6 +1047,52 @@ def test_foreign_key_requires_local_link() -> None:
         match="foreign_key comparison must use a Link on the local model",
     ):
         inspect_models([OneWayOrderStatus, MissingLocalLinkOrder])
+
+
+def test_model_graph_validates_relationship_columns_and_endpoints() -> None:
+    with pytest.raises(
+        ValueError,
+        match=r"Relationship column MissingTargetColumnParent\.missing does not exist",
+    ):
+        inspect_models([MissingTargetColumnParent, MissingTargetColumnChild])
+
+    with pytest.raises(
+        ValueError,
+        match=r"Relation attribute DuplicateBackrefParent\.children is used by multiple relationships",
+    ):
+        inspect_models([DuplicateBackrefParent, DuplicateBackrefChild])
+
+    with pytest.raises(TypeError, match="have incompatible types"):
+        inspect_models([MismatchedColumnParent, MismatchedColumnChild])
+
+    with pytest.raises(
+        ValueError,
+        match=r"Single-valued backref NonUniqueProfileParent\.profile requires unique foreign-key columns",
+    ):
+        inspect_models([NonUniqueProfileParent, NonUniqueProfile])
+
+
+def test_relationship_parser_supports_self_and_composite_relations() -> None:
+    self_graph = ModelGraph.from_models([SelfRelationNode])
+    assert [
+        relationship.local.attribute
+        for relationship in self_graph.relationships.by_model(SelfRelationNode)
+    ] == ["parent", "children"]
+
+    composite_graph = ModelGraph.from_models(
+        [CompositeRelationParent, CompositeRelationChild]
+    )
+    (relationship,) = composite_graph.relationships.by_local_model(
+        CompositeRelationChild
+    )
+    assert tuple(column.name for column in relationship.mapping) == (
+        "tenant_id",
+        "parent_id",
+    )
+    assert tuple(column.name for column in relationship.mapping.values()) == (
+        "tenant_id",
+        "id",
+    )
 
 
 def test_generated_client_rejects_slotted_model_without_weakref_slot() -> None:

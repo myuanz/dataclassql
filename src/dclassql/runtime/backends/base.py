@@ -3,7 +3,6 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 import warnings
 from typing import Any, Literal, Mapping, Sequence, cast, overload
-from weakref import ReferenceType, ref
 
 from pypika import Query, Table
 from pypika.enums import Order
@@ -14,7 +13,7 @@ from pypika.utils import format_quotes
 from dclassql.runtime.sql_recorder import push_sql
 from dclassql.typing import IncludeT, InsertT, ModelT, OrderByT, OrderDirection, UpsertWhereT, WhereT
 
-from .lazy import ensure_lazy_state, finalize_lazy_state, reset_lazy_backref
+from .lazy import ensure_lazy_state, finalize_lazy_state
 from .protocols import BackendProtocol, TableProtocol
 from .where_compiler import WhereCompiler
 
@@ -28,7 +27,6 @@ class BackendBase(BackendProtocol, ABC):
     like_escape_char: str | None = "\\"
 
     def __init__(self, *, echo_sql: bool = False) -> None:
-        self._identity_map: dict[tuple[type[Any], tuple[Any, ...]], list[ReferenceType[object]]] = {}
         self._echo_sql = echo_sql
 
     def _execute_returning_transaction(
@@ -73,9 +71,7 @@ class BackendBase(BackendProtocol, ABC):
         sql_with_returning = self._append_returning(sql, returning_columns)
 
         row = self.query_raw(sql_with_returning, params, auto_commit=True)[0]
-
         result = self._materialize_instance(table, row, include_map={})
-        self._invalidate_backrefs(table, result)
         return result
 
     def insert_many(
@@ -127,10 +123,6 @@ class BackendBase(BackendProtocol, ABC):
         row = rows[0]
         include_map = include or {}
         instance = self._materialize_instance(table, row, include_map)
-        identity_key = self._identity_key(table, row)
-        if identity_key is not None:
-            self._identity_map.pop(identity_key, None)
-        self._invalidate_backrefs(table, instance)
         return instance
 
     def upsert(
@@ -198,10 +190,6 @@ class BackendBase(BackendProtocol, ABC):
         row = rows[0]
         include_map = include or {}
         instance = self._materialize_instance(table, row, include_map)
-        identity_key = self._identity_key(table, row)
-        if identity_key is not None:
-            self._identity_map.pop(identity_key, None)
-        self._invalidate_backrefs(table, instance)
         return instance
 
     def find_many(
@@ -303,14 +291,12 @@ class BackendBase(BackendProtocol, ABC):
         )
         if not rows:
             return None
+        if len(rows) != 1:
+            raise RuntimeError(f"delete() expected exactly 1 row, got {len(rows)}")
 
         row = rows[0]
         include_map = include or {}
         instance = self._materialize_instance(table, row, include_map)
-        identity_key = self._identity_key(table, row)
-        if identity_key is not None:
-            self._identity_map.pop(identity_key, None)
-        self._invalidate_backrefs(table, instance)
         return instance
 
     @overload
@@ -355,17 +341,9 @@ class BackendBase(BackendProtocol, ABC):
             sql_with_returning = self._append_returning(sql, returning_columns)
             rows = self.query_raw(sql_with_returning, params, auto_commit=True)
             include_map: Mapping[str, bool] = {}
-            results: list[ModelT] = []
-            for row in rows:
-                identity_key = self._identity_key(table, row)
-                if identity_key is not None:
-                    self._identity_map.pop(identity_key, None)
-                instance = self._materialize_instance(table, row, include_map)
-                results.append(instance)
-            return results
+            return [self._materialize_instance(table, row, include_map) for row in rows]
 
         affected = self.execute_raw(sql, params, auto_commit=True)
-        self._purge_identity_map(table.model)
         return affected
 
     @overload
@@ -420,17 +398,9 @@ class BackendBase(BackendProtocol, ABC):
             sql_with_returning = self._append_returning(sql, returning_columns)
             rows = self.query_raw(sql_with_returning, params, auto_commit=True)
             include_map: Mapping[str, bool] = {}
-            results: list[ModelT] = []
-            for row in rows:
-                identity_key = self._identity_key(table, row)
-                if identity_key is not None:
-                    self._identity_map.pop(identity_key, None)
-                instance = self._materialize_instance(table, row, include_map)
-                results.append(instance)
-            return results
+            return [self._materialize_instance(table, row, include_map) for row in rows]
 
         affected = self.execute_raw(sql, params, auto_commit=True)
-        self._purge_identity_map(table.model)
         return affected
 
     def _fetch_single(
@@ -467,60 +437,6 @@ class BackendBase(BackendProtocol, ABC):
             return format_quotes(name, self.quote_char)
         raise ValueError("Backend does not support identifier quoting without a quote character set")
 
-    def _invalidate_backrefs(
-        self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
-        instance: ModelT,
-    ) -> None:
-        for relation in table.relations:
-            backref = relation.backref
-            if not backref:
-                continue
-            remote_model = relation.remote_table().model
-            key_values: list[Any] = []
-            for local_col in relation.mapping:
-                value = getattr(instance, local_col, None)
-                if value is None:
-                    key_values = []
-                    break
-                key_values.append(value)
-            if not key_values:
-                continue
-            identity_key = (remote_model, tuple(key_values))
-            owners = self._identity_map.get(identity_key)
-            if not owners:
-                continue
-            alive_refs: list[ReferenceType[object]] = []
-            for owner_ref in owners:
-                owner = owner_ref()
-                if owner is None:
-                    continue
-                reset_lazy_backref(owner, backref)
-                alive_refs.append(owner_ref)
-            if alive_refs:
-                self._identity_map[identity_key] = alive_refs
-            else:
-                self._identity_map.pop(identity_key, None)
-
-    def _identity_key(
-        self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
-        row: Any,
-    ) -> tuple[type[ModelT], tuple[Any, ...]] | None:
-        pk_columns = getattr(table, "primary_key", ())
-        if not pk_columns:
-            return None
-        column_names = table.column_specs_by_name
-        values: list[Any] = []
-        for column in pk_columns:
-            if column not in column_names:
-                return None
-            value = row[column]
-            if value is None:
-                return None
-            values.append(value)
-        return (table.model, tuple(values))
-
     def _materialize_instance(
         self,
         table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
@@ -528,17 +444,6 @@ class BackendBase(BackendProtocol, ABC):
         include_map: Mapping[str, bool],
     ) -> ModelT:
         instance = table.deserialize_row(row)
-        key = self._identity_key(table, row)
-        if key is not None:
-            owners = self._identity_map.get(key)
-            alive_refs: list[ReferenceType[object]] = []
-            if owners is not None:
-                for owner_ref in owners:
-                    owner = owner_ref()
-                    if owner is not None:
-                        alive_refs.append(owner_ref)
-            alive_refs.append(ref(instance))
-            self._identity_map[key] = alive_refs
         instance = cast(ModelT, instance)
         self._attach_relations(table, instance, include_map)
         return instance
@@ -565,14 +470,6 @@ class BackendBase(BackendProtocol, ABC):
                 many=relation.many,
             )
             finalize_lazy_state(instance, state, eager=bool(include_lookup.get(name)))
-
-    def _clear_identity_map(self) -> None:
-        self._identity_map.clear()
-
-    def _purge_identity_map(self, model: type[Any]) -> None:
-        stale_keys = [key for key in self._identity_map if key[0] is model]
-        for key in stale_keys:
-            self._identity_map.pop(key, None)
 
     def _render_query(self, query: QueryBuilder) -> str:
         return query.get_sql(quote_char=self.quote_char) + ';'

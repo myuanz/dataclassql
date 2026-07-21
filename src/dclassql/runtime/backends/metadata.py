@@ -22,4 +22,3 @@ class TableRelation[TTable]:
     remote_table: Callable[[], type[TTable]]
     many: bool
     mapping: Mapping[str, str]
-    backref: str | None = None

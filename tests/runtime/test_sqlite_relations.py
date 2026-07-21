@@ -10,9 +10,12 @@ import pytest
 
 from dclassql import record_sql
 from dclassql.codegen import generate_client
+from dclassql.model_inspector import DataSourceConfig
 from dclassql.push import db_push
 from dclassql.runtime.backends.lazy import eager
 from dclassql.runtime.datasource import open_sqlite_connection
+
+__datasource__ = {"url": "sqlite:///:memory:"}
 
 
 def test_lazy_relations(tmp_path):
@@ -94,13 +97,18 @@ def test_lazy_relations(tmp_path):
         birthday_proxy = user.birthday
         assert f"<LazyRelation {LazyBirthDay.__name__} (lazy)>" in repr(birthday_proxy)
         with record_sql() as sqls:
-            _ = birthday_proxy.date
+            birthday_date = birthday_proxy.date
+            birthday_date_again = birthday_proxy.date
         assert sqls == [('SELECT "user_id","date" FROM "LazyBirthDay" WHERE "user_id"=? LIMIT 1;', (1,))]
         assert isinstance(birthday_proxy, LazyBirthDay)
-        assert str(birthday_proxy.date).startswith("1990-01-01")
-        birthday_loaded = user.birthday
-        assert isinstance(birthday_loaded, LazyBirthDay)
-        assert str(birthday_loaded.date).startswith("1990-01-01")
+        assert birthday_date == birthday_date_again
+        assert str(birthday_date).startswith("1990-01-01")
+
+        birthday_again = user.birthday
+        assert birthday_again is not birthday_proxy
+        with record_sql() as sqls:
+            assert str(birthday_again.date).startswith("1990-01-01")
+        assert sqls == [('SELECT "user_id","date" FROM "LazyBirthDay" WHERE "user_id"=? LIMIT 1;', (1,))]
 
         addresses_proxy = user.addresses
         assert isinstance(addresses_proxy, list)
@@ -112,18 +120,22 @@ def test_lazy_relations(tmp_path):
         assert length == 1
         assert isinstance(first_address, LazyAddress)
         assert first_address.location == "Home"
+        assert user.addresses is not user.addresses
 
         with record_sql() as sqls:
             address = client.lazy_address.find_first(order_by={"id": "asc"})
-            _ = address.user.name
+            related_user = address.user
+            _ = related_user.name
+            _ = related_user.name
         assert sqls == [
             ('SELECT "id","user_id","location" FROM "LazyAddress" ORDER BY "id" ASC LIMIT 1;', ()),
             ('SELECT "id","name" FROM "LazyUser" WHERE "id"=? LIMIT 1;', (1,)),
         ]
-        assert isinstance(address.user, LazyUser)
-        assert address.user.name == "Alice"
-        assert address.user is address.user
-        user_addresses = address.user.addresses
+        assert isinstance(related_user, LazyUser)
+        assert related_user.name == "Alice"
+        assert address.user is not address.user
+        resolved_user = eager(related_user)
+        user_addresses = resolved_user.addresses
         assert isinstance(user_addresses, list)
         assert user_addresses and user_addresses[0].location == "Home"
 
@@ -133,7 +145,10 @@ def test_lazy_relations(tmp_path):
             ('SELECT "id","user_id","location" FROM "LazyAddress";', ()),
             ('SELECT "id","name" FROM "LazyUser" WHERE "id"=? LIMIT 1;', (1,)),
         ]
-        assert included[0].user.name == "Alice"
+        with record_sql() as sqls:
+            assert included[0].user.name == "Alice"
+            assert included[0].user is included[0].user
+        assert sqls == []
 
         with record_sql() as sqls:
             user_included = client.lazy_user.find_many(include={"addresses": True, "birthday": True})
@@ -267,7 +282,13 @@ def test_lazy_relations(tmp_path):
         assert second_user.addresses == []
         client.lazy_address.insert({"id": 2, "user_id": 2, "location": "Office"})
         with record_sql() as sqls:
-            assert len(second_user.addresses) == 1
+            assert second_user.addresses == []
+        assert sqls == []
+
+        fresh_second_user = client.lazy_user.find_first(where={"id": 2})
+        assert fresh_second_user is not None
+        with record_sql() as sqls:
+            assert len(fresh_second_user.addresses) == 1
         assert sqls == [
             ('SELECT "id","user_id","location" FROM "LazyAddress" WHERE "user_id"=?;', (2,))
         ]
@@ -543,10 +564,295 @@ def test_explicit_join_model_many_to_many_relations(tmp_path):
 
         client.many_user_book.insert({"user_id": 2, "book_id": 2})
 
-        assert [link.book_id for link in bob.books] == [2]
-        assert [link.user_id for link in python.users] == [1, 2]
+        assert bob.books == []
+        assert [link.user_id for link in python.users] == [1]
+
+        fresh_bob = client.many_user.find_first(where={"id": 2})
+        fresh_python = client.many_book.find_first(where={"id": 2})
+        assert fresh_bob is not None and fresh_python is not None
+        assert [link.book_id for link in fresh_bob.books] == [2]
+        assert [link.user_id for link in fresh_python.users] == [1, 2]
     finally:
         if ClientClass is not None:
             ClientClass.close_all()
         sys.modules.pop(generated_module_name, None)
         sys.modules.pop(module_name, None)
+
+
+@dataclass
+class CachedParent:
+    id: int
+    name: str
+    children: list['CachedChild']
+
+
+@dataclass
+class CachedChild:
+    id: int
+    parent_id: int
+    parent: CachedParent
+
+    def foreign_key(self):
+        yield self.parent.id == self.parent_id, CachedParent.children
+
+
+def test_lazy_list_proxy_scope_and_include_snapshot(tmp_path):
+    generated = generate_client([CachedParent, CachedChild])
+    namespace: dict[str, Any] = {}
+    exec(generated.code, namespace)
+    client = namespace[generated.client_class_name](
+        datasource=DataSourceConfig(url=f"sqlite:///{(tmp_path / 'cache.db').as_posix()}")
+    )
+
+    try:
+        client.push_db()
+        client.cached_parent.insert({"id": 1, "name": "one"})
+        client.cached_child.insert({"id": 1, "parent_id": 1})
+
+        parent = client.cached_parent.find_first(where={"id": 1})
+        assert parent is not None
+        children = parent.children
+        with record_sql() as sqls:
+            assert [child.id for child in children] == [1]
+            assert [child.id for child in children] == [1]
+        assert sqls == [
+            ('SELECT "id","parent_id" FROM "CachedChild" WHERE "parent_id"=?;', (1,)),
+        ]
+
+        client.cached_child.insert({"id": 2, "parent_id": 1})
+        with record_sql() as sqls:
+            assert [child.id for child in children] == [1]
+        assert sqls == []
+
+        with record_sql() as sqls:
+            assert [child.id for child in parent.children] == [1, 2]
+        assert sqls == [
+            ('SELECT "id","parent_id" FROM "CachedChild" WHERE "parent_id"=?;', (1,)),
+        ]
+
+        included_parent = client.cached_parent.find_first(
+            where={"id": 1}, include={"children": True}
+        )
+        assert included_parent is not None
+        assert [child.id for child in included_parent.children] == [1, 2]
+
+        client.cached_child.insert({"id": 3, "parent_id": 1})
+        with record_sql() as sqls:
+            assert [child.id for child in included_parent.children] == [1, 2]
+        assert sqls == []
+
+        with record_sql() as sqls:
+            assert [child.id for child in parent.children] == [1, 2, 3]
+        assert sqls == [
+            ('SELECT "id","parent_id" FROM "CachedChild" WHERE "parent_id"=?;', (1,)),
+        ]
+    finally:
+        client.close()
+
+
+@dataclass
+class FreshStatus:
+    id: int
+    code: str
+    name: str
+
+    def unique_index(self):
+        return self.code
+
+
+@dataclass
+class FreshOrder:
+    id: int
+    status_code: str
+    status: FreshStatus | None
+
+    def foreign_key(self):
+        yield self.status and self.status.code == self.status_code, None
+
+
+def test_lazy_single_proxy_scope_and_include_snapshot(tmp_path):
+    generated = generate_client([FreshStatus, FreshOrder])
+    namespace: dict[str, Any] = {}
+    exec(generated.code, namespace)
+    client = namespace[generated.client_class_name](
+        datasource=DataSourceConfig(
+            url=f"sqlite:///{(tmp_path / 'single-relation.db').as_posix()}"
+        )
+    )
+
+    try:
+        client.push_db()
+        client.fresh_order.insert({"id": 1, "status_code": "ready"})
+        order = client.fresh_order.find_first(where={"id": 1})
+        assert order is not None
+        missing_status = order.status
+        assert missing_status is not None
+        with record_sql() as sqls:
+            assert not missing_status
+        assert sqls == [
+            (
+                'SELECT "id","code","name" FROM "FreshStatus" '
+                'WHERE "code"=? LIMIT 1;',
+                ("ready",),
+            )
+        ]
+
+        client.fresh_status.insert({"id": 1, "code": "ready", "name": "Ready"})
+        with record_sql() as sqls:
+            assert not missing_status
+        assert sqls == []
+
+        fresh_status = order.status
+        assert fresh_status is not None
+        with record_sql() as sqls:
+            assert fresh_status.name == "Ready"
+        assert sqls == [
+            (
+                'SELECT "id","code","name" FROM "FreshStatus" '
+                'WHERE "code"=? LIMIT 1;',
+                ("ready",),
+            )
+        ]
+
+        included_order = client.fresh_order.find_first(
+            where={"id": 1}, include={"status": True}
+        )
+        assert included_order is not None
+        included_status = included_order.status
+        assert included_status is not None
+
+        client.fresh_status.update(
+            data={"name": "Completed"},
+            where={"id": 1},
+        )
+        with record_sql() as sqls:
+            assert fresh_status.name == "Ready"
+            assert included_status.name == "Ready"
+        assert sqls == []
+
+        current_status = order.status
+        assert current_status is not None
+        with record_sql() as sqls:
+            assert current_status.name == "Completed"
+        assert sqls == [
+            (
+                'SELECT "id","code","name" FROM "FreshStatus" '
+                'WHERE "code"=? LIMIT 1;',
+                ("ready",),
+            )
+        ]
+    finally:
+        client.close()
+
+
+@dataclass
+class RuntimeSelfNode:
+    id: int
+    parent_id: int | None
+    parent: 'RuntimeSelfNode | None'
+    children: list['RuntimeSelfNode']
+
+    def foreign_key(self):
+        yield self.parent and self.parent.id == self.parent_id, RuntimeSelfNode.children
+
+
+def test_self_relation_round_trip(tmp_path):
+    generated = generate_client([RuntimeSelfNode])
+    namespace: dict[str, Any] = {}
+    exec(generated.code, namespace)
+    client = namespace[generated.client_class_name](
+        datasource=DataSourceConfig(
+            url=f"sqlite:///{(tmp_path / 'self-relation.db').as_posix()}"
+        )
+    )
+
+    try:
+        client.push_db()
+        client.runtime_self_node.insert({"id": 1, "parent_id": None})
+        client.runtime_self_node.insert({"id": 2, "parent_id": 1})
+
+        root = client.runtime_self_node.find_first(
+            where={"id": 1}, include={"parent": True, "children": True}
+        )
+        child = client.runtime_self_node.find_first(
+            where={"id": 2}, include={"parent": True, "children": True}
+        )
+
+        assert root is not None and child is not None
+        assert root.parent is None
+        assert [node.id for node in root.children] == [2]
+        assert child.parent is not None
+        assert child.parent.id == 1
+        assert child.children == []
+    finally:
+        client.close()
+
+
+@dataclass
+class RuntimeCompositeParent:
+    tenant_id: int
+    id: int
+    name: str
+    children: list['RuntimeCompositeChild']
+
+    def primary_key(self):
+        return self.tenant_id, self.id
+
+
+@dataclass
+class RuntimeCompositeChild:
+    id: int
+    tenant_id: int
+    parent_id: int
+    parent: RuntimeCompositeParent
+
+    def foreign_key(self):
+        yield (
+            self.parent.tenant_id == self.tenant_id,
+            self.parent.id == self.parent_id,
+        ), RuntimeCompositeParent.children
+
+
+def test_composite_relation_round_trip_and_filter(tmp_path):
+    generated = generate_client([RuntimeCompositeParent, RuntimeCompositeChild])
+    namespace: dict[str, Any] = {}
+    exec(generated.code, namespace)
+    client = namespace[generated.client_class_name](
+        datasource=DataSourceConfig(
+            url=f"sqlite:///{(tmp_path / 'composite-relation.db').as_posix()}"
+        )
+    )
+
+    try:
+        client.push_db()
+        client.runtime_composite_parent.insert(
+            {"tenant_id": 1, "id": 10, "name": "one"}
+        )
+        client.runtime_composite_parent.insert(
+            {"tenant_id": 2, "id": 10, "name": "two"}
+        )
+        client.runtime_composite_child.insert(
+            {"id": 1, "tenant_id": 1, "parent_id": 10}
+        )
+
+        child = client.runtime_composite_child.find_first(
+            where={"id": 1}, include={"parent": True}
+        )
+        parent_one = client.runtime_composite_parent.find_first(
+            where={"tenant_id": 1, "id": 10}, include={"children": True}
+        )
+        parent_two = client.runtime_composite_parent.find_first(
+            where={"tenant_id": 2, "id": 10}, include={"children": True}
+        )
+        filtered = client.runtime_composite_child.find_many(
+            where={"parent": {"IS": {"name": "one"}}}
+        )
+
+        assert child is not None
+        assert parent_one is not None and parent_two is not None
+        assert (child.parent.tenant_id, child.parent.id) == (1, 10)
+        assert [item.id for item in parent_one.children] == [1]
+        assert parent_two.children == []
+        assert [item.id for item in filtered] == [1]
+    finally:
+        client.close()

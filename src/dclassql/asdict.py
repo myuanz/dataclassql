@@ -34,11 +34,11 @@ def _convert_value(
 ) -> Any:
     if value is None:
         return None
-    if is_dataclass(value):
-        return _convert_dataclass(value, relation_policy, memo, relation_guard)
     if isinstance(value, LazyInstance):
         resolved = value._lazy_resolve()
         return _convert_value(resolved, relation_policy, memo, relation_guard)
+    if is_dataclass(value):
+        return _convert_dataclass(value, relation_policy, memo, relation_guard)
     if isinstance(value, Mapping):
         return {
             key: _convert_value(item, relation_policy, memo, relation_guard)
@@ -105,14 +105,12 @@ def _convert_relation(
         if relation_policy == 'skip':
             return [] if state.many else None
 
-        if relation_policy == 'fetch':
-            value = resolve_lazy_relation(owner, state)
-        elif state.loaded:
+        if state.materialized:
             value = state.value
-        else:
-            if relation_policy == 'keep':
-                return [] if state.many else None
+        elif relation_policy == 'fetch':
             value = resolve_lazy_relation(owner, state)
+        else:
+            return [] if state.many else None
 
         if value is None:
             return None if not state.many else []

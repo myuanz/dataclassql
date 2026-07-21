@@ -276,6 +276,9 @@ class ModelGraph:
             )
             for model in models
         }
+        constraints_by_model = {
+            model: TableConstraints.from_dc(model) for model in models
+        }
         # 然后解析模型的 foreign_key，检查对应的表和字段，获得关系
         relationships = inspect_relationships(
             models,
@@ -283,27 +286,105 @@ class ModelGraph:
             registry,
         )
         # 所有关系都收集后，才能正确构建 ModelInfo
-        model_infos: list[ModelInfo] = []
-        for model in models:
-            constraints = TableConstraints.from_dc(model)
-            relation_names = {
-                relationship.local.attribute
-                for relationship in relationships.by_model(model)
-            }
-            model_infos.append(
-                ModelInfo(
-                    model=model,
-                    columns=ColumnInfo.from_model(
-                        model,
-                        type_hints_by_model[model],
-                        constraints,
-                        relation_names,
-                    ),
-                    constraints=constraints,
-                    datasource=_module_datasource(modules[model]),
-                )
+        model_infos = [
+            ModelInfo(
+                model=model,
+                columns=ColumnInfo.from_model(
+                    model,
+                    type_hints_by_model[model],
+                    constraints_by_model[model],
+                    {
+                        relationship.local.attribute
+                        for relationship in relationships.by_model(model)
+                    },
+                ),
+                constraints=constraints_by_model[model],
+                datasource=_module_datasource(modules[model]),
             )
-        return cls(models, model_infos, relationships)
+            for model in models
+        ]
+        graph = cls(models, model_infos, relationships)
+        graph._validate_relationships()
+        return graph
+
+    def _validate_relationships(self) -> None:
+        '''检查一个关系是否被错误共用'''
+        endpoints: set[tuple[type[Any], str]] = set()
+        for relationship in self.relationships:
+            for link in (relationship.local, relationship.remote):
+                if link is None:
+                    continue
+                key = (link.source, link.attribute)
+                if key in endpoints:
+                    raise ValueError(
+                        f"Relation attribute {link.source.__name__}.{link.attribute} "
+                        "is used by multiple relationships"
+                    )
+                endpoints.add(key)
+
+            if relationship.local.many:
+                raise TypeError(
+                    f"Foreign-key relation {relationship.local.source.__name__}."
+                    f"{relationship.local.attribute} must be single-valued"
+                )
+
+            local_model = relationship.local.source
+            remote_model = relationship.local.target
+            for local_column, remote_column in relationship.mapping.items():
+                local_type = self._relationship_column_type(
+                    local_model,
+                    local_column.name,
+                )
+                remote_type = self._relationship_column_type(
+                    remote_model,
+                    remote_column.name,
+                )
+                if local_type != remote_type:
+                    raise TypeError(
+                        f"Relationship columns {local_model.__name__}.{local_column.name} "
+                        f"and {remote_model.__name__}.{remote_column.name} have "
+                        f"incompatible types {local_type!r} and {remote_type!r}"
+                    )
+
+            local_columns = tuple(column.name for column in relationship.mapping)
+            remote_columns = tuple(column.name for column in relationship.mapping.values())
+            if not self.by_model[remote_model].constraints.is_unique(remote_columns):
+                raise ValueError(
+                    f"Relationship target columns {remote_model.__name__}."
+                    f"{remote_columns!r} must be a primary key or unique index"
+                )
+
+            if (
+                relationship.remote is not None
+                and not relationship.remote.many
+                and not self.by_model[local_model].constraints.is_unique(local_columns)
+            ):
+                raise ValueError(
+                    f"Single-valued backref {relationship.remote.source.__name__}."
+                    f"{relationship.remote.attribute} requires unique foreign-key "
+                    f"columns {local_model.__name__}.{local_columns!r}"
+                )
+
+    def _relationship_column_type(
+        self,
+        model: type[Any],
+        column: str,
+    ) -> object:
+        column_info = next(
+            (item for item in self.by_model[model].columns if item.name == column),
+            None,
+        )
+        if column_info is None:
+            raise ValueError(
+                f"Relationship column {model.__name__}.{column} does not exist"
+            )
+        if column_info.storage_kind != "scalar":
+            raise TypeError(
+                f"Relationship column {model.__name__}.{column} must be scalar"
+            )
+        type_hint = column_info.type_hint.without_transparent_wrappers()
+        return column_info.enum_type or column_info.scalar_base or type_hint.source
+
 
 def inspect_models(models: Sequence[type[Any]]) -> dict[str, ModelInfo]:
     return ModelGraph.from_models(models).by_name

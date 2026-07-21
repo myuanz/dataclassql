@@ -26,7 +26,6 @@ class SQLiteBackend(BackendBase):
             self._factory: ConnectionFactory | None = source._factory
             self._connection: sqlite3.Connection | None = source._connection
             self._local = source._local
-            self._identity_map = source._identity_map
             self._echo_sql = source._echo_sql
         elif isinstance(source, sqlite3.Connection):
             self._factory = None
@@ -84,7 +83,6 @@ class SQLiteBackend(BackendBase):
             include_map: Mapping[str, bool] = {}
             for row in rows:
                 instance = self._materialize_instance(table, dict(row), include_map)
-                self._invalidate_backrefs(table, instance)
                 results.append(instance)
             start = end
         return results
@@ -109,13 +107,11 @@ class SQLiteBackend(BackendBase):
             if self._connection is not None:
                 self._connection.close()
                 self._connection = None
-            self._clear_identity_map()
             return
         connection = getattr(self._local, "connection", None)
         if connection is not None:
             connection.close()
             delattr(self._local, "connection")
-        self._clear_identity_map()
 
     def query_raw(self, sql: str, params: Sequence[object] | None = None, auto_commit: bool = False) -> Sequence[dict[str, object]]:
         connection = self._acquire_connection()

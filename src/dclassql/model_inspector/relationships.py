@@ -1,7 +1,7 @@
 from collections import defaultdict
 from dataclasses import dataclass, fields, is_dataclass
 from types import CellType, FunctionType
-from typing import Any, Iterable, Mapping, Self, Sequence
+from typing import Any, Iterable, Iterator, Mapping, Self, Sequence
 
 from .fields import FieldTo
 from .table_constraints import Col
@@ -76,6 +76,7 @@ class Relationship:
 
 class Relationships:
     def __init__(self, relationships: Sequence[Relationship]) -> None:
+        self._relationships = tuple(relationships)
         by_local_model: defaultdict[type[Any], list[Relationship]] = defaultdict(list)
         by_remote_model: defaultdict[type[Any], list[Relationship]] = defaultdict(list)
         by_model: defaultdict[type[Any], list[Relationship]] = defaultdict(list)
@@ -93,6 +94,9 @@ class Relationships:
         }
         self._by_model = {model: tuple(items) for model, items in by_model.items()}
 
+    def __iter__(self) -> Iterator[Relationship]:
+        return iter(self._relationships)
+
     def by_local_model(self, model: type[Any]) -> tuple[Relationship, ...]:
         return self._by_local_model.get(model, ())
 
@@ -107,6 +111,33 @@ class Relationships:
 class _ForeignKeyComparison:
     left: '_ProxyCol'
     right: '_ProxyCol'
+
+    @classmethod
+    def coerce_many(cls, value: Any) -> tuple[Self, ...]:
+        if isinstance(value, cls):
+            return (value,)
+        if (
+            isinstance(value, tuple)
+            and value
+            and all(isinstance(item, cls) for item in value)
+        ):
+            return value
+        raise TypeError("foreign_key comparison must be column equality")
+
+    def oriented(self, model: type[Any]) -> LocalRemotePair['_ProxyCol']:
+        if self.left.link is not None and self.right.link is None:
+            pair = LocalRemotePair(local=self.right, remote=self.left)
+        elif self.right.link is not None and self.left.link is None:
+            pair = LocalRemotePair(local=self.left, remote=self.right)
+        else:
+            raise TypeError("foreign_key comparison must use a Link on the local model")
+        if (
+            pair.local.model is not model
+            or pair.remote.link is None
+            or pair.remote.link.source is not model
+        ):
+            raise TypeError("foreign_key comparison must use a Link on the local model")
+        return pair
 
 
 @dataclass(slots=True, frozen=True, eq=False)
@@ -286,14 +317,28 @@ def _inspect_model_relationships(
         if not isinstance(entry, tuple) or len(entry) != 2:
             raise TypeError("foreign_key must yield tuples of (comparison, backref)")
         comparison, backref = entry
-        if not isinstance(comparison, _ForeignKeyComparison):
-            raise TypeError("foreign_key comparison must be column equality")
-        local_col, remote_col = _determine_direction(model, comparison)
-        remote_model = remote_col.model
-        proxy_link = remote_col.link
-        if proxy_link is None:
-            raise TypeError("foreign_key comparison must use a Link on the local model")
-        local_link = proxy_link.to_link()
+        comparisons = _ForeignKeyComparison.coerce_many(comparison)
+        mapping: dict[Col, Col] = {}
+        local_link: Link | None = None
+        for comparison_item in comparisons:
+            columns = comparison_item.oriented(model)
+            proxy_link = columns.remote.link
+            assert proxy_link is not None
+            comparison_link = proxy_link.to_link()
+            if local_link is None:
+                local_link = comparison_link
+            elif comparison_link != local_link:
+                raise TypeError(
+                    "foreign_key column comparisons must use the same relation Link"
+                )
+            local_base = columns.local._to_base()
+            remote_base = columns.remote._to_base()
+            if local_base in mapping or remote_base in mapping.values():
+                raise ValueError("foreign_key column comparisons must be one-to-one")
+            mapping[local_base] = remote_base
+
+        assert local_link is not None
+        remote_model = local_link.target
         if backref is not None and not isinstance(backref, Link):
             raise TypeError(
                 f"foreign_key backref must be a relation attribute or None, {backref!r} given"
@@ -311,9 +356,7 @@ def _inspect_model_relationships(
             Relationship(
                 local=local_link,
                 remote=remote_link,
-                mapping={
-                    local_col._to_base(): remote_col._to_base(),
-                },
+                mapping=mapping,
                 is_reversed=False,
             )
         )
@@ -356,16 +399,3 @@ def _iterate_results(results: Any) -> Iterable[Any]:
     if isinstance(results, Iterable) and not isinstance(results, (str, bytes)):
         return results
     return [results]
-
-
-def _determine_direction(
-    model: type[Any],
-    comparison: _ForeignKeyComparison,
-) -> tuple[_ProxyCol, _ProxyCol]:
-    left_local = comparison.left.model is model
-    right_local = comparison.right.model is model
-    if left_local and not right_local:
-        return comparison.left, comparison.right
-    if right_local and not left_local:
-        return comparison.right, comparison.left
-    raise ValueError("Unable to determine foreign key direction")

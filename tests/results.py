@@ -129,7 +129,7 @@ class AddressTable(TableProtocol):
     indexes: tuple[tuple[str, ...], ...] = ()
     unique_indexes: tuple[tuple[str, ...], ...] = ()
     relations: tuple[TableRelation, ...] = (
-        TableRelation(attribute="user", remote_table=lambda: UserTable, many=False, mapping={"user_id": "id"}, backref="addresses"),
+        TableRelation(attribute="user", remote_table=lambda: UserTable, many=False, mapping={"user_id": "id"}),
     )
 
     def primary_values(self, instance: Address) -> tuple[int]:
@@ -295,7 +295,7 @@ class BirthDayTable(TableProtocol):
     indexes: tuple[tuple[str, ...], ...] = ()
     unique_indexes: tuple[tuple[str, ...], ...] = ()
     relations: tuple[TableRelation, ...] = (
-        TableRelation(attribute="user", remote_table=lambda: UserTable, many=False, mapping={"user_id": "id"}, backref="birthday"),
+        TableRelation(attribute="user", remote_table=lambda: UserTable, many=False, mapping={"user_id": "id"}),
     )
 
     def primary_values(self, instance: BirthDay) -> tuple[int]:
@@ -458,7 +458,7 @@ class BookTable(TableProtocol):
     indexes: tuple[tuple[str, ...], ...] = (('name',),)
     unique_indexes: tuple[tuple[str, ...], ...] = ()
     relations: tuple[TableRelation, ...] = (
-        TableRelation(attribute="users", remote_table=lambda: UserBookTable, many=True, mapping={"id": "book_id"}, backref=None),
+        TableRelation(attribute="users", remote_table=lambda: UserBookTable, many=True, mapping={"id": "book_id"}),
     )
 
     def primary_values(self, instance: Book) -> tuple[int]:
@@ -885,9 +885,9 @@ class UserTable(TableProtocol):
     indexes: tuple[tuple[str, ...], ...] = (('name',), ('name', 'email'), ('last_login',),)
     unique_indexes: tuple[tuple[str, ...], ...] = (('name', 'email'),)
     relations: tuple[TableRelation, ...] = (
-        TableRelation(attribute="addresses", remote_table=lambda: AddressTable, many=True, mapping={"id": "user_id"}, backref=None),
-        TableRelation(attribute="birthday", remote_table=lambda: BirthDayTable, many=False, mapping={"id": "user_id"}, backref=None),
-        TableRelation(attribute="books", remote_table=lambda: UserBookTable, many=True, mapping={"id": "user_id"}, backref=None),
+        TableRelation(attribute="addresses", remote_table=lambda: AddressTable, many=True, mapping={"id": "user_id"}),
+        TableRelation(attribute="birthday", remote_table=lambda: BirthDayTable, many=False, mapping={"id": "user_id"}),
+        TableRelation(attribute="books", remote_table=lambda: UserBookTable, many=True, mapping={"id": "user_id"}),
     )
 
     def primary_values(self, instance: User) -> tuple[int]:
@@ -1087,8 +1087,8 @@ class UserBookTable(TableProtocol):
     indexes: tuple[tuple[str, ...], ...] = (('created_at',),)
     unique_indexes: tuple[tuple[str, ...], ...] = ()
     relations: tuple[TableRelation, ...] = (
-        TableRelation(attribute="user", remote_table=lambda: UserTable, many=False, mapping={"user_id": "id"}, backref="books"),
-        TableRelation(attribute="book", remote_table=lambda: BookTable, many=False, mapping={"book_id": "id"}, backref="users"),
+        TableRelation(attribute="user", remote_table=lambda: UserTable, many=False, mapping={"user_id": "id"}),
+        TableRelation(attribute="book", remote_table=lambda: BookTable, many=False, mapping={"book_id": "id"}),
     )
 
     def primary_values(self, instance: UserBook) -> tuple[int, int]:
