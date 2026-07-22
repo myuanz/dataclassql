@@ -57,14 +57,13 @@
   - `sync_indexes=True` 会删除多余索引/重建缺失索引。
 - `runtime/backends.base.BackendBase`:
   - 定义通用 CRUD 实现, 支持 typed insert payload (dataclass、TypedDict、Mapping)。
-- 提供 identity map 与关系懒加载 (`ensure_lazy_state`/`LazyLookupKey.resolve()`)。
   - delete/delete_many、update/update_many、insert/insert_many、find_first/find_many
 - `runtime/backends.sqlite.SQLiteBackend`:
   - 基于 sqlite3, 可接受连接或线程局部工厂, 实现批量插入、`query_raw`/`execute_raw`。
   - 默认使用 `sqlite3.Row` 作为 row factory, 保证列名访问。
 - `runtime/backends.lazy`:
-  - 定义懒加载代理 (`_LazyRelationDescriptor`, `_LazyListProxy` 等) 与 `eager()` 帮助函数。
-  - `LazyRelationState` 维护加载状态、映射关系, 支持一对一/一对多访问及 backref。
+  - 定义 `_LazyRelationDescriptor`、单值 lazy proxy、`LazyRelationView` 与 `eager()`。
+  - `LazyRelationState` 保存实例关系的查询绑定; identity weak registry 只登记未 include 的 lazy 关系, 不依赖模型的 `__hash__` / `__eq__`。
 - `runtime/datasource.py` + `sqlite_adapters.py`: 解析 `sqlite:///...` URL, 注册日期/时间适配器, 构造连接。
 - `runtime/client_base.py`: `ClientBase` 统一实现 backend、连接缓存、`push_db()` 与关闭逻辑, 生成 Client 只提供数据源和表集合。
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol, TypeVar, cast, runtime_checkable
-from weakref import WeakKeyDictionary
+from weakref import ReferenceType, ref
 
 from .protocols import BackendProtocol
 from .relation_view import (
@@ -20,9 +20,6 @@ class LazyRelationState:
     table_cls: type[Any]
     mapping: Mapping[str, str]
     many: bool
-    materialized: bool = False
-    value: Any = None
-    model_cls: type[Any] | None = None
 
     def lookup_key_for(self, instance: Any) -> LazyLookupKey:
         criteria: list[tuple[str, object]] = []
@@ -42,6 +39,62 @@ class LazyRelationState:
             tuple(criteria),
             self.many,
         )
+
+    def bind(self, instance: Any) -> None:
+        ensure_lazy_descriptor(instance.__class__, self.attribute, self.many)
+        LAZY_RELATION_REGISTRY.bind(instance, self)
+
+    def materialize(self, instance: Any) -> None:
+        ensure_lazy_descriptor(instance.__class__, self.attribute, self.many)
+        setattr(instance, self.attribute, self.lookup_key_for(instance).resolve())
+
+
+class _LazyRelationRegistry:
+    def __init__(self) -> None:
+        self._entries: dict[
+            int,
+            tuple[ReferenceType[Any], dict[str, LazyRelationState]],
+        ] = {}
+
+    def get(self, instance: Any) -> dict[str, LazyRelationState] | None:
+        instance_id = id(instance)
+        entry = self._entries.get(instance_id)
+        if entry is None:
+            return None
+        instance_ref, states = entry
+        if instance_ref() is instance:
+            return states
+        del self._entries[instance_id]
+        return None
+
+    def bind(self, instance: Any, state: LazyRelationState) -> None:
+        states = self.get(instance)
+        if states is None:
+            instance_id = id(instance)
+
+            def remove(dead_ref: ReferenceType[Any]) -> None:
+                entry = self._entries.get(instance_id)
+                if entry is not None and entry[0] is dead_ref:
+                    del self._entries[instance_id]
+
+            states = {}
+            self._entries[instance_id] = (ref(instance, remove), states)
+        states[state.attribute] = state
+
+    def unbind(self, instance: Any, attribute: str) -> None:
+        states = self.get(instance)
+        if states is None:
+            return
+        states.pop(attribute, None)
+        if states:
+            return
+        del self._entries[id(instance)]
+
+    def __contains__(self, instance: object) -> bool:
+        return self.get(instance) is not None
+
+    def __len__(self) -> int:
+        return len(self._entries)
 
 
 @dataclass(slots=True)
@@ -65,11 +118,20 @@ class _LazyRelationQuery:
 
 
 class _LazyRelationDescriptor:
-    __slots__ = ("name", "original")
+    __slots__ = ("name", "original", "many")
 
-    def __init__(self, name: str, original: Any = None) -> None:
+    def __init__(self, name: str, original: Any, many: bool) -> None:
         self.name = name
         self.original = original
+        self.many = many
+
+    @classmethod
+    def find(
+        cls,
+        model_cls: type[Any],
+        attribute: str,
+    ) -> _LazyRelationDescriptor | None:
+        return _LAZY_DESCRIPTOR_CACHE.get(model_cls, {}).get(attribute)
 
     def __set_name__(self, owner: type[Any], name: str) -> None:
         self.name = name
@@ -77,14 +139,12 @@ class _LazyRelationDescriptor:
     def __get__(self, instance: Any, owner: type[Any] | None = None) -> Any:
         if instance is None:
             return self
-        state_map = LAZY_RELATION_STATE.get(instance)
+        state_map = LAZY_RELATION_REGISTRY.get(instance)
         if state_map is None:
             return self._get_original_value(instance)
         state = state_map.get(self.name)
         if state is None:
             return self._get_original_value(instance)
-        if state.materialized:
-            return state.value
         return ensure_lazy_placeholder(instance, state)
 
     def _get_original_value(self, instance: Any) -> Any:
@@ -101,12 +161,7 @@ class _LazyRelationDescriptor:
             original.__set__(instance, value)
 
     def __set__(self, instance: Any, value: Any) -> None:
-        state_map = LAZY_RELATION_STATE.get(instance)
-        if state_map is not None:
-            state = state_map.get(self.name)
-            if state is not None:
-                state.materialized = True
-                state.value = value
+        LAZY_RELATION_REGISTRY.unbind(instance, self.name)
         self._set_original_value(instance, value)
         if hasattr(instance, "__dict__"):
             instance.__dict__[self.name] = value
@@ -114,7 +169,7 @@ class _LazyRelationDescriptor:
 
 _LAZY_SINGLE_PROXY_CLASS_CACHE: dict[type[Any], type[Any]] = {}
 _LAZY_DESCRIPTOR_CACHE: dict[type[Any], dict[str, _LazyRelationDescriptor]] = {}
-LAZY_RELATION_STATE: WeakKeyDictionary[Any, dict[str, LazyRelationState]] = WeakKeyDictionary()
+LAZY_RELATION_REGISTRY = _LazyRelationRegistry()
 
 
 ValueT = TypeVar("ValueT")
@@ -136,14 +191,16 @@ def eager[ValueT](value: LazyInstance[ValueT] | ValueT) -> ValueT:
     return value
 
 
-def ensure_lazy_descriptor(model_cls: type[Any], attribute: str) -> None:
+def ensure_lazy_descriptor(
+    model_cls: type[Any],
+    attribute: str,
+    many: bool,
+) -> None:
     descriptor_map = _LAZY_DESCRIPTOR_CACHE.setdefault(model_cls, {})
     if attribute in descriptor_map:
         return
-    if getattr(model_cls, "__hash__", None) is None:
-        setattr(model_cls, "__hash__", object.__hash__)
     original = getattr(model_cls, attribute, None)
-    descriptor = _LazyRelationDescriptor(attribute, original)
+    descriptor = _LazyRelationDescriptor(attribute, original, many)
     descriptor_map[attribute] = descriptor
     setattr(model_cls, attribute, descriptor)
 
@@ -227,12 +284,7 @@ def _ensure_lazy_single_proxy_class(model_cls: type[Any]) -> type[Any]:
 
 
 def _create_lazy_single_proxy(owner: Any, state: LazyRelationState) -> Any:
-    model_cls = state.model_cls
-    if model_cls is None:
-        model_cls = cast(type[Any], getattr(state.table_cls, "model", None))
-        if model_cls is None:
-            raise RuntimeError(f"Relation '{state.attribute}' missing model class metadata")
-        state.model_cls = model_cls
+    model_cls = cast(type[Any], state.table_cls.model)
     proxy_cls = _ensure_lazy_single_proxy_class(model_cls)
     return proxy_cls(state.lookup_key_for(owner))
 
@@ -244,48 +296,3 @@ def ensure_lazy_placeholder(instance: Any, state: LazyRelationState) -> Any:
             state.lookup_key_for(instance),
         )
     return _create_lazy_single_proxy(instance, state)
-
-
-def ensure_lazy_state(
-    instance: Any,
-    attribute: str,
-    backend: BackendProtocol,
-    table_cls: type[Any],
-    mapping: Mapping[str, str],
-    many: bool,
-) -> LazyRelationState:
-    model_cls = instance.__class__
-    ensure_lazy_descriptor(model_cls, attribute)
-    state_map = LAZY_RELATION_STATE.get(instance)
-    if state_map is None:
-        state_map = {}
-        LAZY_RELATION_STATE[instance] = state_map
-    state = state_map.get(attribute)
-    if state is None:
-        state = LazyRelationState(
-            attribute=attribute,
-            backend=backend,
-            table_cls=table_cls,
-            mapping=mapping,
-            many=many,
-            model_cls=cast(type[Any] | None, getattr(table_cls, "model", None)),
-        )
-        state_map[attribute] = state
-    else:
-        state.backend = backend
-        state.table_cls = table_cls
-        state.mapping = mapping
-        state.many = many
-        state.model_cls = cast(type[Any] | None, getattr(table_cls, "model", None))
-    return state
-
-
-def finalize_lazy_state(instance: Any, state: LazyRelationState, eager: bool) -> None:
-    if eager:
-        state.value = state.lookup_key_for(instance).resolve()
-        state.materialized = True
-    else:
-        state.materialized = False
-        state.value = None
-        if hasattr(instance, "__dict__"):
-            instance.__dict__.pop(state.attribute, None)

@@ -1,148 +1,118 @@
 from __future__ import annotations
 
 import dataclasses as _dataclasses
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import fields, is_dataclass
 from typing import Any, Literal, cast
 
 from .runtime.backends.lazy import (
-    LAZY_RELATION_STATE,
+    LAZY_RELATION_REGISTRY,
     LazyInstance,
     LazyRelationState,
+    _LazyRelationDescriptor,
 )
 from .runtime.backends.relation_view import LazyLookupKey
 
 RelationPolicy = Literal['skip', 'fetch', 'keep']
+type _DictFactory = Callable[[Iterable[tuple[str, Any]]], Any]
 _SEQUENCE_SKIP_TYPES = (str, bytes, bytearray)
 
 
 def asdict(value: Any, *, relation_policy: RelationPolicy = 'keep') -> Any:
-    if value is None:
-        return None
-
-    memo: set[int] = set()
-    relation_guard: set[LazyLookupKey] = set()
-    return _convert_value(value, relation_policy, memo, relation_guard)
+    return _AsdictConverter(relation_policy, dict).convert(value)
 
 
-def _convert_value(
-    value: Any,
-    relation_policy: RelationPolicy,
-    memo: set[int],
-    relation_guard: set[LazyLookupKey],
-) -> Any:
-    if value is None:
-        return None
-    if isinstance(value, LazyInstance):
-        resolved = value._lazy_resolve()
-        return _convert_value(resolved, relation_policy, memo, relation_guard)
-    if is_dataclass(value):
-        return _convert_dataclass(value, relation_policy, memo, relation_guard)
-    if isinstance(value, Mapping):
-        return {
-            key: _convert_value(item, relation_policy, memo, relation_guard)
-            for key, item in value.items()
-        }
-    if isinstance(value, list):
-        return [_convert_value(item, relation_policy, memo, relation_guard) for item in value]
-    if isinstance(value, tuple):
-        return tuple(_convert_value(item, relation_policy, memo, relation_guard) for item in value)
-    if isinstance(value, Sequence) and not isinstance(value, _SEQUENCE_SKIP_TYPES):
-        return [_convert_value(item, relation_policy, memo, relation_guard) for item in value]
-    return value
+class _AsdictConverter:
+    def __init__(
+        self,
+        relation_policy: RelationPolicy,
+        dict_factory: _DictFactory,
+    ) -> None:
+        self.relation_policy = relation_policy
+        self.dict_factory = dict_factory
+        self.memo: set[int] = set()
+        self.relation_guard: set[LazyLookupKey] = set()
 
-
-def _convert_dataclass(
-    instance: Any,
-    relation_policy: RelationPolicy,
-    memo: set[int],
-    relation_guard: set[LazyLookupKey],
-) -> dict[str, Any]:
-    instance_id = id(instance)
-    if instance_id in memo:
-        raise RecursionError('dclassql.asdict() detected a recursive dataclass reference')
-    memo.add(instance_id)
-    try:
-        state_map = LAZY_RELATION_STATE.get(instance)
-        result: dict[str, Any] = {}
-        for field_obj in fields(instance):
-            name = field_obj.name
-            state = _lookup_relation_state(state_map, name)
-            if state is not None:
-                result[name] = _convert_relation(instance, state, relation_policy, memo, relation_guard)
-                continue
-            value = getattr(instance, name)
-            result[name] = _convert_value(value, relation_policy, memo, relation_guard)
-        return result
-    finally:
-        memo.remove(instance_id)
-
-
-def _lookup_relation_state(state_map: dict[str, LazyRelationState] | None, name: str) -> LazyRelationState | None:
-    if state_map is None:
-        return None
-    return state_map.get(name)
-
-
-def _convert_relation(
-    owner: Any,
-    state: LazyRelationState,
-    relation_policy: RelationPolicy,
-    memo: set[int],
-    relation_guard: set[LazyLookupKey],
-) -> Any:
-    lookup_key = state.lookup_key_for(owner)
-    guarded = lookup_key.criteria is not None
-    if guarded and lookup_key in relation_guard:
-        return [] if state.many else None
-
-    if guarded:
-        relation_guard.add(lookup_key)
-
-    try:
-        if relation_policy == 'skip':
-            return [] if state.many else None
-
-        if state.materialized:
-            value = state.value
-        elif relation_policy == 'fetch':
-            value = lookup_key.resolve()
-        else:
-            return [] if state.many else None
-
+    def convert(self, value: Any) -> Any:
         if value is None:
-            return None if not state.many else []
-
-        if state.many:
-            result_list: list[Any] = []
-            for item in value:
-                if is_dataclass(item) and id(item) in memo:
-                    continue
-                result_list.append(_convert_value(item, relation_policy, memo, relation_guard))
-            return result_list
-
-        if is_dataclass(value) and id(value) in memo:
             return None
+        if isinstance(value, LazyInstance):
+            return self.convert(value._lazy_resolve())
+        if is_dataclass(value):
+            return self._convert_dataclass(value)
+        if isinstance(value, Mapping):
+            return {key: self.convert(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [self.convert(item) for item in value]
+        if isinstance(value, tuple):
+            return tuple(self.convert(item) for item in value)
+        if isinstance(value, Sequence) and not isinstance(
+            value,
+            _SEQUENCE_SKIP_TYPES,
+        ):
+            return [self.convert(item) for item in value]
+        return value
 
-        return _convert_value(value, relation_policy, memo, relation_guard)
-    finally:
+    def _convert_dataclass(self, instance: Any) -> Any:
+        instance_id = id(instance)
+        if instance_id in self.memo:
+            raise RecursionError(
+                'dclassql.asdict() detected a recursive dataclass reference'
+            )
+        self.memo.add(instance_id)
+        try:
+            state_map = LAZY_RELATION_REGISTRY.get(instance)
+            result: list[tuple[str, Any]] = []
+            for field_obj in fields(instance):
+                name = field_obj.name
+                state = None if state_map is None else state_map.get(name)
+                descriptor = _LazyRelationDescriptor.find(instance.__class__, name)
+                if self.relation_policy == 'skip' and descriptor is not None:
+                    value = [] if descriptor.many else None
+                elif state is not None:
+                    value = self._convert_relation(instance, state)
+                else:
+                    value = self.convert(getattr(instance, name))
+                result.append((name, value))
+            return self.dict_factory(result)
+        finally:
+            self.memo.remove(instance_id)
+
+    def _convert_relation(
+        self,
+        owner: Any,
+        state: LazyRelationState,
+    ) -> Any:
+        lookup_key = state.lookup_key_for(owner)
+        guarded = lookup_key.criteria is not None
+        if guarded and lookup_key in self.relation_guard:
+            return [] if state.many else None
+
         if guarded:
-            relation_guard.discard(lookup_key)
+            self.relation_guard.add(lookup_key)
+
+        try:
+            if self.relation_policy != 'fetch':
+                return [] if state.many else None
+
+            value = lookup_key.resolve()
+            if value is None:
+                return [] if state.many else None
+            if state.many:
+                return [
+                    self.convert(item)
+                    for item in value
+                    if not is_dataclass(item) or id(item) not in self.memo
+                ]
+            if is_dataclass(value) and id(value) in self.memo:
+                return None
+            return self.convert(value)
+        finally:
+            if guarded:
+                self.relation_guard.discard(lookup_key)
 
 
 __all__ = ['RelationPolicy', 'asdict']
-
-
-def _apply_dict_factory(value: Any, dict_factory: Any) -> Any:
-    if isinstance(value, dict):
-        return dict_factory((key, _apply_dict_factory(val, dict_factory)) for key, val in value.items())
-    if isinstance(value, list):
-        return [_apply_dict_factory(item, dict_factory) for item in value]
-    if isinstance(value, tuple):
-        return tuple(_apply_dict_factory(item, dict_factory) for item in value)
-    if isinstance(value, set):
-        return {_apply_dict_factory(item, dict_factory) for item in value}
-    return value
 
 
 def _patch_dataclasses_asdict() -> None:
@@ -153,18 +123,8 @@ def _patch_dataclasses_asdict() -> None:
     original_inner = cast(Any, getattr(_dataclasses, '_asdict_inner'))
 
     def _patched_inner(obj: Any, dict_factory: Any):
-        obj_in_state = False
-        try:
-            # some objects may raise exceptions on __hash__/__eq__
-            obj_in_state = obj in LAZY_RELATION_STATE
-        except Exception:
-            pass
-
-        if obj_in_state:
-            data = asdict(obj)
-            if dict_factory is dict:
-                return data
-            return _apply_dict_factory(data, dict_factory)
+        if obj in LAZY_RELATION_REGISTRY:
+            return _AsdictConverter('keep', dict_factory).convert(obj)
         return original_inner(obj, dict_factory)
 
     setattr(_dataclasses, '_asdict_inner', _patched_inner)

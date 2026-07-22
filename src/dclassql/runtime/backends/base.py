@@ -14,7 +14,7 @@ from pypika.utils import format_quotes
 from dclassql.runtime.sql_recorder import push_sql
 from dclassql.typing import IncludeT, InsertT, ModelT, OrderByT, OrderDirection, UpsertWhereT, WhereT
 
-from .lazy import ensure_lazy_state, finalize_lazy_state
+from .lazy import LazyRelationState
 from .protocols import BackendProtocol, TableProtocol
 from .where_compiler import WhereCompiler
 
@@ -486,15 +486,17 @@ class BackendBase(BackendProtocol, ABC):
 
         for relation in relations:
             name = relation.attribute
-            state = ensure_lazy_state(
-                instance=instance,
+            state = LazyRelationState(
                 attribute=name,
                 backend=self,
                 table_cls=relation.remote_table(),
                 mapping=relation.mapping,
                 many=relation.many,
             )
-            finalize_lazy_state(instance, state, eager=bool(include_lookup.get(name)))
+            if include_lookup.get(name):
+                state.materialize(instance)
+            else:
+                state.bind(instance)
 
     def _render_query(self, query: QueryBuilder) -> str:
         return query.get_sql(quote_char=self.quote_char) + ';'
