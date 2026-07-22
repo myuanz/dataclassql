@@ -524,6 +524,8 @@ def test_generate_client_matches_expected_shape() -> None:
     assert insert_field_names == list(column_names)
 
     user_model_hints = get_type_hints(User)
+    assert get_origin(user_model_hints['addresses']) is list
+    assert get_origin(user_model_hints['books']) is list
     insert_hints = get_type_hints(user_insert_cls, globalns=namespace, localns=namespace)
     assert set(get_args(insert_hints['id'])) == {int, type(None)}
     assert insert_hints['email'] == user_model_hints['email']
@@ -1525,7 +1527,10 @@ def test_generated_client_allows_non_identifier_datasource_name(tmp_path: Path) 
 
 
 def test_generated_client_package_allows_direct_import(tmp_path: Path) -> None:
-    module = generate_client([User], client_class_name="UserModelClient")
+    module = generate_client(
+        [User, Address, BirthDay, Book, UserBook],
+        client_class_name="UserModelClient",
+    )
     package_dir = tmp_path / "user_model_client"
     package_dir.mkdir()
     (package_dir / "__init__.py").write_text(module.init_code, encoding="utf-8")

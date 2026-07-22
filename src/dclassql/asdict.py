@@ -9,11 +9,10 @@ from .runtime.backends.lazy import (
     LAZY_RELATION_STATE,
     LazyInstance,
     LazyRelationState,
-    resolve_lazy_relation,
 )
+from .runtime.backends.relation_view import LazyLookupKey
 
 RelationPolicy = Literal['skip', 'fetch', 'keep']
-RelationKey = tuple[type[Any] | None, tuple[tuple[str, Any], ...]]
 _SEQUENCE_SKIP_TYPES = (str, bytes, bytearray)
 
 
@@ -22,7 +21,7 @@ def asdict(value: Any, *, relation_policy: RelationPolicy = 'keep') -> Any:
         return None
 
     memo: set[int] = set()
-    relation_guard: set[RelationKey] = set()
+    relation_guard: set[LazyLookupKey] = set()
     return _convert_value(value, relation_policy, memo, relation_guard)
 
 
@@ -30,7 +29,7 @@ def _convert_value(
     value: Any,
     relation_policy: RelationPolicy,
     memo: set[int],
-    relation_guard: set[RelationKey],
+    relation_guard: set[LazyLookupKey],
 ) -> Any:
     if value is None:
         return None
@@ -57,7 +56,7 @@ def _convert_dataclass(
     instance: Any,
     relation_policy: RelationPolicy,
     memo: set[int],
-    relation_guard: set[RelationKey],
+    relation_guard: set[LazyLookupKey],
 ) -> dict[str, Any]:
     instance_id = id(instance)
     if instance_id in memo:
@@ -90,16 +89,15 @@ def _convert_relation(
     state: LazyRelationState,
     relation_policy: RelationPolicy,
     memo: set[int],
-    relation_guard: set[RelationKey],
+    relation_guard: set[LazyLookupKey],
 ) -> Any:
-    relation_key = _relation_identity(owner, state)
-    if relation_key is not None and relation_key in relation_guard:
+    lookup_key = state.lookup_key_for(owner)
+    guarded = lookup_key.criteria is not None
+    if guarded and lookup_key in relation_guard:
         return [] if state.many else None
 
-    guard_added = False
-    if relation_key is not None:
-        relation_guard.add(relation_key)
-        guard_added = True
+    if guarded:
+        relation_guard.add(lookup_key)
 
     try:
         if relation_policy == 'skip':
@@ -108,7 +106,7 @@ def _convert_relation(
         if state.materialized:
             value = state.value
         elif relation_policy == 'fetch':
-            value = resolve_lazy_relation(owner, state)
+            value = lookup_key.resolve()
         else:
             return [] if state.many else None
 
@@ -128,22 +126,8 @@ def _convert_relation(
 
         return _convert_value(value, relation_policy, memo, relation_guard)
     finally:
-        if guard_added and relation_key is not None:
-            relation_guard.discard(relation_key)
-
-
-def _relation_identity(owner: Any, state: LazyRelationState) -> RelationKey | None:
-    mapping = state.mapping
-    if not mapping:
-        return None
-    values: list[tuple[str, Any]] = []
-    for local_column, remote_column in mapping.items():
-        local_value = getattr(owner, local_column, None)
-        if local_value is None:
-            return None
-        values.append((remote_column, local_value))
-    model_cls = getattr(state.table_cls, 'model', None)
-    return (model_cls, tuple(values))
+        if guarded:
+            relation_guard.discard(lookup_key)
 
 
 __all__ = ['RelationPolicy', 'asdict']

@@ -12,6 +12,7 @@ from dclassql import record_sql
 from dclassql.codegen import generate_client
 from dclassql.model_inspector import DataSourceConfig
 from dclassql.push import db_push
+from dclassql.runtime.backends import LazyLookupKey, LazyRelationView
 from dclassql.runtime.backends.lazy import eager
 from dclassql.runtime.datasource import open_sqlite_connection
 
@@ -91,7 +92,7 @@ def test_lazy_relations(tmp_path):
             user = client.lazy_user.find_first(order_by={"id": "asc"})
         assert sqls == [('SELECT "id","name" FROM "LazyUser" ORDER BY "id" ASC LIMIT 1;', ())]
         user_repr = repr(user)
-        assert "<LazyRelationList addresses (lazy)>" in user_repr
+        assert "<LazyRelationView addresses (lazy)>" in user_repr
         assert f"<LazyRelation {LazyBirthDay.__name__} (lazy)>" in user_repr
 
         birthday_proxy = user.birthday
@@ -111,12 +112,22 @@ def test_lazy_relations(tmp_path):
         assert sqls == [('SELECT "user_id","date" FROM "LazyBirthDay" WHERE "user_id"=? LIMIT 1;', (1,))]
 
         addresses_proxy = user.addresses
-        assert isinstance(addresses_proxy, list)
-        assert "<LazyRelationList addresses (lazy)>" in repr(addresses_proxy)
+        assert isinstance(addresses_proxy, LazyRelationView)
+        assert "<LazyRelationView addresses (lazy)>" in repr(addresses_proxy)
         with record_sql() as sqls:
             length = len(addresses_proxy)
             first_address = addresses_proxy[0]
-        assert sqls == [('SELECT "id","user_id","location" FROM "LazyAddress" WHERE "user_id"=?;', (1,))]
+        assert sqls == [
+            (
+                'SELECT COUNT(*) "__count" FROM "LazyAddress" WHERE "user_id"=?;',
+                (1,),
+            ),
+            (
+                'SELECT "id","user_id","location" FROM "LazyAddress" '
+                'WHERE "user_id"=? LIMIT 1;',
+                (1,),
+            ),
+        ]
         assert length == 1
         assert isinstance(first_address, LazyAddress)
         assert first_address.location == "Home"
@@ -136,7 +147,7 @@ def test_lazy_relations(tmp_path):
         assert address.user is not address.user
         resolved_user = eager(related_user)
         user_addresses = resolved_user.addresses
-        assert isinstance(user_addresses, list)
+        assert isinstance(user_addresses, LazyRelationView)
         assert user_addresses and user_addresses[0].location == "Home"
 
         with record_sql() as sqls:
@@ -160,6 +171,7 @@ def test_lazy_relations(tmp_path):
             ('SELECT "id","user_id","location" FROM "LazyAddress" WHERE "user_id"=?;', (2,)),
         ]
         first_user = user_included[0]
+        assert type(first_user.addresses) is list
         assert len(first_user.addresses) == 1
         assert isinstance(first_user.birthday, LazyBirthDay)
         assert str(first_user.birthday.date).startswith("1990-01-01")
@@ -279,10 +291,10 @@ def test_lazy_relations(tmp_path):
         assert [user.id for user in users_address_every_contains] == [1, 2]
 
         second_user = user_included[1]
-        assert second_user.addresses == []
+        assert not second_user.addresses
         client.lazy_address.insert({"id": 2, "user_id": 2, "location": "Office"})
         with record_sql() as sqls:
-            assert second_user.addresses == []
+            assert not second_user.addresses
         assert sqls == []
 
         fresh_second_user = client.lazy_user.find_first(where={"id": 2})
@@ -290,7 +302,10 @@ def test_lazy_relations(tmp_path):
         with record_sql() as sqls:
             assert len(fresh_second_user.addresses) == 1
         assert sqls == [
-            ('SELECT "id","user_id","location" FROM "LazyAddress" WHERE "user_id"=?;', (2,))
+            (
+                'SELECT COUNT(*) "__count" FROM "LazyAddress" WHERE "user_id"=?;',
+                (2,),
+            )
         ]
 
     finally:
@@ -439,14 +454,14 @@ def test_trade_entry_and_exit_order_relations(tmp_path):
         )
         assert entry_order is not None
         assert [item.id for item in entry_order.entry_trades] == [10]
-        assert entry_order.exit_trades == []
+        assert not entry_order.exit_trades
 
         exit_order = client.trade_order.find_first(
             where={"id": {"EQ": 2}},
             include={"entry_trades": True, "exit_trades": True},
         )
         assert exit_order is not None
-        assert exit_order.entry_trades == []
+        assert not exit_order.entry_trades
         assert [item.id for item in exit_order.exit_trades] == [10]
 
     finally:
@@ -559,12 +574,12 @@ def test_explicit_join_model_many_to_many_relations(tmp_path):
         python = client.many_book.find_first(where={"id": 2}, include={"users": True})
         assert bob is not None
         assert python is not None
-        assert bob.books == []
+        assert not bob.books
         assert [link.user_id for link in python.users] == [1]
 
         client.many_user_book.insert({"user_id": 2, "book_id": 2})
 
-        assert bob.books == []
+        assert not bob.books
         assert [link.user_id for link in python.users] == [1]
 
         fresh_bob = client.many_user.find_first(where={"id": 2})
@@ -596,7 +611,7 @@ class CachedChild:
         yield self.parent.id == self.parent_id, CachedParent.children
 
 
-def test_lazy_list_proxy_scope_and_include_snapshot(tmp_path):
+def test_lazy_relation_view_scope_and_include_list(tmp_path):
     generated = generate_client([CachedParent, CachedChild])
     namespace: dict[str, Any] = {}
     exec(generated.code, namespace)
@@ -634,6 +649,7 @@ def test_lazy_list_proxy_scope_and_include_snapshot(tmp_path):
             where={"id": 1}, include={"children": True}
         )
         assert included_parent is not None
+        assert type(included_parent.children) is list
         assert [child.id for child in included_parent.children] == [1, 2]
 
         client.cached_child.insert({"id": 3, "parent_id": 1})
@@ -646,6 +662,95 @@ def test_lazy_list_proxy_scope_and_include_snapshot(tmp_path):
         assert sqls == [
             ('SELECT "id","parent_id" FROM "CachedChild" WHERE "parent_id"=?;', (1,)),
         ]
+    finally:
+        client.close()
+
+
+def test_lazy_relation_view_reads_and_lookup_identity(tmp_path):
+    generated = generate_client([CachedParent, CachedChild])
+    namespace: dict[str, Any] = {}
+    exec(generated.code, namespace)
+    client = namespace[generated.client_class_name](
+        datasource=DataSourceConfig(url=f"sqlite:///{(tmp_path / 'view.db').as_posix()}")
+    )
+
+    try:
+        client.push_db()
+        client.cached_parent.insert({"id": 1, "name": "one"})
+        client.cached_child.insert({"id": 1, "parent_id": 1})
+        client.cached_child.insert({"id": 2, "parent_id": 1})
+
+        parent = client.cached_parent.find_first(where={"id": 1})
+        same_parent = client.cached_parent.find_first(where={"id": 1})
+        assert parent is not None
+        assert same_parent is not None
+        view = parent.children
+        same_source = parent.children
+
+        assert type(view) is LazyRelationView
+        assert isinstance(view.lookup_key, LazyLookupKey)
+        assert view.lookup_key == same_source.lookup_key
+        assert hash(view) == hash(same_source)
+        with record_sql() as sqls:
+            assert view == same_source
+            assert parent == same_parent
+        assert sqls == []
+        with pytest.raises(TypeError, match="list"):
+            _ = view == []
+        with pytest.raises(AttributeError, match="append"):
+            cast(Any, view).append(view[0])
+
+        with record_sql() as sqls:
+            assert bool(view)
+        assert sqls == [
+            (
+                'SELECT "id","parent_id" FROM "CachedChild" '
+                'WHERE "parent_id"=? LIMIT 1;',
+                (1,),
+            )
+        ]
+
+        with record_sql() as sqls:
+            assert len(view) == 2
+        assert sqls == [
+            (
+                'SELECT COUNT(*) "__count" FROM "CachedChild" '
+                'WHERE "parent_id"=?;',
+                (1,),
+            )
+        ]
+
+        with record_sql() as sqls:
+            assert view[1].id == 2
+        assert sqls == [
+            (
+                'SELECT "id","parent_id" FROM "CachedChild" '
+                'WHERE "parent_id"=? LIMIT 1 OFFSET 1;',
+                (1,),
+            )
+        ]
+
+        with record_sql() as sqls:
+            assert [child.id for child in view] == [1, 2]
+            assert list(view)[1].id == 2
+        assert sqls == [
+            (
+                'SELECT "id","parent_id" FROM "CachedChild" '
+                'WHERE "parent_id"=?;',
+                (1,),
+            )
+        ]
+
+        included_parent = client.cached_parent.find_first(
+            where={"id": 1}, include={"children": True}
+        )
+        assert included_parent is not None
+        included_children = included_parent.children
+        assert type(included_children) is list
+        with record_sql() as sqls:
+            assert len(included_children) == 2
+            assert included_children[0].id == 1
+        assert sqls == []
     finally:
         client.close()
 
@@ -684,7 +789,15 @@ def test_lazy_single_proxy_scope_and_include_snapshot(tmp_path):
         client.push_db()
         client.fresh_order.insert({"id": 1, "status_code": "ready"})
         order = client.fresh_order.find_first(where={"id": 1})
+        same_order = client.fresh_order.find_first(where={"id": 1})
         assert order is not None
+        assert same_order is not None
+        with record_sql() as sqls:
+            assert order.status == same_order.status
+            assert hash(order.status) == hash(same_order.status)
+            assert order == same_order
+        assert sqls == []
+
         missing_status = order.status
         assert missing_status is not None
         with record_sql() as sqls:
@@ -720,6 +833,8 @@ def test_lazy_single_proxy_scope_and_include_snapshot(tmp_path):
         assert included_order is not None
         included_status = included_order.status
         assert included_status is not None
+        with pytest.raises(TypeError, match="eager"):
+            _ = fresh_status == included_status
 
         client.fresh_status.update(
             data={"name": "Completed"},
@@ -783,7 +898,7 @@ def test_self_relation_round_trip(tmp_path):
         assert [node.id for node in root.children] == [2]
         assert child.parent is not None
         assert child.parent.id == 1
-        assert child.children == []
+        assert not child.children
     finally:
         client.close()
 
@@ -852,7 +967,7 @@ def test_composite_relation_round_trip_and_filter(tmp_path):
         assert parent_one is not None and parent_two is not None
         assert (child.parent.tenant_id, child.parent.id) == (1, 10)
         assert [item.id for item in parent_one.children] == [1]
-        assert parent_two.children == []
+        assert not parent_two.children
         assert [item.id for item in filtered] == [1]
     finally:
         client.close()

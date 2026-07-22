@@ -65,7 +65,7 @@ def test_client_context_binds_models_to_datasource_backends() -> None:
 
 
 def test_collect_exports_includes_expected_symbols() -> None:
-    compiler = _compiler([User, Address, BirthDay])
+    compiler = _compiler([User, Address, BirthDay, Book, UserBook])
     contexts = [
         compiler.build_model_context(compiler.graph.by_name[name])
         for name in sorted(compiler.graph.by_name)

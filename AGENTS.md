@@ -57,7 +57,7 @@
   - `sync_indexes=True` 会删除多余索引/重建缺失索引。
 - `runtime/backends.base.BackendBase`:
   - 定义通用 CRUD 实现, 支持 typed insert payload (dataclass、TypedDict、Mapping)。
-  - 提供 identity map 与关系懒加载 (`ensure_lazy_state`/`resolve_lazy_relation`)。
+- 提供 identity map 与关系懒加载 (`ensure_lazy_state`/`LazyLookupKey.resolve()`)。
   - delete/delete_many、update/update_many、insert/insert_many、find_first/find_many
 - `runtime/backends.sqlite.SQLiteBackend`:
   - 基于 sqlite3, 可接受连接或线程局部工厂, 实现批量插入、`query_raw`/`execute_raw`。

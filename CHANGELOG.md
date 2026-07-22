@@ -10,7 +10,9 @@
   - JSON 值支持嵌套 dataclass、TypedDict、标量 list/dict 与异构 tuple
   - 关系字段仅接受 dataclass 或 `list[dataclass]`
   - 类型标注拒绝非 Optional Union、`set`、`frozenset` 和非字符串 dict key。
-- 关系运行时元信息统一为 `TableRelation`, 懒加载、关系过滤和 backref 失效共享同一份列映射。
+- 关系运行时元信息统一为 `TableRelation`, 懒加载和关系过滤共享同一份列映射。
+- 多值关系保持 `list[T]` 声明; 未 include 时返回只读 `LazyRelationView`, 支持存在性、计数、按索引查询及显式完整迭代, include 后返回真正的 `list[T]`。
+- lazy proxy 使用 `LazyLookupKey` 判断查询来源相等, proxy 相等和 hash 不再隐式查询关系内容。
 
 ## 0.4.2 - 2026-07-18
 
