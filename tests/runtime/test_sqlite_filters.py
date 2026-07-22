@@ -26,7 +26,7 @@ def test_where_filters_support_scalar_operations(tmp_path: Path):
         contains_results = user_table.find_many(where={"name": {"CONTAINS": "li"}}, order_by={"name": "asc"})
     assert sqls == [
         (
-            'SELECT "id","name","email" FROM "RuntimeUser" WHERE "name" LIKE ? ESCAPE \'\\\' ORDER BY "name" ASC;',
+            'SELECT "t"."id","t"."name","t"."email" FROM "RuntimeUser" "t" WHERE "t"."name" LIKE ? ESCAPE \'\\\' ORDER BY "t"."name" ASC;',
             ("%li%",),
         )
     ]
@@ -52,20 +52,20 @@ def test_where_filters_support_scalar_operations(tmp_path: Path):
     with record_sql() as sqls:
         or_results = user_table.find_many(where={"OR": [{"name": {"EQ": "Alice"}}, {"name": {"EQ": "Bob"}}]}, order_by={"name": "asc"})
     assert sqls == [
-        ('SELECT "id","name","email" FROM "RuntimeUser" WHERE "name"=? OR "name"=? ORDER BY "name" ASC;', ("Alice", "Bob"))
+        ('SELECT "t"."id","t"."name","t"."email" FROM "RuntimeUser" "t" WHERE "t"."name"=? OR "t"."name"=? ORDER BY "t"."name" ASC;', ("Alice", "Bob"))
     ]
     assert [row.name for row in or_results] == ["Alice", "Bob"]
 
     with record_sql() as sqls:
         in_results = user_table.find_many(where={"id": {"IN": [1, 3]}}, order_by={"id": "asc"})
-    assert sqls == [('SELECT "id","name","email" FROM "RuntimeUser" WHERE "id" IN (?,?) ORDER BY "id" ASC;', (1, 3))]
+    assert sqls == [('SELECT "t"."id","t"."name","t"."email" FROM "RuntimeUser" "t" WHERE "t"."id" IN (?,?) ORDER BY "t"."id" ASC;', (1, 3))]
     assert [row.name for row in in_results] == ["Alice", "Charlie"]
 
     with record_sql() as sqls:
         not_results = user_table.find_many(where={"name": {"NOT": "Alice"}}, order_by={"name": "asc"})
     assert sqls == [
         (
-            'SELECT "id","name","email" FROM "RuntimeUser" WHERE "name"<>? OR "name" IS NULL ORDER BY "name" ASC;',
+            'SELECT "t"."id","t"."name","t"."email" FROM "RuntimeUser" "t" WHERE "t"."name"<>? OR "t"."name" IS NULL ORDER BY "t"."name" ASC;',
             ("Alice",),
         )
     ]
@@ -99,7 +99,7 @@ def test_like_escapes_special_chars(tmp_path: Path):
         percent_matches = user_table.find_many(where={"name": {"CONTAINS": "%"}}, order_by={"id": "asc"})
     assert sqls == [
         (
-            'SELECT "id","name","email" FROM "RuntimeUser" WHERE "name" LIKE ? ESCAPE \'\\\' ORDER BY "id" ASC;',
+            'SELECT "t"."id","t"."name","t"."email" FROM "RuntimeUser" "t" WHERE "t"."name" LIKE ? ESCAPE \'\\\' ORDER BY "t"."id" ASC;',
             ("%\\%%",),
         )
     ]
@@ -109,7 +109,7 @@ def test_like_escapes_special_chars(tmp_path: Path):
         underscore_matches = user_table.find_many(where={"name": {"STARTS_WITH": "under_"}}, order_by={"id": "asc"})
     assert sqls == [
         (
-            'SELECT "id","name","email" FROM "RuntimeUser" WHERE "name" LIKE ? ESCAPE \'\\\' ORDER BY "id" ASC;',
+            'SELECT "t"."id","t"."name","t"."email" FROM "RuntimeUser" "t" WHERE "t"."name" LIKE ? ESCAPE \'\\\' ORDER BY "t"."id" ASC;',
             ("under\\_%",),
         )
     ]
@@ -119,7 +119,7 @@ def test_like_escapes_special_chars(tmp_path: Path):
         bracket_matches = user_table.find_many(where={"name": {"CONTAINS": "["}}, order_by={"id": "asc"})
     assert sqls == [
         (
-            'SELECT "id","name","email" FROM "RuntimeUser" WHERE "name" LIKE ? ESCAPE \'\\\' ORDER BY "id" ASC;',
+            'SELECT "t"."id","t"."name","t"."email" FROM "RuntimeUser" "t" WHERE "t"."name" LIKE ? ESCAPE \'\\\' ORDER BY "t"."id" ASC;',
             ("%[%",),
         )
     ]

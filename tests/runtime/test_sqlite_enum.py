@@ -38,7 +38,7 @@ def test_enum_field_roundtrip(tmp_path: Path) -> None:
     with record_sql() as sqls:
         fetched = table.find_first(order_by={"id": "asc"})
     assert sqls == [
-        ('SELECT "id","state","s1","s2" FROM "RuntimeEnumUser" ORDER BY "id" ASC LIMIT 1;', ())
+        ('SELECT "t"."id","t"."state","t"."s1","t"."s2" FROM "RuntimeEnumUser" "t" ORDER BY "t"."id" ASC LIMIT 1;', ())
     ]
     assert fetched is not None
     assert fetched.state is RuntimeState.ACTIVE

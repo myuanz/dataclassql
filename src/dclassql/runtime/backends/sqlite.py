@@ -52,11 +52,14 @@ class SQLiteBackend(BackendBase):
 
         payloads: list[dict[str, object]] = []
         payload_columns = set[str]()
+        column_names: list[str] = []
         for item in items:
             payload = table.serialize_insert(item)
             payloads.append(payload)
-            payload_columns.update(payload)
-        column_names = [spec.name for spec in table.column_specs if spec.name in payload_columns]
+            for column in payload:
+                if column not in payload_columns:
+                    payload_columns.add(column)
+                    column_names.append(column)
         if not column_names:
             raise ValueError("Insert payload cannot be empty")
 
@@ -165,6 +168,8 @@ class SQLiteBackend(BackendBase):
             )
 
         sql_table = self.table_cls(table.model.__name__)
+        if order_by:
+            sql_table = sql_table.as_("t")
         # 基础查询不带 order_by，方便后续在窗口与外层统一处理
         base_query, params = self._build_select_query(table, sql_table, where, None)
 

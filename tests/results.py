@@ -140,7 +140,7 @@ class AddressTable(TableProtocol):
     @classmethod
     def serialize_insert(cls, data: AddressInsert | Address | Mapping[str, object]) -> dict[str, object]:
         if isinstance(data, Mapping):
-            result: dict[str, object] = {}
+            result = dict(data)
             if 'id' in data:
                 result['id'] = data['id']
             if 'location' in data:
@@ -306,7 +306,7 @@ class BirthDayTable(TableProtocol):
     @classmethod
     def serialize_insert(cls, data: BirthDayInsert | BirthDay | Mapping[str, object]) -> dict[str, object]:
         if isinstance(data, Mapping):
-            result: dict[str, object] = {}
+            result = dict(data)
             if 'user_id' in data:
                 result['user_id'] = data['user_id']
             if 'date' in data:
@@ -469,7 +469,7 @@ class BookTable(TableProtocol):
     @classmethod
     def serialize_insert(cls, data: BookInsert | Book | Mapping[str, object]) -> dict[str, object]:
         if isinstance(data, Mapping):
-            result: dict[str, object] = {}
+            result = dict(data)
             if 'id' in data:
                 result['id'] = data['id']
             if 'name' in data:
@@ -661,7 +661,7 @@ class CompositeTable(TableProtocol):
     @classmethod
     def serialize_insert(cls, data: CompositeInsert | Composite | Mapping[str, object]) -> dict[str, object]:
         if isinstance(data, Mapping):
-            result: dict[str, object] = {}
+            result = dict(data)
             if 'id1' in data:
                 result['id1'] = data['id1']
             if 'id2' in data:
@@ -898,7 +898,7 @@ class UserTable(TableProtocol):
     @classmethod
     def serialize_insert(cls, data: UserInsert | User | Mapping[str, object]) -> dict[str, object]:
         if isinstance(data, Mapping):
-            result: dict[str, object] = {}
+            result = dict(data)
             if 'id' in data:
                 result['id'] = data['id']
             if 'name' in data:
@@ -1100,7 +1100,7 @@ class UserBookTable(TableProtocol):
     @classmethod
     def serialize_insert(cls, data: UserBookInsert | UserBook | Mapping[str, object]) -> dict[str, object]:
         if isinstance(data, Mapping):
-            result: dict[str, object] = {}
+            result = dict(data)
             if 'user_id' in data:
                 result['user_id'] = data['user_id']
             if 'book_id' in data:

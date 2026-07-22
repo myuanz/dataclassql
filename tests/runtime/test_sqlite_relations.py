@@ -91,7 +91,7 @@ def test_lazy_relations(tmp_path):
 
         with record_sql() as sqls:
             user = client.lazy_user.find_first(order_by={"id": "asc"})
-        assert sqls == [('SELECT "id","name" FROM "LazyUser" ORDER BY "id" ASC LIMIT 1;', ())]
+        assert sqls == [('SELECT "t"."id","t"."name" FROM "LazyUser" "t" ORDER BY "t"."id" ASC LIMIT 1;', ())]
         user_repr = repr(user)
         assert "<LazyRelationView addresses (lazy)>" in user_repr
         assert f"<LazyRelation {LazyBirthDay.__name__} (lazy)>" in user_repr
@@ -140,7 +140,7 @@ def test_lazy_relations(tmp_path):
             _ = related_user.name
             _ = related_user.name
         assert sqls == [
-            ('SELECT "id","user_id","location" FROM "LazyAddress" ORDER BY "id" ASC LIMIT 1;', ()),
+            ('SELECT "t"."id","t"."user_id","t"."location" FROM "LazyAddress" "t" ORDER BY "t"."id" ASC LIMIT 1;', ()),
             ('SELECT "id","name" FROM "LazyUser" WHERE "id"=? LIMIT 1;', (1,)),
         ]
         assert isinstance(related_user, LazyUser)
@@ -194,7 +194,7 @@ def test_lazy_relations(tmp_path):
             )
         assert sqls == [
             (
-                'SELECT "id","name" FROM "LazyUser" WHERE EXISTS (SELECT 1 FROM "LazyBirthDay" WHERE "LazyBirthDay"."user_id"="LazyUser"."id") ORDER BY "id" ASC;',
+                'SELECT "t"."id","t"."name" FROM "LazyUser" "t" WHERE EXISTS (SELECT 1 FROM "LazyBirthDay" WHERE "LazyBirthDay"."user_id"="t"."id") ORDER BY "t"."id" ASC;',
                 (),
             )
         ]
@@ -207,7 +207,7 @@ def test_lazy_relations(tmp_path):
             )
         assert sqls == [
             (
-                'SELECT "id","name" FROM "LazyUser" WHERE NOT EXISTS (SELECT 1 FROM "LazyBirthDay" WHERE "LazyBirthDay"."user_id"="LazyUser"."id") ORDER BY "id" ASC;',
+                'SELECT "t"."id","t"."name" FROM "LazyUser" "t" WHERE NOT EXISTS (SELECT 1 FROM "LazyBirthDay" WHERE "LazyBirthDay"."user_id"="t"."id") ORDER BY "t"."id" ASC;',
                 (),
             )
         ]
@@ -220,7 +220,7 @@ def test_lazy_relations(tmp_path):
             )
         assert sqls == [
             (
-                'SELECT "id","name" FROM "LazyUser" WHERE EXISTS (SELECT 1 FROM "LazyBirthDay" WHERE "LazyBirthDay"."user_id"="LazyUser"."id" AND "LazyBirthDay"."date"=?) ORDER BY "id" ASC;',
+                'SELECT "t"."id","t"."name" FROM "LazyUser" "t" WHERE EXISTS (SELECT 1 FROM "LazyBirthDay" WHERE "LazyBirthDay"."user_id"="t"."id" AND "LazyBirthDay"."date"=?) ORDER BY "t"."id" ASC;',
                 (datetime(1990, 1, 1),),
             )
         ]
@@ -233,7 +233,7 @@ def test_lazy_relations(tmp_path):
             )
         assert sqls == [
             (
-                'SELECT "id","name" FROM "LazyUser" WHERE NOT EXISTS (SELECT 1 FROM "LazyBirthDay" WHERE "LazyBirthDay"."user_id"="LazyUser"."id" AND "LazyBirthDay"."date"=?) ORDER BY "id" ASC;',
+                'SELECT "t"."id","t"."name" FROM "LazyUser" "t" WHERE NOT EXISTS (SELECT 1 FROM "LazyBirthDay" WHERE "LazyBirthDay"."user_id"="t"."id" AND "LazyBirthDay"."date"=?) ORDER BY "t"."id" ASC;',
                 (datetime(1990, 1, 1),),
             )
         ]
@@ -246,7 +246,7 @@ def test_lazy_relations(tmp_path):
             )
         assert sqls == [
             (
-                'SELECT "id","name" FROM "LazyUser" WHERE EXISTS (SELECT 1 FROM "LazyAddress" WHERE "LazyAddress"."user_id"="LazyUser"."id" AND "LazyAddress"."location"=?) ORDER BY "id" ASC;',
+                'SELECT "t"."id","t"."name" FROM "LazyUser" "t" WHERE EXISTS (SELECT 1 FROM "LazyAddress" WHERE "LazyAddress"."user_id"="t"."id" AND "LazyAddress"."location"=?) ORDER BY "t"."id" ASC;',
                 ("Home",),
             )
         ]
@@ -259,7 +259,7 @@ def test_lazy_relations(tmp_path):
             )
         assert sqls == [
             (
-                'SELECT "id","name" FROM "LazyUser" WHERE NOT EXISTS (SELECT 1 FROM "LazyAddress" WHERE "LazyAddress"."user_id"="LazyUser"."id" AND "LazyAddress"."location"=?) ORDER BY "id" ASC;',
+                'SELECT "t"."id","t"."name" FROM "LazyUser" "t" WHERE NOT EXISTS (SELECT 1 FROM "LazyAddress" WHERE "LazyAddress"."user_id"="t"."id" AND "LazyAddress"."location"=?) ORDER BY "t"."id" ASC;',
                 ("Office",),
             )
         ]
@@ -272,7 +272,7 @@ def test_lazy_relations(tmp_path):
             )
         assert sqls == [
             (
-                'SELECT "id","name" FROM "LazyUser" WHERE NOT EXISTS (SELECT 1 FROM "LazyAddress" WHERE "LazyAddress"."user_id"="LazyUser"."id") ORDER BY "id" ASC;',
+                'SELECT "t"."id","t"."name" FROM "LazyUser" "t" WHERE NOT EXISTS (SELECT 1 FROM "LazyAddress" WHERE "LazyAddress"."user_id"="t"."id") ORDER BY "t"."id" ASC;',
                 (),
             )
         ]
@@ -285,7 +285,7 @@ def test_lazy_relations(tmp_path):
             )
         assert sqls == [
             (
-                'SELECT "id","name" FROM "LazyUser" WHERE NOT EXISTS (SELECT 1 FROM "LazyAddress" WHERE "LazyAddress"."user_id"="LazyUser"."id" AND "LazyAddress"."location" NOT LIKE ? ESCAPE \'\\\') ORDER BY "id" ASC;',
+                'SELECT "t"."id","t"."name" FROM "LazyUser" "t" WHERE NOT EXISTS (SELECT 1 FROM "LazyAddress" WHERE "LazyAddress"."user_id"="t"."id" AND "LazyAddress"."location" NOT LIKE ? ESCAPE \'\\\') ORDER BY "t"."id" ASC;',
                 ("%o%",),
             )
         ]

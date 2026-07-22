@@ -59,7 +59,7 @@ class BackendBase(BackendProtocol, ABC):
             raise ValueError("Insert payload cannot be empty")
 
         sql_table = self.table_cls(table.model.__name__)
-        column_names = [spec.name for spec in table.column_specs if spec.name in payload]
+        column_names = list(payload)
         params = [payload[name] for name in column_names]
 
         insert_query: QueryBuilder = (
@@ -205,6 +205,8 @@ class BackendBase(BackendProtocol, ABC):
         skip: int | None = None,
     ) -> list[ModelT]:
         sql_table = self.table_cls(table.model.__name__)
+        if order_by:
+            sql_table = sql_table.as_("t")
         distinct_columns = self._normalize_distinct(table, distinct)
         select_query, params = self._build_select_query(table, sql_table, where, order_by)
 

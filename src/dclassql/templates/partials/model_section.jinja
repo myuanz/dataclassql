@@ -121,7 +121,7 @@ class {{ table_class }}(TableProtocol):
     @classmethod
     def serialize_insert(cls, data: {{ insert_class }} | {{ name }} | Mapping[str, object]) -> dict[str, object]:
         if isinstance(data, Mapping):
-            result: dict[str, object] = {}
+            result = dict(data)
 {% for column in model.column_specs %}
             if {{ column.name_repr }} in data:
                 result[{{ column.name_repr }}] = {{ column.mapping_value_expr }}{{ '  # type: ignore[attr-defined]' if column.is_enum else '' }}

@@ -40,12 +40,12 @@ def test_insert_and_find_roundtrip(tmp_path: Path):
 
     with record_sql() as sqls:
         ordered = user_table.find_many(order_by={"name": "desc"})
-    assert sqls == [('SELECT "id","name","email" FROM "RuntimeUser" ORDER BY "name" DESC;', ())]
+    assert sqls == [('SELECT "t"."id","t"."name","t"."email" FROM "RuntimeUser" "t" ORDER BY "t"."name" DESC;', ())]
     assert [user.name for user in ordered] == ["Bob", "Alice"]
 
     with record_sql() as sqls:
         first = user_table.find_first(order_by={"name": "asc"})
-    assert sqls == [('SELECT "id","name","email" FROM "RuntimeUser" ORDER BY "name" ASC LIMIT 1;', ())]
+    assert sqls == [('SELECT "t"."id","t"."name","t"."email" FROM "RuntimeUser" "t" ORDER BY "t"."name" ASC LIMIT 1;', ())]
     assert first.name == "Alice"
     client.__class__.close_all()
 
@@ -67,8 +67,8 @@ def test_find_returns_distinct_instances(tmp_path: Path):
     assert first is not None and second is not None
     assert first.id == second.id
     assert first is not second
-    assert first_sqls == [('SELECT "id","name","email" FROM "RuntimeUser" ORDER BY "id" ASC LIMIT 1;', ())]
-    assert second_sqls == [('SELECT "id","name","email" FROM "RuntimeUser" ORDER BY "id" ASC LIMIT 1;', ())]
+    assert first_sqls == [('SELECT "t"."id","t"."name","t"."email" FROM "RuntimeUser" "t" ORDER BY "t"."id" ASC LIMIT 1;', ())]
+    assert second_sqls == [('SELECT "t"."id","t"."name","t"."email" FROM "RuntimeUser" "t" ORDER BY "t"."id" ASC LIMIT 1;', ())]
 
     client.__class__.close_all()
 
@@ -240,7 +240,7 @@ def test_find_many_supports_distinct(tmp_path: Path) -> None:
         distinct_users = user_table.find_many(order_by={"id": "asc"}, distinct="email")
     assert sqls == [
         (
-            'SELECT "__d".* FROM (SELECT "id","name","email",ROW_NUMBER() OVER(PARTITION BY "email" ORDER BY "id" ASC) "rn" FROM "RuntimeUser") "__d" WHERE "__d"."rn"=1 ORDER BY "__d"."id" ASC;',
+            'SELECT "__d".* FROM (SELECT "t"."id","t"."name","t"."email",ROW_NUMBER() OVER(PARTITION BY "t"."email" ORDER BY "t"."id" ASC) "rn" FROM "RuntimeUser" "t") "__d" WHERE "__d"."rn"=1 ORDER BY "__d"."id" ASC;',
             (),
         )
     ]
@@ -250,7 +250,7 @@ def test_find_many_supports_distinct(tmp_path: Path) -> None:
         distinct_second = user_table.find_many(order_by={"id": "asc"}, distinct="email", skip=1)
     assert sqls == [
         (
-            'SELECT "__d".* FROM (SELECT "id","name","email",ROW_NUMBER() OVER(PARTITION BY "email" ORDER BY "id" ASC) "rn" FROM "RuntimeUser") "__d" WHERE "__d"."rn"=1 ORDER BY "__d"."id" ASC LIMIT -1 OFFSET 1;',
+            'SELECT "__d".* FROM (SELECT "t"."id","t"."name","t"."email",ROW_NUMBER() OVER(PARTITION BY "t"."email" ORDER BY "t"."id" ASC) "rn" FROM "RuntimeUser" "t") "__d" WHERE "__d"."rn"=1 ORDER BY "__d"."id" ASC LIMIT -1 OFFSET 1;',
             (),
         )
     ]
@@ -260,7 +260,7 @@ def test_find_many_supports_distinct(tmp_path: Path) -> None:
         multi_column = user_table.find_many(distinct=["email", "name"], order_by={"id": "asc"})
     assert sqls == [
         (
-            'SELECT "__d".* FROM (SELECT "id","name","email",ROW_NUMBER() OVER(PARTITION BY "email","name" ORDER BY "id" ASC) "rn" FROM "RuntimeUser") "__d" WHERE "__d"."rn"=1 ORDER BY "__d"."id" ASC;',
+            'SELECT "__d".* FROM (SELECT "t"."id","t"."name","t"."email",ROW_NUMBER() OVER(PARTITION BY "t"."email","t"."name" ORDER BY "t"."id" ASC) "rn" FROM "RuntimeUser" "t") "__d" WHERE "__d"."rn"=1 ORDER BY "__d"."id" ASC;',
             (),
         )
     ]
