@@ -213,7 +213,7 @@ class SchemaBuilder(ABC):
             return False
         if column.name in pk_members:
             return False
-        return not column.optional
+        return not column.nullable
 
     def make_index_name(self, columns: tuple[str, ...], *, unique: bool) -> str:
         suffix = '_'.join(columns)

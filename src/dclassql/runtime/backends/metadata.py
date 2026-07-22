@@ -10,10 +10,8 @@ class ColumnSpec:
     name: str
     python_type: Any
     storage_kind: Literal["scalar", "json"]
-    optional: bool
+    nullable: bool
     auto_increment: bool
-    has_default: bool
-    has_default_factory: bool
 
 
 @dataclass(slots=True)

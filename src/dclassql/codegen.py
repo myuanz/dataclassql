@@ -69,20 +69,11 @@ class ColumnSpecRender:
     storage_kind_repr: str
     '''scalar/json 存储类型的字符串字面量.'''
 
-    optional: bool
-    '''插入/更新时是否允许 None 或缺省, 来自 Optional/default/factory 判断.'''
+    nullable: bool
+    '''数据库列是否允许 NULL, 只由字段类型标注决定.'''
 
     auto_increment: bool
     '''是否自增，给主键用的'''
-
-    has_default: bool
-    '''原 dataclass 字段是否有 default'''
-
-    has_default_factory: bool
-    '''原 dataclass 字段是否有 default_factory'''
-
-    returned_field: bool
-    '''是否会进入返回的原 dataclass 对象. 隐式 id 为 False.'''
 
     mapping_value_expr: str
     '''Mapping payload 转数据库值的生成表达式. 例如 `data['open_order_id']`.'''
@@ -408,11 +399,8 @@ class ClientCompiler:
                 name_repr=repr(column.name),
                 python_type_expr=self.renderer.render(column.type_hint),
                 storage_kind_repr=repr(column.storage_kind),
-                optional=column.optional,
+                nullable=column.nullable,
                 auto_increment=column.auto_increment,
-                has_default=column.has_default,
-                has_default_factory=column.has_default_factory,
-                returned_field=column.name in state.model_column_names,
                 mapping_value_expr=_format_mapping_value_expr(column),
                 insert_value_expr=_format_insert_value_expr(
                     column,
@@ -501,7 +489,7 @@ class ClientCompiler:
         if column.enum_type is None:
             return value
         converted = f"{column.enum_type.__name__}({value})"
-        return f"({converted} if {value} is not None else None)" if column.optional else converted
+        return f"({converted} if {value} is not None else None)" if column.nullable else converted
 
     def build_client_context(self) -> ClientContext:
         datasources = {info.datasource for info in self.graph.by_name.values()}
@@ -556,15 +544,13 @@ def _build_db_columns(info: ModelInfo) -> tuple[ColumnInfo, ...]:
         implicit_id = ColumnInfo(
             name="id",
             type_hint=TypeHint(int),
-            optional=False,
+            nullable=False,
             auto_increment=True,
             storage_kind="scalar",
             scalar_base=int,
             enum_type=None,
             has_default=False,
-            default_value=None,
             has_default_factory=False,
-            default_factory=None,
         )
         return (implicit_id, *info.columns)
     return tuple(info.columns)
@@ -602,7 +588,7 @@ def _format_mapping_value_expr(column: ColumnInfo) -> str:
     if column.enum_type is None:
         return f"data[{column.name!r}]"
     value_expr = f"data[{column.name!r}]"
-    if column.optional:
+    if column.nullable:
         return f"({value_expr}.value if {value_expr} is not None else None)"
     return f"{value_expr}.value"
 
@@ -619,7 +605,7 @@ def _format_insert_value_expr(
     if column.enum_type is None:
         return f"data.{column.name}"
     value_expr = f"data.{column.name}"
-    if column.optional:
+    if column.nullable:
         return f"({value_expr}.value if {value_expr} is not None else None)"
     return f"{value_expr}.value"
 
@@ -642,7 +628,7 @@ def _format_insert_annotation(col: ColumnInfo, renderer: "TypeHintRenderer") -> 
 
 
 def _render_default_fragment(model_cls: type[Any], col: ColumnInfo) -> str | None:
-    if col.has_default_factory and col.default_factory is not None:
+    if col.has_default_factory:
         factory_expr = f"{model_cls.__name__}.__dataclass_fields__['{col.name}'].default_factory"
         return f"field(default_factory={factory_expr})"
     if col.has_default:

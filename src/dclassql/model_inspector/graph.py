@@ -31,15 +31,13 @@ _REJECTED_COLLECTION_TYPES = (set, frozenset)
 class ColumnInfo:
     name: str
     type_hint: TypeHint
-    optional: bool
+    nullable: bool
     auto_increment: bool
     storage_kind: Literal["scalar", "json"]
     scalar_base: type[Any] | None
     enum_type: type[Enum] | None
     has_default: bool
-    default_value: Any
     has_default_factory: bool
-    default_factory: Any | None
 
     @classmethod
     def from_model(
@@ -67,11 +65,7 @@ class ColumnInfo:
                 cls(
                     name=name,
                     type_hint=type_hint,
-                    optional=(
-                        type_hint.has_optional_wrapper
-                        or has_default
-                        or has_default_factory
-                    ),
+                    nullable=type_hint.has_optional_wrapper,
                     auto_increment=(
                         name == "id"
                         and name in primary_key
@@ -81,11 +75,7 @@ class ColumnInfo:
                     scalar_base=scalar_base,
                     enum_type=enum_type,
                     has_default=has_default,
-                    default_value=field.default if has_default else None,
                     has_default_factory=has_default_factory,
-                    default_factory=(
-                        field.default_factory if has_default_factory else None
-                    ),
                 )
             )
         return columns

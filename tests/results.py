@@ -119,9 +119,9 @@ class AddressTable(TableProtocol):
     table_name: str = 'Address'
     datasource = DataSourceConfig(url='sqlite:///analytics.db', name=None)
     column_specs: tuple[ColumnSpec, ...] = (
-        ColumnSpec(name='id', python_type=int, storage_kind='scalar', optional=False, auto_increment=True, has_default=False, has_default_factory=False),
-        ColumnSpec(name='location', python_type=str, storage_kind='scalar', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
-        ColumnSpec(name='user_id', python_type=int, storage_kind='scalar', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
+        ColumnSpec(name='id', python_type=int, storage_kind='scalar', nullable=False, auto_increment=True),
+        ColumnSpec(name='location', python_type=str, storage_kind='scalar', nullable=False, auto_increment=False),
+        ColumnSpec(name='user_id', python_type=int, storage_kind='scalar', nullable=False, auto_increment=False),
     )
     column_specs_by_name: Mapping[str, ColumnSpec] = MappingProxyType({spec.name: spec for spec in column_specs})
     primary_key: tuple[str] = ('id',)
@@ -286,8 +286,8 @@ class BirthDayTable(TableProtocol):
     table_name: str = 'BirthDay'
     datasource = DataSourceConfig(url='sqlite:///analytics.db', name=None)
     column_specs: tuple[ColumnSpec, ...] = (
-        ColumnSpec(name='user_id', python_type=int, storage_kind='scalar', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
-        ColumnSpec(name='date', python_type=datetime, storage_kind='scalar', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
+        ColumnSpec(name='user_id', python_type=int, storage_kind='scalar', nullable=False, auto_increment=False),
+        ColumnSpec(name='date', python_type=datetime, storage_kind='scalar', nullable=False, auto_increment=False),
     )
     column_specs_by_name: Mapping[str, ColumnSpec] = MappingProxyType({spec.name: spec for spec in column_specs})
     primary_key: tuple[str] = ('user_id',)
@@ -449,8 +449,8 @@ class BookTable(TableProtocol):
     table_name: str = 'Book'
     datasource = DataSourceConfig(url='sqlite:///analytics.db', name=None)
     column_specs: tuple[ColumnSpec, ...] = (
-        ColumnSpec(name='id', python_type=int, storage_kind='scalar', optional=False, auto_increment=True, has_default=False, has_default_factory=False),
-        ColumnSpec(name='name', python_type=str, storage_kind='scalar', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
+        ColumnSpec(name='id', python_type=int, storage_kind='scalar', nullable=False, auto_increment=True),
+        ColumnSpec(name='name', python_type=str, storage_kind='scalar', nullable=False, auto_increment=False),
     )
     column_specs_by_name: Mapping[str, ColumnSpec] = MappingProxyType({spec.name: spec for spec in column_specs})
     primary_key: tuple[str] = ('id',)
@@ -638,12 +638,12 @@ class CompositeTable(TableProtocol):
     table_name: str = 'Composite'
     datasource = DataSourceConfig(url='sqlite:///analytics.db', name=None)
     column_specs: tuple[ColumnSpec, ...] = (
-        ColumnSpec(name='id1', python_type=int, storage_kind='scalar', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
-        ColumnSpec(name='id2', python_type=int, storage_kind='scalar', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
-        ColumnSpec(name='uniq1', python_type=str, storage_kind='scalar', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
-        ColumnSpec(name='uniq2', python_type=str, storage_kind='scalar', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
-        ColumnSpec(name='uniq3', python_type=str, storage_kind='scalar', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
-        ColumnSpec(name='name', python_type=str, storage_kind='scalar', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
+        ColumnSpec(name='id1', python_type=int, storage_kind='scalar', nullable=False, auto_increment=False),
+        ColumnSpec(name='id2', python_type=int, storage_kind='scalar', nullable=False, auto_increment=False),
+        ColumnSpec(name='uniq1', python_type=str, storage_kind='scalar', nullable=False, auto_increment=False),
+        ColumnSpec(name='uniq2', python_type=str, storage_kind='scalar', nullable=False, auto_increment=False),
+        ColumnSpec(name='uniq3', python_type=str, storage_kind='scalar', nullable=False, auto_increment=False),
+        ColumnSpec(name='name', python_type=str, storage_kind='scalar', nullable=False, auto_increment=False),
     )
     column_specs_by_name: Mapping[str, ColumnSpec] = MappingProxyType({spec.name: spec for spec in column_specs})
     primary_key: tuple[str, str] = ('id1', 'id2')
@@ -871,13 +871,13 @@ class UserTable(TableProtocol):
     table_name: str = 'User'
     datasource = DataSourceConfig(url='sqlite:///analytics.db', name=None)
     column_specs: tuple[ColumnSpec, ...] = (
-        ColumnSpec(name='id', python_type=int, storage_kind='scalar', optional=False, auto_increment=True, has_default=False, has_default_factory=False),
-        ColumnSpec(name='name', python_type=str, storage_kind='scalar', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
-        ColumnSpec(name='email', python_type=str, storage_kind='scalar', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
-        ColumnSpec(name='last_login', python_type=datetime, storage_kind='scalar', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
-        ColumnSpec(name='status', python_type=UserStatus, storage_kind='scalar', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
-        ColumnSpec(name='type', python_type=UserType, storage_kind='scalar', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
-        ColumnSpec(name='vip_level', python_type=UserVIPLevel | None, storage_kind='scalar', optional=True, auto_increment=False, has_default=False, has_default_factory=False),
+        ColumnSpec(name='id', python_type=int, storage_kind='scalar', nullable=False, auto_increment=True),
+        ColumnSpec(name='name', python_type=str, storage_kind='scalar', nullable=False, auto_increment=False),
+        ColumnSpec(name='email', python_type=str, storage_kind='scalar', nullable=False, auto_increment=False),
+        ColumnSpec(name='last_login', python_type=datetime, storage_kind='scalar', nullable=False, auto_increment=False),
+        ColumnSpec(name='status', python_type=UserStatus, storage_kind='scalar', nullable=False, auto_increment=False),
+        ColumnSpec(name='type', python_type=UserType, storage_kind='scalar', nullable=False, auto_increment=False),
+        ColumnSpec(name='vip_level', python_type=UserVIPLevel | None, storage_kind='scalar', nullable=True, auto_increment=False),
     )
     column_specs_by_name: Mapping[str, ColumnSpec] = MappingProxyType({spec.name: spec for spec in column_specs})
     primary_key: tuple[str] = ('id',)
@@ -1077,9 +1077,9 @@ class UserBookTable(TableProtocol):
     table_name: str = 'UserBook'
     datasource = DataSourceConfig(url='sqlite:///analytics.db', name=None)
     column_specs: tuple[ColumnSpec, ...] = (
-        ColumnSpec(name='user_id', python_type=int, storage_kind='scalar', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
-        ColumnSpec(name='book_id', python_type=int, storage_kind='scalar', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
-        ColumnSpec(name='created_at', python_type=datetime, storage_kind='scalar', optional=False, auto_increment=False, has_default=False, has_default_factory=False),
+        ColumnSpec(name='user_id', python_type=int, storage_kind='scalar', nullable=False, auto_increment=False),
+        ColumnSpec(name='book_id', python_type=int, storage_kind='scalar', nullable=False, auto_increment=False),
+        ColumnSpec(name='created_at', python_type=datetime, storage_kind='scalar', nullable=False, auto_increment=False),
     )
     column_specs_by_name: Mapping[str, ColumnSpec] = MappingProxyType({spec.name: spec for spec in column_specs})
     primary_key: tuple[str, str] = ('user_id', 'book_id')

@@ -77,7 +77,7 @@ class SQLiteSchemaBuilder(SchemaBuilder):
 
     def _build_json_column(self, column: ColumnSpec, pk_members: set[str]) -> ColumnDeclaration:
         primary_key = column.name in pk_members
-        not_null = not column.optional and not primary_key
+        not_null = not column.nullable and not primary_key
         definition_sql = "TEXT"
         if not_null:
             definition_sql += " NOT NULL"

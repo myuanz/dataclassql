@@ -6,7 +6,7 @@ import tempfile
 import types
 import math
 from collections.abc import Sequence as ABCSequence
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 from datetime import datetime
 from pathlib import Path
 from typing import (
@@ -151,6 +151,14 @@ class AliasDefaultOrder:
     id: int
     side: OrderSideAlias
     limit_price: float = math.nan
+
+
+@dataclass
+class ColumnDefaultSemantics:
+    id: int
+    value: int = 1
+    payload: list[int] = field(default_factory=list)
+    nullable_value: int | None = 1
 
 
 @dataclass
@@ -716,6 +724,67 @@ def test_generated_client_expands_type_alias_and_nan_default() -> None:
     insert_cls = namespace["AliasDefaultOrderInsert"]
     inserted = insert_cls(id=1, side="long")
     assert math.isnan(inserted.limit_price)
+
+
+def test_column_defaults_do_not_make_columns_nullable() -> None:
+    graph = ModelGraph.from_models([ColumnDefaultSemantics])
+    columns = {column.name: column for column in graph.by_name["ColumnDefaultSemantics"].columns}
+    assert (
+        columns["value"].nullable,
+        columns["value"].has_default,
+        columns["value"].has_default_factory,
+    ) == (False, True, False)
+    assert (
+        columns["payload"].nullable,
+        columns["payload"].has_default,
+        columns["payload"].has_default_factory,
+    ) == (False, False, True)
+    assert (
+        columns["nullable_value"].nullable,
+        columns["nullable_value"].has_default,
+        columns["nullable_value"].has_default_factory,
+    ) == (True, True, False)
+
+    module = generate_client([ColumnDefaultSemantics])
+    namespace: dict[str, Any] = {}
+    exec(module.code, namespace)
+
+    create_sql, _ = _build_sqlite_schema(namespace["ColumnDefaultSemanticsTable"])
+    assert '"value" INTEGER NOT NULL' in create_sql
+    assert '"payload" TEXT NOT NULL' in create_sql
+    assert '"nullable_value" INTEGER NOT NULL' not in create_sql
+
+    insert_cls = namespace["ColumnDefaultSemanticsInsert"]
+    first = insert_cls()
+    second = insert_cls()
+    assert first.value == 1
+    assert first.payload == []
+    assert first.payload is not second.payload
+    assert first.nullable_value == 1
+
+    conn = sqlite3.connect(":memory:")
+    try:
+        table_cls = namespace["ColumnDefaultSemanticsTable"]
+        db_push([table_cls], conn, provider="sqlite")
+        table = table_cls(SQLiteBackend(conn))
+        stored = table.insert(first)
+        assert stored.value == 1
+        assert stored.payload == []
+
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                'INSERT INTO "ColumnDefaultSemantics" '
+                '("value", "payload", "nullable_value") VALUES (?, ?, ?)',
+                (None, "[]", None),
+            )
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                'INSERT INTO "ColumnDefaultSemantics" '
+                '("value", "payload", "nullable_value") VALUES (?, ?, ?)',
+                (1, None, None),
+            )
+    finally:
+        conn.close()
 
 
 def test_generated_client_serializes_unregistered_dataclass_fields_as_json() -> None:
