@@ -6,6 +6,7 @@ from typing import Any, Literal, Mapping, Sequence, cast, overload
 
 from pypika import Query, Table
 from pypika.enums import Order
+from pypika.functions import Count
 from pypika.queries import QueryBuilder
 from pypika.terms import Criterion, Parameter
 from pypika.utils import format_quotes
@@ -267,6 +268,30 @@ class BackendBase(BackendProtocol, ABC):
             skip=skip,
         )
         return results[0] if results else None
+
+    def count(
+        self,
+        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        *,
+        where: WhereT | None = None,
+    ) -> int:
+        sql_table = self.table_cls(table.model.__name__)
+        query: QueryBuilder = self.query_cls.from_(sql_table).select(
+            Count("*").as_("__count")
+        )
+        params: list[object] = []
+        if where:
+            criterion, where_params = self._compile_where(table, sql_table, where)
+            if criterion is not None:
+                query = query.where(criterion)
+                params.extend(where_params)
+        rows = self.query_raw(self._render_query(query), params)
+        if len(rows) != 1:
+            raise RuntimeError(f"count() expected exactly 1 row, got {len(rows)}")
+        value = rows[0]["__count"]
+        if not isinstance(value, int):
+            raise TypeError(f"count() returned a non-integer value: {value!r}")
+        return value
 
     def delete(
         self,

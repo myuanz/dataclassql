@@ -124,6 +124,13 @@ class BackendProtocol(Protocol):
         skip: int | None = None,
     ) -> ModelT | None: ...
 
+    def count(
+        self,
+        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        *,
+        where: WhereT | None = None,
+    ) -> int: ...
+
     def delete(
         self,
         table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
