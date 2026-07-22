@@ -2,7 +2,7 @@
 
 本项目从 `0.3.1` 开始记录变更。
 
-## 0.5.0 - 
+## 0.5.0 - 2026-07-22
 - 模型解析与客户端代码生成重构为 `ModelGraph -> ClientCompiler -> GeneratedModule` 流水线，优化代码结构。
 - `foreign_key()` 改为在模型代理组成的新 globals 中解析, 不再临时替换原始 dataclass 字段。
 - 新增 `TypeHint` 包装 Python type 的 `source`、`origin`、`args`, 提供通用的剥壳方法; 
