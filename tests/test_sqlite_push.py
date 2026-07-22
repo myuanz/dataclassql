@@ -62,7 +62,7 @@ def test_db_push_creates_table_and_indexes():
     assert create_sql == (
         'CREATE TABLE IF NOT EXISTS "User" '
         '("id" INTEGER PRIMARY KEY AUTOINCREMENT,"name" TEXT NOT NULL,'
-        '"email" TEXT,"created_at" datetime NOT NULL,UNIQUE ("email"));'
+        '"email" TEXT,"created_at" datetime NOT NULL);'
     )
     assert index_entries == [
         ('idx_User_name', 'CREATE INDEX IF NOT EXISTS "idx_User_name" ON "User" ("name");'),
@@ -80,12 +80,28 @@ def test_db_push_creates_table_and_indexes():
     assert table_sql == (
         'CREATE TABLE "User" '
         '("id" INTEGER PRIMARY KEY AUTOINCREMENT,"name" TEXT NOT NULL,'
-        '"email" TEXT,"created_at" datetime NOT NULL,UNIQUE ("email"))'
+        '"email" TEXT,"created_at" datetime NOT NULL)'
     )
     index_sqls = {name: sql for (typ, name, sql) in rows if typ == 'index' and sql}
     assert index_sqls['idx_User_name'] == 'CREATE INDEX "idx_User_name" ON "User" ("name")'
     assert index_sqls['idx_User_created_at'] == 'CREATE INDEX "idx_User_created_at" ON "User" ("created_at")'
     assert index_sqls['uq_User_email'] == 'CREATE UNIQUE INDEX "uq_User_email" ON "User" ("email")'
+    index_rows = conn.execute('PRAGMA index_list("User")').fetchall()
+    assert {(row[1], row[2], row[3]) for row in index_rows} == {
+        ("idx_User_name", 0, "c"),
+        ("idx_User_created_at", 0, "c"),
+        ("uq_User_email", 1, "c"),
+    }
+
+    conn.execute(
+        'INSERT INTO "User" ("name","email","created_at") VALUES (?,?,?)',
+        ("Alice", "alice@example.com", "2026-01-01T00:00:00"),
+    )
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute(
+            'INSERT INTO "User" ("name","email","created_at") VALUES (?,?,?)',
+            ("Alice 2", "alice@example.com", "2026-01-02T00:00:00"),
+        )
 
     conn2 = sqlite3.connect(":memory:")
     db_push([table], conn2, provider="sqlite")
@@ -147,6 +163,23 @@ def test_db_push_sync_indexes_aligns_with_model():
     }
 
 
+def test_db_push_without_sync_indexes_leaves_extra_indexes():
+    table = generated_tables(User)[0]
+    conn = sqlite3.connect(":memory:")
+    push_sqlite(conn, [table])
+    conn.execute('CREATE INDEX "idx_User_extra" ON "User" ("created_at", "name")')
+
+    db_push([table], conn, provider="sqlite")
+
+    index_names = {
+        name
+        for (name,) in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='User'"
+        ).fetchall()
+    }
+    assert "idx_User_extra" in index_names
+
+
 def test_db_push_rebuild_requires_confirmation():
     conn = sqlite3.connect(":memory:")
     conn.execute(
@@ -167,6 +200,7 @@ def test_db_push_rebuilds_table_and_preserves_rows():
         '("id" INTEGER PRIMARY KEY AUTOINCREMENT,"name" TEXT NOT NULL,'
         '"created_at" datetime NOT NULL)'
     )
+    conn.execute('CREATE INDEX "idx_User_extra" ON "User" ("created_at", "name")')
     conn.execute(
         'INSERT INTO "User" ("name","created_at") VALUES (?, ?)',
         ("Alice", "2024-01-01T12:00:00"),
@@ -200,6 +234,37 @@ def test_db_push_rebuilds_table_and_preserves_rows():
         "idx_User_created_at",
         "uq_User_email",
     }
+
+
+def test_db_push_rebuild_rolls_back_when_unique_index_cannot_be_created():
+    conn = sqlite3.connect(":memory:")
+    conn.execute(
+        'CREATE TABLE "User" '
+        '("id" INTEGER PRIMARY KEY AUTOINCREMENT,"name" TEXT NOT NULL,'
+        '"email" TEXT,"created_at" TEXT NOT NULL)'
+    )
+    conn.executemany(
+        'INSERT INTO "User" ("name","email","created_at") VALUES (?,?,?)',
+        [
+            ("Alice", "same@example.com", "2024-01-01T00:00:00"),
+            ("Bob", "same@example.com", "2024-01-02T00:00:00"),
+        ],
+    )
+
+    with pytest.raises(sqlite3.IntegrityError):
+        db_push(
+            generated_tables(User),
+            conn,
+            provider="sqlite",
+            confirm_rebuild=lambda *_args: True,
+        )
+
+    columns = conn.execute('PRAGMA table_info("User")').fetchall()
+    assert next(row[2] for row in columns if row[1] == "created_at") == "TEXT"
+    assert conn.execute('SELECT name FROM "User" ORDER BY id').fetchall() == [
+        ("Alice",),
+        ("Bob",),
+    ]
 
 
 def test_db_push_rebuild_drops_extra_columns():

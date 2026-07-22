@@ -17,6 +17,8 @@
 - Mapping 写入不再静默丢弃未知列, 由数据库统一报告无效列错误。
 - `order_by` 使用固定表别名限定动态列名并由 PyPika 转义, 使 SQLite 能报告未知列且避免 SQL 注入。
 - 数据库列可空性仅由 `T | None` / `Optional[T]` 决定, dataclass 的 default 和 default_factory 只影响生成的插入对象默认值。
+- 唯一索引仅生成命名的 `CREATE UNIQUE INDEX`, 不再同时创建表级 `UNIQUE` 和重复的 `sqlite_autoindex_*`。
+- SQLite 建表和重建会在同一事务内创建全部模型索引; 模型外索引不随重建保留。
 
 ## 0.4.2 - 2026-07-18
 

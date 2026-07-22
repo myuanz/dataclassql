@@ -115,13 +115,6 @@ class SchemaBuilder(ABC):
             self._column_declarations.append(declaration)
             builder = builder.columns(self.make_column(column.name, declaration.definition_sql))
 
-        seen_unique: set[tuple[str, ...]] = set()
-        for columns in self.table.unique_indexes:
-            if columns in seen_unique:
-                continue
-            seen_unique.add(columns)
-            builder = builder.unique(*columns)
-
         if pk_cols:
             if len(pk_cols) == 1 and not single_inline_pk:
                 builder = builder.primary_key(*pk_cols)
@@ -386,20 +379,26 @@ class DatabasePusher(ABC):
             plan = builder.build()
 
             if not self.table_exists(conn, table):
-                self.execute_statements(conn, [plan.create_sql])
-            else:
-                existing_schema = self.inspect_existing_schema(conn, table)
-                if existing_schema is None:
-                    diff = SchemaDiff(added=plan.columns, removed=tuple(), changed=tuple())
-                else:
-                    diff = self.calculate_diff(existing_schema, plan)
+                statements = [plan.create_sql]
+                statements.extend(
+                    builder.create_index_sql(definition)
+                    for definition in plan.indexes
+                )
+                self.execute_statements(conn, statements)
+                continue
 
-                if existing_schema is None or not diff.is_empty():
-                    if confirm_rebuild is None:
-                        raise RuntimeError(self.format_diff_message(table, diff))
-                    if not confirm_rebuild(table, plan, existing_schema, diff):
-                        raise RuntimeError(self.format_diff_message(table, diff))
-                    self.rebuild_table(conn, table, builder, plan, existing_schema, diff)
+            existing_schema = self.inspect_existing_schema(conn, table)
+            if existing_schema is None:
+                diff = SchemaDiff(added=plan.columns, removed=tuple(), changed=tuple())
+            else:
+                diff = self.calculate_diff(existing_schema, plan)
+
+            if existing_schema is None or not diff.is_empty():
+                if confirm_rebuild is None:
+                    raise RuntimeError(self.format_diff_message(table, diff))
+                if not confirm_rebuild(table, plan, existing_schema, diff):
+                    raise RuntimeError(self.format_diff_message(table, diff))
+                self.rebuild_table(conn, table, builder, plan, existing_schema, diff)
 
             self._sync_indexes(conn, table, builder, plan.indexes, sync_indexes)
 

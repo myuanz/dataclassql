@@ -152,8 +152,16 @@ class SQLitePusher(DatabasePusher):
         return {name for (name,) in cur.fetchall()}
 
     def execute_statements(self, conn: sqlite3.Connection, statements: Iterable[str]) -> None:
-        for sql in statements:
-            conn.execute(sql)
+        savepoint = "dclassql_schema_push"
+        conn.execute(f"SAVEPOINT {savepoint}")
+        try:
+            for sql in statements:
+                conn.execute(sql)
+        except BaseException:
+            conn.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+            conn.execute(f"RELEASE SAVEPOINT {savepoint}")
+            raise
+        conn.execute(f"RELEASE SAVEPOINT {savepoint}")
         conn.commit()
 
     def is_system_index(self, name: str) -> bool:
@@ -206,6 +214,10 @@ class SQLitePusher(DatabasePusher):
             f"RENAME TO {format_quotes(table_name, builder.quote_char)};"
         )
         statements.append(rename_sql)
+        statements.extend(
+            builder.create_index_sql(definition)
+            for definition in plan.indexes
+        )
 
         self.execute_statements(conn, statements)
 

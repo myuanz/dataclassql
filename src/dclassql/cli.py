@@ -281,7 +281,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="生成 client 的位置: model-dir 写到模型文件同目录; package 写到 dclassql 包内",
     )
     generate_parser.add_argument("--push-db", action="store_true", help="生成客户端后立即推送数据库 schema")
-    generate_parser.add_argument("--sync-indexes", action="store_true", help="推送时同步删除多余索引")
+    generate_parser.add_argument(
+        "--sync-indexes",
+        action="store_true",
+        help="删除模型未声明的额外索引；表重建始终只创建模型索引",
+    )
     generate_parser.add_argument(
         "--confirm-rebuild",
         choices=("auto", "prompt"),
@@ -308,7 +312,7 @@ def build_parser() -> argparse.ArgumentParser:
     push_parser.add_argument(
         "--sync-indexes",
         action="store_true",
-        help="Drop extra indexes and create missing ones to match model definitions",
+        help="删除模型未声明的额外索引；表重建始终只创建模型索引",
     )
     push_parser.add_argument(
         "--confirm-rebuild",
