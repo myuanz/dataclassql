@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import types
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, cast
@@ -773,6 +774,70 @@ class FreshOrder:
 
     def foreign_key(self):
         yield self.status and self.status.code == self.status_code, None
+
+
+def test_lazy_relations_retry_after_query_failure(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    generated = generate_client([
+        CachedParent,
+        CachedChild,
+        FreshStatus,
+        FreshOrder,
+    ])
+    namespace: dict[str, Any] = {}
+    exec(generated.code, namespace)
+    client = namespace[generated.client_class_name](
+        datasource=DataSourceConfig(
+            url=f"sqlite:///{(tmp_path / 'relation-retry.db').as_posix()}"
+        )
+    )
+
+    try:
+        client.push_db()
+        client.cached_parent.insert({"id": 1, "name": "one"})
+        client.cached_child.insert({"id": 10, "parent_id": 1})
+        client.fresh_status.insert({"id": 1, "code": "ready", "name": "Ready"})
+        client.fresh_order.insert({"id": 1, "status_code": "ready"})
+
+        parent = client.cached_parent.find_first(where={"id": 1})
+        order = client.fresh_order.find_first(where={"id": 1})
+        assert parent is not None and order is not None
+        children_view = parent.children
+        status_proxy = order.status
+        assert status_proxy is not None
+
+        backend = client.cached_parent._backend
+        original_query_raw = backend.query_raw
+        attempts = {"CachedChild": 0, "FreshStatus": 0}
+
+        def fail_first_relation_query(
+            sql: str,
+            params: Sequence[object] | None = None,
+            auto_commit: bool = False,
+        ) -> Sequence[dict[str, object]]:
+            for table_name in attempts:
+                if f'FROM "{table_name}"' not in sql:
+                    continue
+                attempts[table_name] += 1
+                if attempts[table_name] == 1:
+                    raise RuntimeError(f"temporary {table_name} query failure")
+            return original_query_raw(sql, params, auto_commit=auto_commit)
+
+        monkeypatch.setattr(backend, "query_raw", fail_first_relation_query)
+
+        with pytest.raises(RuntimeError, match="temporary CachedChild query failure"):
+            list(children_view)
+        assert [child.id for child in children_view] == [10]
+        assert attempts["CachedChild"] == 2
+
+        with pytest.raises(RuntimeError, match="temporary FreshStatus query failure"):
+            _ = status_proxy.name
+        assert status_proxy.name == "Ready"
+        assert attempts["FreshStatus"] == 2
+    finally:
+        client.close()
 
 
 def test_lazy_single_proxy_scope_and_include_snapshot(tmp_path):
