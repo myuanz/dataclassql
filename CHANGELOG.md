@@ -14,6 +14,8 @@
 - 多值关系保持 `list[T]` 声明; 未 include 时返回只读 `LazyRelationView`, 支持存在性、计数、按索引查询及显式完整迭代, include 后返回真正的 `list[T]`。
 - lazy proxy 使用 `LazyLookupKey` 判断查询来源相等, proxy 相等和 hash 不再隐式查询关系内容。
 - lazy 关系状态改用基于 `id(instance)` 的弱引用 registry, 不再修改模型 `__hash__`; include 结果和主动赋值直接写入关系字段并解除 lazy 绑定。
+- Mapping 写入不再静默丢弃未知列, 由数据库统一报告无效列错误。
+- `order_by` 使用固定表别名限定动态列名并由 PyPika 转义, 使 SQLite 能报告未知列且避免 SQL 注入。
 
 ## 0.4.2 - 2026-07-18
 
