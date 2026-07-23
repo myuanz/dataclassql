@@ -16,6 +16,7 @@ ConnectionFactory = Callable[[], sqlite3.Connection]
 
 @runtime_checkable
 class SchemaTableProtocol(Protocol):
+    '''描述生成客户端表时需要的信息'''
     table_name: str
     column_specs: tuple[ColumnSpec, ...]
     primary_key: tuple[str, ...]
@@ -25,6 +26,7 @@ class SchemaTableProtocol(Protocol):
 
 @runtime_checkable
 class TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT](SchemaTableProtocol, Protocol):
+    '''描述使用表时需要的信息'''
     def __init__(self, backend: BackendProtocol) -> None: ...
 
     model: type[ModelT]
