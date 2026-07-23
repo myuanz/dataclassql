@@ -151,6 +151,9 @@ class AliasDefaultOrder:
     id: int
     side: OrderSideAlias
     limit_price: float = math.nan
+    nullable_nan: float | None = math.nan
+    negative_infinity: float = -math.inf
+    finite_value: float = 0.0
 
 
 @dataclass
@@ -712,7 +715,14 @@ def test_generate_client_matches_expected_shape() -> None:
 
 
 def test_generated_client_expands_type_alias_and_nan_default() -> None:
-    module = generate_client([AliasDefaultOrder])
+    with pytest.warns(
+        UserWarning,
+        match=r"AliasDefaultOrder\.limit_price defaults to NaN",
+    ) as caught:
+        module = generate_client([AliasDefaultOrder])
+
+    assert len(caught) == 1
+    assert "Use `float | None = None` instead" in str(caught[0].message)
     code = module.code
     assert "from tests.test_codegen import AliasDefaultOrder, OrderSideAlias" in code
     assert "side: OrderSideAlias" in code

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import math
 import re
+import warnings
 from collections import defaultdict
 from dataclasses import MISSING, dataclass, field, fields
 from datetime import date, datetime
@@ -201,6 +203,7 @@ class ClientCompiler:
         return cls(ModelGraph.from_models(models), client_class_name=client_class_name)
 
     def compile(self) -> GeneratedModule:
+        self.check()
         model_contexts = [
             self.build_model_context(self.graph.by_name[name])
             for name in sorted(self.graph.by_name)
@@ -227,6 +230,29 @@ class ClientCompiler:
             model_names=tuple(sorted(self.graph.by_name)),
             client_class_name=self.client_class_name,
         )
+
+    def check(self) -> None:
+        for info in self.graph.by_name.values():
+            if info.datasource.provider != "sqlite":
+                continue
+            model_fields = {field.name: field for field in fields(info.model)}
+            for column in info.columns:
+                field = model_fields[column.name]
+                if (
+                    column.scalar_base is not float
+                    or column.nullable
+                    or not column.has_default
+                    or not isinstance(field.default, float)
+                    or not math.isnan(field.default)
+                ):
+                    continue
+                warnings.warn(
+                    f"{info.model.__name__}.{field.name} defaults to NaN, but "
+                    "SQLite stores NaN as NULL and the column is NOT NULL; inserting "
+                    "the default value will fail. Use `float | None = None` instead.",
+                    UserWarning,
+                    stacklevel=3,
+                )
 
     def _build_import_blocks(self) -> list[ImportBlock]:
         imports: defaultdict[str, set[str]] = defaultdict(set)
