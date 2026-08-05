@@ -43,6 +43,18 @@ class AliasUser:
 
 
 @dataclass
+class Level:
+    id: int
+    code: Literal[1, 2, 3]
+
+
+@dataclass
+class MixedLiteral:
+    id: int
+    value: Literal[1, "a"]
+
+
+@dataclass
 class Event:
     name: str
     created_at: datetime
@@ -118,6 +130,20 @@ def test_db_push_infers_type_alias_value():
     create_sql, _ = _build_sqlite_schema(table)
 
     assert '"kind" TEXT NOT NULL' in create_sql
+
+
+def test_db_push_infers_int_literal_as_integer():
+    table = generated_tables(Level)[0]
+    create_sql, _ = _build_sqlite_schema(table)
+
+    assert '"code" INTEGER NOT NULL' in create_sql
+
+
+def test_db_push_rejects_mixed_literal_types():
+    table = generated_tables(MixedLiteral)[0]
+
+    with pytest.raises(TypeError, match="Literal 成员类型必须一致"):
+        _build_sqlite_schema(table)
 
 
 def test_db_push_adds_implicit_id_primary_key_for_model_without_id():

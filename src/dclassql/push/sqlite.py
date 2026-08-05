@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import date, datetime
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Iterable, Literal, Mapping, Sequence
 
 from pypika import Query, Table
 from pypika.utils import format_quotes
@@ -36,6 +36,15 @@ def _infer_sqlite_type(annotation: Any) -> str:
     type_hint = TypeHint(annotation).without_transparent_wrappers()
     annotation = type_hint.source
     origin = type_hint.origin
+    if origin is Literal:
+        member_types = {type(member) for member in type_hint.args}
+        if len(member_types) != 1:
+            names = ", ".join(sorted(t.__name__ for t in member_types))
+            raise TypeError(f"Literal 成员类型必须一致, 实际包含: {names}")
+        member_type = next(iter(member_types))
+        if member_type not in TYPE_MAP:
+            raise TypeError(f"Literal 成员类型不支持映射为 SQLite 类型: {member_type.__name__}")
+        return TYPE_MAP[member_type]
     if origin is None and isinstance(annotation, type):
         if annotation in TYPE_MAP:
             return TYPE_MAP[annotation]
