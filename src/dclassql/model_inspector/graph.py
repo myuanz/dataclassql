@@ -70,6 +70,7 @@ class ColumnInfo:
                         name == "id"
                         and name in primary_key
                         and type_hint.without_transparent_wrappers().source is int
+                        and not table_constraints.without_rowid
                     ),
                     storage_kind=storage_kind,
                     scalar_base=scalar_base,
@@ -211,6 +212,33 @@ class ModelInfo:
     constraints: TableConstraints
     datasource: DataSourceConfig
 
+    def _validate_without_rowid(self) -> None:
+        if not self.constraints.without_rowid:
+            return
+        columns = {column.name: column for column in self.columns}
+        missing = [
+            name
+            for name in self.constraints.primary_key.names
+            if name not in columns
+        ]
+        if missing:
+            names = ", ".join(missing)
+            raise ValueError(
+                f"WITHOUT ROWID model {self.model.__name__} must declare "
+                f"all primary-key columns, missing: {names}"
+            )
+        nullable = [
+            name
+            for name in self.constraints.primary_key.names
+            if columns[name].nullable
+        ]
+        if nullable:
+            names = ", ".join(nullable)
+            raise ValueError(
+                f"WITHOUT ROWID model {self.model.__name__} cannot use "
+                f"nullable primary-key columns: {names}"
+            )
+
 
 def _validate_model_supports_weakref(model: type[Any]) -> None:
     if not hasattr(model, "__slots__"):
@@ -293,6 +321,8 @@ class ModelGraph:
             )
             for model in models
         ]
+        for info in model_infos:
+            info._validate_without_rowid()
         graph = cls(models, model_infos, relationships)
         graph._validate_relationships()
         return graph

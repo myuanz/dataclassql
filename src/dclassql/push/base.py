@@ -57,9 +57,15 @@ class SchemaDiff:
     added: tuple[ColumnDeclaration, ...]
     removed: tuple[ExistingColumn, ...]
     changed: tuple[ColumnChange, ...]
+    table_changes: tuple[str, ...] = ()
 
     def is_empty(self) -> bool:
-        return not self.added and not self.removed and not self.changed
+        return (
+            not self.added
+            and not self.removed
+            and not self.changed
+            and not self.table_changes
+        )
 
 
 type ConfirmRebuildCallback = Callable[
@@ -121,7 +127,7 @@ class SchemaBuilder(ABC):
             elif len(pk_cols) > 1:
                 builder = builder.primary_key(*pk_cols)
 
-        return builder.get_sql(quote_char=self.quote_char) + ';'
+        return builder.get_sql(quote_char=self.quote_char) + self.table_suffix_sql() + ';'
 
     def _uses_implicit_id_primary_key(self, pk_cols: tuple[str, ...], column_names: set[str]) -> bool:
         return pk_cols == ("id",) and "id" not in column_names
@@ -273,6 +279,9 @@ class SchemaBuilder(ABC):
     def append_not_null(self, definition: str) -> str:
         return f'{definition} NOT NULL'
 
+    def table_suffix_sql(self) -> str:
+        return ''
+
 
 class DatabasePusher(ABC):
     schema_builder_cls: type[SchemaBuilder]
@@ -297,7 +306,13 @@ class DatabasePusher(ABC):
     ) -> tuple[ExistingColumn, ...] | None:
         ...
 
-    def calculate_diff(self, existing: tuple[ExistingColumn, ...], expected: SchemaPlan) -> SchemaDiff:
+    def calculate_diff(
+        self,
+        existing: tuple[ExistingColumn, ...],
+        expected: SchemaPlan,
+        *,
+        table_changes: tuple[str, ...] = (),
+    ) -> SchemaDiff:
         existing_map = {column.name: column for column in existing}
         expected_map = {column.name: column for column in expected.columns}
 
@@ -330,7 +345,15 @@ class DatabasePusher(ABC):
             added=tuple(added),
             removed=tuple(removed),
             changed=tuple(changed),
+            table_changes=table_changes,
         )
+
+    def inspect_table_changes(
+        self,
+        conn: Any,
+        table: SchemaTableProtocol,
+    ) -> tuple[str, ...]:
+        return ()
 
     def format_diff_message(self, table: SchemaTableProtocol, diff: SchemaDiff) -> str:
         parts: list[str] = [f"模型 {table.table_name} 需要重建表"]
@@ -345,6 +368,8 @@ class DatabasePusher(ABC):
                 f"~{change.name}({'; '.join(change.reasons)})" for change in diff.changed
             )
             parts.append(f"变更列: {changed_desc}")
+        if diff.table_changes:
+            parts.append(f"变更表选项: {', '.join(diff.table_changes)}")
         return "; ".join(parts)
 
     @abstractmethod
@@ -388,10 +413,20 @@ class DatabasePusher(ABC):
                 continue
 
             existing_schema = self.inspect_existing_schema(conn, table)
+            table_changes = self.inspect_table_changes(conn, table)
             if existing_schema is None:
-                diff = SchemaDiff(added=plan.columns, removed=tuple(), changed=tuple())
+                diff = SchemaDiff(
+                    added=plan.columns,
+                    removed=tuple(),
+                    changed=tuple(),
+                    table_changes=table_changes,
+                )
             else:
-                diff = self.calculate_diff(existing_schema, plan)
+                diff = self.calculate_diff(
+                    existing_schema,
+                    plan,
+                    table_changes=table_changes,
+                )
 
             if existing_schema is None or not diff.is_empty():
                 if confirm_rebuild is None:

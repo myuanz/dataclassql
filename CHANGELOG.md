@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+### Added
+
+- SQLite 模型可通过 `without_rowid()` 方法或 property 声明 `WITHOUT ROWID` 表; 返回 `False` 时禁用, 其他返回值启用。此类表要求显式、非空且不自增的主键, schema 选项变化时会进入确认重建流程。
+
 ### Fixed
 
 - 修复 SQLite 类型推断将 `Literal` 一律映射为 TEXT 的问题; `Literal[1, 2, 3]` 现在生成 `INTEGER`, `Literal["retail", "vip"]` 保持 `TEXT`, 成员类型不一致时抛出 `TypeError`。

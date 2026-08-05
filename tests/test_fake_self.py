@@ -97,3 +97,59 @@ class GeneratorPK:
 def test_primary_key_generator_tuple_error():
     with pytest.raises(TypeError, match=r'May be you meant to use "return" instead?'):
         TableConstraints.from_dc(GeneratorPK)
+
+
+@dataclass
+class MethodWithoutRowid:
+    id: int
+
+    def without_rowid(self):
+        return None
+
+
+@dataclass
+class PropertyWithoutRowid:
+    id: int
+
+    @property
+    def without_rowid(self):
+        return ...
+
+
+@dataclass
+class DisabledWithoutRowid:
+    id: int
+
+    def without_rowid(self):
+        return False
+
+
+@dataclass
+class DisabledWithoutRowidProperty:
+    id: int
+
+    @property
+    def without_rowid(self):
+        return False
+
+
+@dataclass
+class FieldNamedWithoutRowid:
+    id: int
+    without_rowid: str
+
+
+@dataclass
+class PlainValueNamedWithoutRowid:
+    id: int
+
+    without_rowid = False
+
+
+def test_without_rowid_recognizes_only_method_or_property():
+    assert TableConstraints.from_dc(MethodWithoutRowid).without_rowid
+    assert TableConstraints.from_dc(PropertyWithoutRowid).without_rowid
+    assert not TableConstraints.from_dc(DisabledWithoutRowid).without_rowid
+    assert not TableConstraints.from_dc(DisabledWithoutRowidProperty).without_rowid
+    assert not TableConstraints.from_dc(FieldNamedWithoutRowid).without_rowid
+    assert not TableConstraints.from_dc(PlainValueNamedWithoutRowid).without_rowid

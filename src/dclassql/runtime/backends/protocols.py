@@ -22,6 +22,7 @@ class SchemaTableProtocol(Protocol):
     primary_key: tuple[str, ...]
     indexes: tuple[tuple[str, ...], ...]
     unique_indexes: tuple[tuple[str, ...], ...]
+    without_rowid: bool
 
 
 @runtime_checkable

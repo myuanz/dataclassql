@@ -145,6 +145,8 @@ def _describe_schema_diff(table: SchemaTableProtocol, diff: SchemaDiff) -> str:
             f"~{change.name}({'; '.join(change.reasons)})" for change in diff.changed
         )
         parts.append(f"变更列: {changed}")
+    if diff.table_changes:
+        parts.append(f"变更表选项: {', '.join(diff.table_changes)}")
     return "; ".join(parts)
 
 

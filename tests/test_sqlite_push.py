@@ -60,6 +60,40 @@ class Event:
     created_at: datetime
 
 
+@dataclass
+class CompactUser:
+    id: int
+    name: str
+
+    def without_rowid(self): ...
+
+
+@dataclass
+class CompactMembership:
+    user_id: int
+    group_id: int
+
+    def primary_key(self):
+        return self.user_id, self.group_id
+
+    @property
+    def without_rowid(self): ...
+
+
+@dataclass
+class NullableCompactUser:
+    id: int | None
+
+    def without_rowid(self): ...
+
+
+@dataclass
+class ImplicitCompactEvent:
+    name: str
+
+    def without_rowid(self): ...
+
+
 def generated_tables(*models: type[Any]) -> list[SchemaTableProtocol]:
     generated = generate_client(list(models))
     namespace: dict[str, Any] = {}
@@ -165,6 +199,76 @@ def test_db_push_adds_implicit_id_primary_key_for_model_without_id():
 
     rows = conn.execute('SELECT id,name,created_at FROM "Event"').fetchall()
     assert rows == [(1, "start", "2026-01-01T00:00:00")]
+
+
+def test_db_push_creates_without_rowid_table_without_autoincrement():
+    table = generated_tables(CompactUser)[0]
+    create_sql, _ = _build_sqlite_schema(table)
+
+    assert table.without_rowid
+    assert create_sql == (
+        'CREATE TABLE IF NOT EXISTS "CompactUser" '
+        '("id" INTEGER NOT NULL,"name" TEXT NOT NULL,PRIMARY KEY ("id")) '
+        'WITHOUT ROWID;'
+    )
+    id_spec = next(spec for spec in table.column_specs if spec.name == "id")
+    assert id_spec.auto_increment is False
+
+    conn = sqlite3.connect(":memory:")
+    push_sqlite(conn, [table])
+    table_list = conn.execute(
+        "SELECT wr FROM pragma_table_list WHERE name='CompactUser'"
+    ).fetchone()
+    assert table_list == (1,)
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute('INSERT INTO "CompactUser" ("name") VALUES (?)', ("Alice",))
+    conn.execute(
+        'INSERT INTO "CompactUser" ("id","name") VALUES (?,?)',
+        (1, "Alice"),
+    )
+
+
+def test_without_rowid_rejects_implicit_or_nullable_primary_key():
+    with pytest.raises(ValueError, match="must declare all primary-key columns"):
+        generate_client([ImplicitCompactEvent])
+    with pytest.raises(ValueError, match="nullable primary-key columns"):
+        generate_client([NullableCompactUser])
+
+
+def test_db_push_rebuilds_when_without_rowid_changes():
+    rowid_table = generated_tables(CompactMembership)[0]
+    rowid_table.without_rowid = False
+    without_rowid_table = generated_tables(CompactMembership)[0]
+
+    conn = sqlite3.connect(":memory:")
+    push_sqlite(conn, [rowid_table])
+    conn.execute(
+        'INSERT INTO "CompactMembership" ("user_id","group_id") VALUES (?,?)',
+        (1, 2),
+    )
+
+    with pytest.raises(RuntimeError, match="without_rowid False -> True"):
+        push_sqlite(conn, [without_rowid_table])
+    push_sqlite(
+        conn,
+        [without_rowid_table],
+        confirm_rebuild=lambda *_args: True,
+    )
+    assert conn.execute(
+        "SELECT wr FROM pragma_table_list WHERE name='CompactMembership'"
+    ).fetchone() == (1,)
+    assert conn.execute(
+        'SELECT user_id,group_id FROM "CompactMembership"'
+    ).fetchall() == [(1, 2)]
+
+    push_sqlite(
+        conn,
+        [rowid_table],
+        confirm_rebuild=lambda *_args: True,
+    )
+    assert conn.execute(
+        "SELECT wr FROM pragma_table_list WHERE name='CompactMembership'"
+    ).fetchone() == (0,)
 
 
 def test_db_push_sync_indexes_aligns_with_model():

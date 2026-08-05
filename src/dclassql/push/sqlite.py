@@ -64,6 +64,22 @@ def _infer_sqlite_type(annotation: Any) -> str:
 class SQLiteSchemaBuilder(SchemaBuilder):
     quote_char = '"'
 
+    def render_create_table_sql(self) -> str:
+        if self.table.without_rowid:
+            if not self.table.primary_key:
+                raise ValueError(
+                    f"WITHOUT ROWID table {self.table.table_name} must have a primary key"
+                )
+            column_names = {column.name for column in self.table.column_specs}
+            missing = [name for name in self.table.primary_key if name not in column_names]
+            if missing:
+                names = ", ".join(missing)
+                raise ValueError(
+                    f"WITHOUT ROWID table {self.table.table_name} must declare "
+                    f"all primary-key columns, missing: {names}"
+                )
+        return super().render_create_table_sql()
+
     def resolve_column_type(self, annotation: Any) -> str:
         return _infer_sqlite_type(annotation)
 
@@ -86,7 +102,11 @@ class SQLiteSchemaBuilder(SchemaBuilder):
 
     def _build_json_column(self, column: ColumnSpec, pk_members: set[str]) -> ColumnDeclaration:
         primary_key = column.name in pk_members
-        not_null = not column.nullable and not primary_key
+        not_null = (
+            self.table.without_rowid and primary_key
+        ) or (
+            not column.nullable and not primary_key
+        )
         definition_sql = "TEXT"
         if not_null:
             definition_sql += " NOT NULL"
@@ -106,6 +126,8 @@ class SQLiteSchemaBuilder(SchemaBuilder):
         pk_columns: tuple[str, ...],
         sql_type: str,
     ) -> bool:
+        if self.table.without_rowid:
+            return False
         if len(pk_columns) != 1:
             return False
         if column.name != pk_columns[0]:
@@ -116,6 +138,26 @@ class SQLiteSchemaBuilder(SchemaBuilder):
 
     def inline_primary_key_definition(self, sql_type: str) -> str:
         return f"{sql_type} PRIMARY KEY AUTOINCREMENT"
+
+    def include_not_null(
+        self,
+        column: ColumnSpec,
+        *,
+        pk_members: set[str],
+        single_inline_pk: bool,
+    ) -> bool:
+        if self.table.without_rowid and column.name in pk_members:
+            return True
+        return super().include_not_null(
+            column,
+            pk_members=pk_members,
+            single_inline_pk=single_inline_pk,
+        )
+
+    def table_suffix_sql(self) -> str:
+        if self.table.without_rowid:
+            return " WITHOUT ROWID"
+        return ""
 
 
 class SQLitePusher(DatabasePusher):
@@ -152,6 +194,23 @@ class SQLitePusher(DatabasePusher):
             for row in rows
         ]
         return tuple(columns)
+
+    def inspect_table_changes(
+        self,
+        conn: sqlite3.Connection,
+        table: SchemaTableProtocol,
+    ) -> tuple[str, ...]:
+        row = conn.execute(
+            "SELECT wr FROM pragma_table_list "
+            "WHERE schema='main' AND name=?",
+            (table.table_name,),
+        ).fetchone()
+        if row is None:
+            return ()
+        current = bool(row[0])
+        if current == table.without_rowid:
+            return ()
+        return (f"without_rowid {current} -> {table.without_rowid}",)
 
     def fetch_existing_indexes(self, conn: sqlite3.Connection, table: SchemaTableProtocol) -> set[str]:
         cur = conn.execute(

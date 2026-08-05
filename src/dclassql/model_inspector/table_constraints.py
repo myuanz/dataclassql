@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
+from inspect import getattr_static
 from types import GeneratorType
 from typing import Any, Iterable, Self
 
@@ -35,6 +36,7 @@ class TableConstraints:
     primary_key: ColGroup
     indexes: tuple[ColGroup, ...]
     unique_indexes: tuple[ColGroup, ...]
+    without_rowid: bool
 
     def is_unique(self, columns: Iterable[str]) -> bool:
         column_names = tuple(columns)
@@ -113,4 +115,18 @@ class TableConstraints:
             primary_key=primary_key,
             indexes=tuple(indexes),
             unique_indexes=tuple(unique_indexes),
+            without_rowid=TableConstraints._resolve_without_rowid(dc, fake_self),
         )
+
+    @staticmethod
+    def _resolve_without_rowid(dc: type, fake_self: FakeSelf) -> bool:
+        if any(field.name == 'without_rowid' for field in fields(dc)):
+            return False
+        marker = getattr_static(dc, 'without_rowid', None)
+        if isinstance(marker, property):
+            value = marker.__get__(fake_self, dc)
+        elif callable(marker):
+            value = marker(fake_self)
+        else:
+            return False
+        return value is not False

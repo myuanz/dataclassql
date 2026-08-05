@@ -151,6 +151,7 @@ class UserTable:
   - [x] delete_many 同 update_many
 - [x] 提供 record_sql 上下文以捕获精确 SQL 与参数, 便于调试
 - [x] 模型没有 `id` 字段且未显式声明 `primary_key()` 时, schema 推送自动补后端对应的隐式自增 `id` 主键列; 生成客户端在 Insert/Where/OrderBy 等间接描述里暴露该 `id`, 查询和写入返回值仍保持原 dataclass 字段
+- [x] SQLite 模型通过 `without_rowid()` 方法或 property 声明 `WITHOUT ROWID` 表, 返回 `False` 时禁用, 并在 schema 选项变化时确认重建
 - [x] 关系运行时元信息统一使用 `TableRelation`, 懒加载和关系过滤共享同一份列映射
 - [x] `ModelGraph` 在完整关系图上校验关系属性唯一占用、映射列、列类型、目标唯一键及单值 backref 的本地唯一性
 - [x] 未 include 的关系属性读取时会隐式 n+1 查询，一对一关系直接返回查询后结果，一对多关系返回一个list惰性代理，可以从数据库获取的不会导致完整查询，会动态生成特定的查询
