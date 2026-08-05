@@ -2,23 +2,38 @@
 
 本项目从 `0.3.1` 开始记录变更。
 
+## Unreleased
+
+### Fixed
+
+- 修复 SQLite 类型推断将 `Literal` 一律映射为 TEXT 的问题; `Literal[1, 2, 3]` 现在生成 `INTEGER`, `Literal["retail", "vip"]` 保持 `TEXT`, 成员类型不一致时抛出 `TypeError`。
+
 ## 0.5.0 - 2026-07-22
-- 模型解析与客户端代码生成重构为 `ModelGraph -> ClientCompiler -> GeneratedModule` 流水线，优化代码结构。
-- `foreign_key()` 改为在模型代理组成的新 globals 中解析, 不再临时替换原始 dataclass 字段。
-- 新增 `TypeHint` 包装 Python type 的 `source`、`origin`、`args`, 提供通用的剥壳方法; 
-- 澄清类型约束: 
+
+### Added
+
+- 新增 `TypeHint` 包装 Python type 的 `source`、`origin`、`args`, 提供通用的剥壳方法;
+- 多值关系保持 `list[T]` 声明; 未 include 时返回只读 `LazyRelationView`, 支持存在性、计数、按索引查询及显式完整迭代, include 后返回真正的 `list[T]`。
+- 澄清类型约束:
   - JSON 值支持嵌套 dataclass、TypedDict、标量 list/dict 与异构 tuple
   - 关系字段仅接受 dataclass 或 `list[dataclass]`
   - 类型标注拒绝非 Optional Union、`set`、`frozenset` 和非字符串 dict key。
-- 关系运行时元信息统一为 `TableRelation`, 懒加载和关系过滤共享同一份列映射。
-- 多值关系保持 `list[T]` 声明; 未 include 时返回只读 `LazyRelationView`, 支持存在性、计数、按索引查询及显式完整迭代, include 后返回真正的 `list[T]`。
-- lazy proxy 使用 `LazyLookupKey` 判断查询来源相等, proxy 相等和 hash 不再隐式查询关系内容。
+
+### Fixed
+
 - lazy 关系状态改用基于 `id(instance)` 的弱引用 registry, 不再修改模型 `__hash__`; include 结果和主动赋值直接写入关系字段并解除 lazy 绑定。
-- Mapping 写入不再静默丢弃未知列, 由数据库统一报告无效列错误。
 - `order_by` 使用固定表别名限定动态列名并由 PyPika 转义, 使 SQLite 能报告未知列且避免 SQL 注入。
+
+### Changed
+
+- 模型解析与客户端代码生成重构为 `ModelGraph -> ClientCompiler -> GeneratedModule` 流水线，优化代码结构。
+- `foreign_key()` 改为在模型代理组成的新 globals 中解析, 不再临时替换原始 dataclass 字段。
+- 关系运行时元信息统一为 `TableRelation`, 懒加载和关系过滤共享同一份列映射。
+- lazy proxy 使用 `LazyLookupKey` 判断查询来源相等, proxy 相等和 hash 不再隐式查询关系内容。
+- Mapping 写入不再静默丢弃未知列, 由数据库统一报告无效列错误。
 - 数据库列可空性仅由 `T | None` / `Optional[T]` 决定, dataclass 的 default 和 default_factory 只影响生成的插入对象默认值。
-- 唯一索引仅生成命名的 `CREATE UNIQUE INDEX`, 不再同时创建表级 `UNIQUE` 和重复的 `sqlite_autoindex_*`。
 - SQLite 建表和重建会在同一事务内创建全部模型索引; 模型外索引不随重建保留。
+- 唯一索引仅生成命名的 `CREATE UNIQUE INDEX`, 不再同时创建表级 `UNIQUE` 和重复的 `sqlite_autoindex_*`。
 
 ## 0.4.2 - 2026-07-18
 
