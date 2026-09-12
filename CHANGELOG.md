@@ -2,7 +2,18 @@
 
 本项目从 `0.3.1` 开始记录变更。
 
-## Unreleased
+## 0.5.2
+
+### Added
+
+- 生成客户端新增 `*InsertInput` 类型别名, 统一表示 `*Insert`、模型实例、`*InsertDict` 和完整模型 `*Dict`; `insert`、`insert_many` 与 `upsert` 复用该类型。
+
+
+### Changed
+
+- Mapping 写入只序列化模型的数据库列, 完整模型 `*Dict` 中的关系字段及其他未知字段不会进入 SQL。
+
+## 0.5.1
 
 ### Added
 
