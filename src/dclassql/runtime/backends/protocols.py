@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import AbstractContextManager
 from typing import Any, Callable, Literal, Mapping, Protocol, Sequence, overload, runtime_checkable
 
 from pypika import Query, Table
@@ -163,6 +164,8 @@ class BackendProtocol(Protocol):
     def query_raw(self, sql: str, params: Sequence[object] | None = None, auto_commit: bool = False) -> Sequence[dict[str, object]]: ...
 
     def execute_raw(self, sql: str, params: Sequence[object] | None = None, auto_commit: bool = True) -> int: ...
+
+    def transaction(self) -> AbstractContextManager[None]: ...
 
     def close(self) -> None: ...
 

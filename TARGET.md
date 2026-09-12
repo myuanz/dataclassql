@@ -254,3 +254,7 @@ class UserBook:
 ```
 
 生成的客户端目录按 model 文件名生成, 例如 `user_model.py` 对应 `user_model_client/`, 其中 `client.py` 包含 `UserModelClient` 类, 构造时把所有表的 `*Table` 实例挂到蛇形命名的属性上, 方便业务方直接调用。
+
+## 跨表事务
+
+生成客户端继承公开 `client.transaction()` 上下文管理器。同一客户端当前线程的 CRUD 在事务内不提前提交；正常退出提交，异常回滚，嵌套调用通过保存点隔离。schema 同步应在事务开始前完成。

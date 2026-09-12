@@ -206,14 +206,14 @@ class AddressTable(TableProtocol):
 
     def find_many(self, *, where: AddressWhereDict | None = None, include: AddressIncludeDict | None = None, order_by: AddressOrderByDict | None = None, distinct: TAddressDistinctCol | Sequence[TAddressDistinctCol] | None = None, take: int | None = None, skip: int | None = None) -> list[Address]:
         return self._backend.find_many(
-            self, 
+            self,
             where=where, include=include, order_by=order_by, distinct=distinct,
             take=take, skip=skip
         )
 
     def find_first(self, *, where: AddressWhereDict | None = None, include: AddressIncludeDict | None = None, order_by: AddressOrderByDict | None = None, distinct: TAddressDistinctCol | Sequence[TAddressDistinctCol] | None = None, skip: int | None = None) -> Address | None:
         return self._backend.find_first(
-            self, 
+            self,
             where=where, include=include, order_by=order_by, distinct=distinct,
             skip=skip
         )
@@ -369,14 +369,14 @@ class BirthDayTable(TableProtocol):
 
     def find_many(self, *, where: BirthDayWhereDict | None = None, include: BirthDayIncludeDict | None = None, order_by: BirthDayOrderByDict | None = None, distinct: TBirthDayDistinctCol | Sequence[TBirthDayDistinctCol] | None = None, take: int | None = None, skip: int | None = None) -> list[BirthDay]:
         return self._backend.find_many(
-            self, 
+            self,
             where=where, include=include, order_by=order_by, distinct=distinct,
             take=take, skip=skip
         )
 
     def find_first(self, *, where: BirthDayWhereDict | None = None, include: BirthDayIncludeDict | None = None, order_by: BirthDayOrderByDict | None = None, distinct: TBirthDayDistinctCol | Sequence[TBirthDayDistinctCol] | None = None, skip: int | None = None) -> BirthDay | None:
         return self._backend.find_first(
-            self, 
+            self,
             where=where, include=include, order_by=order_by, distinct=distinct,
             skip=skip
         )
@@ -533,14 +533,14 @@ class BookTable(TableProtocol):
 
     def find_many(self, *, where: BookWhereDict | None = None, include: BookIncludeDict | None = None, order_by: BookOrderByDict | None = None, distinct: TBookDistinctCol | Sequence[TBookDistinctCol] | None = None, take: int | None = None, skip: int | None = None) -> list[Book]:
         return self._backend.find_many(
-            self, 
+            self,
             where=where, include=include, order_by=order_by, distinct=distinct,
             take=take, skip=skip
         )
 
     def find_first(self, *, where: BookWhereDict | None = None, include: BookIncludeDict | None = None, order_by: BookOrderByDict | None = None, distinct: TBookDistinctCol | Sequence[TBookDistinctCol] | None = None, skip: int | None = None) -> Book | None:
         return self._backend.find_first(
-            self, 
+            self,
             where=where, include=include, order_by=order_by, distinct=distinct,
             skip=skip
         )
@@ -741,14 +741,14 @@ class CompositeTable(TableProtocol):
 
     def find_many(self, *, where: CompositeWhereDict | None = None, include: CompositeIncludeDict | None = None, order_by: CompositeOrderByDict | None = None, distinct: TCompositeDistinctCol | Sequence[TCompositeDistinctCol] | None = None, take: int | None = None, skip: int | None = None) -> list[Composite]:
         return self._backend.find_many(
-            self, 
+            self,
             where=where, include=include, order_by=order_by, distinct=distinct,
             take=take, skip=skip
         )
 
     def find_first(self, *, where: CompositeWhereDict | None = None, include: CompositeIncludeDict | None = None, order_by: CompositeOrderByDict | None = None, distinct: TCompositeDistinctCol | Sequence[TCompositeDistinctCol] | None = None, skip: int | None = None) -> Composite | None:
         return self._backend.find_first(
-            self, 
+            self,
             where=where, include=include, order_by=order_by, distinct=distinct,
             skip=skip
         )
@@ -986,14 +986,14 @@ class UserTable(TableProtocol):
 
     def find_many(self, *, where: UserWhereDict | None = None, include: UserIncludeDict | None = None, order_by: UserOrderByDict | None = None, distinct: TUserDistinctCol | Sequence[TUserDistinctCol] | None = None, take: int | None = None, skip: int | None = None) -> list[User]:
         return self._backend.find_many(
-            self, 
+            self,
             where=where, include=include, order_by=order_by, distinct=distinct,
             take=take, skip=skip
         )
 
     def find_first(self, *, where: UserWhereDict | None = None, include: UserIncludeDict | None = None, order_by: UserOrderByDict | None = None, distinct: TUserDistinctCol | Sequence[TUserDistinctCol] | None = None, skip: int | None = None) -> User | None:
         return self._backend.find_first(
-            self, 
+            self,
             where=where, include=include, order_by=order_by, distinct=distinct,
             skip=skip
         )
@@ -1172,14 +1172,14 @@ class UserBookTable(TableProtocol):
 
     def find_many(self, *, where: UserBookWhereDict | None = None, include: UserBookIncludeDict | None = None, order_by: UserBookOrderByDict | None = None, distinct: TUserBookDistinctCol | Sequence[TUserBookDistinctCol] | None = None, take: int | None = None, skip: int | None = None) -> list[UserBook]:
         return self._backend.find_many(
-            self, 
+            self,
             where=where, include=include, order_by=order_by, distinct=distinct,
             take=take, skip=skip
         )
 
     def find_first(self, *, where: UserBookWhereDict | None = None, include: UserBookIncludeDict | None = None, order_by: UserBookOrderByDict | None = None, distinct: TUserBookDistinctCol | Sequence[TUserBookDistinctCol] | None = None, skip: int | None = None) -> UserBook | None:
         return self._backend.find_first(
-            self, 
+            self,
             where=where, include=include, order_by=order_by, distinct=distinct,
             skip=skip
         )

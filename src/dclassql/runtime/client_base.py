@@ -1,3 +1,4 @@
+from contextlib import AbstractContextManager
 from typing import Any
 
 from dclassql.db_pool import BaseDBPool, save_local
@@ -28,7 +29,7 @@ class ClientBase(BaseDBPool):
             return SQLiteBackend(lambda: self._connection(), echo_sql=self._echo_sql)
         raise ValueError(f"Unsupported provider '{datasource.provider}'")
 
-    @save_local(key=lambda self, func: (func.__name__, self.datasource.identity))
+    @save_local(key=lambda self, func: (self, func.__name__, self.datasource.identity))
     def _connection(self) -> Any:
         return self._open_connection(self.datasource)
 
@@ -58,4 +59,12 @@ class ClientBase(BaseDBPool):
         if self._backend_instance is not None:
             self._backend_instance.close()
             self._backend_instance = None
-        self.close_all()
+        cache = getattr(self._local, "_dclassql_cache", {})
+        key = (self, "_connection", self.datasource.identity)
+        connection = cache.pop(key, None)
+        if connection is not None:
+            connection.close()
+
+    def transaction(self) -> AbstractContextManager[None]:
+        '''在当前线程连接上原子提交跨表操作，异常时回滚。'''
+        return self._backend().transaction()

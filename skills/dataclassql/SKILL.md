@@ -212,6 +212,10 @@ class Order:
 
 默认值可以来自导入对象，生成代码会尽量保留原模型默认值语义.
 
+## sqlite 独有
+
+1. 使用 `def without_rowid(self): ...` 表达创建表时的 `without_rowid`，只有返回值是 False 的时候才不创建，毕竟不想使用的时候，干脆就删掉这一行
+
 ## 生成包里的文件
 
 - `client.py`：真正的生成客户端、表访问类、TypedDict、Insert dataclass.

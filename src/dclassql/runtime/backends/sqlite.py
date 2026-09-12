@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import sqlite3
 import threading
-from typing import Any, Literal, Mapping, Sequence, overload
+from contextlib import contextmanager
+from typing import Any, Generator, Literal, Mapping, Sequence, overload
 
 from pypika import analytics as an
 from pypika.dialects import SQLLiteQuery
@@ -130,6 +131,25 @@ class SQLiteBackend(BackendBase):
             f"SAVEPOINT {self._single_row_mutation_savepoint}"
         )
 
+    @contextmanager
+    def transaction(self) -> Generator[None]:
+        '''使用保存点支持嵌套事务，CRUD 不提前提交外层事务。'''
+        connection = self._acquire_connection()
+        depth = getattr(self._local, "transaction_depth", 0)
+        name = f"dclassql_transaction_{depth}"
+        connection.execute(f"SAVEPOINT {name}")
+        self._local.transaction_depth = depth + 1
+        try:
+            yield
+        except BaseException:
+            connection.execute(f"ROLLBACK TO SAVEPOINT {name}")
+            connection.execute(f"RELEASE SAVEPOINT {name}")
+            raise
+        else:
+            connection.execute(f"RELEASE SAVEPOINT {name}")
+        finally:
+            self._local.transaction_depth = depth
+
     def _commit_transaction(self) -> None:
         self._acquire_connection().execute(
             f"RELEASE SAVEPOINT {self._single_row_mutation_savepoint}"
@@ -245,7 +265,7 @@ class SQLiteBackend(BackendBase):
                 rows = cursor.fetchall()
             else:
                 rows = cursor.rowcount
-            if auto_commit:
+            if auto_commit and not getattr(self._local, "transaction_depth", 0):
                 connection.commit()
         finally:
             cursor.close()

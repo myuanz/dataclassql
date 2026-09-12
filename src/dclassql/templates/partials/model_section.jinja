@@ -180,14 +180,14 @@ class {{ table_class }}(TableProtocol):
 
     def find_many(self, *, where: {{ where_dict_class }} | None = None, include: {{ include_dict_class }} | None = None, order_by: {{ order_by_dict_class }} | None = None, distinct: {{ distinct_alias }} | Sequence[{{ distinct_alias }}] | None = None, take: int | None = None, skip: int | None = None) -> list[{{ name }}]:
         return self._backend.find_many(
-            self, 
+            self,
             where=where, include=include, order_by=order_by, distinct=distinct,
             take=take, skip=skip
         )
 
     def find_first(self, *, where: {{ where_dict_class }} | None = None, include: {{ include_dict_class }} | None = None, order_by: {{ order_by_dict_class }} | None = None, distinct: {{ distinct_alias }} | Sequence[{{ distinct_alias }}] | None = None, skip: int | None = None) -> {{ name }} | None:
         return self._backend.find_first(
-            self, 
+            self,
             where=where, include=include, order_by=order_by, distinct=distinct,
             skip=skip
         )
