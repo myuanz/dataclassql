@@ -1,5 +1,6 @@
 {%- set name = model.name -%}
 {%- set info = model.model_info -%}
+{%- set scalar_dict_class = name ~ 'ScalarDict' -%}
 {%- set insert_class = name ~ 'Insert' -%}
 {%- set insert_dict_class = name ~ 'InsertDict' -%}
 {%- set insert_input_alias = name ~ 'InsertInput' -%}
@@ -11,6 +12,8 @@
 {%- set include_alias = 'T' ~ name ~ 'IncludeCol' -%}
 {%- set sortable_alias = 'T' ~ name ~ 'SortableCol' -%}
 {%- set include_relations = model.relationships | sort(attribute='local.attribute', case_sensitive=True) -%}
+{%- set include_names = include_relations | map(attribute='local.attribute') | list -%}
+{%- set scalar_fields = model.dict_fields | rejectattr('name', 'in', include_names) | list -%}
 {%- set sortable_columns = model.column_specs -%}
 {%- set update_dict_class = name ~ 'UpdateDict' -%}
 {%- set upsert_where_alias = name ~ 'UpsertWhereDict' -%}
@@ -19,7 +22,6 @@
 {% set backend_signature = 'BackendProtocol' %}
 
 {% if include_relations %}
-{% set include_names = include_relations | map(attribute='local.attribute') | list %}
 {{ include_alias }} = Literal[{{ include_names | map('tojson') | join(', ') }}]
 {% else %}
 {{ include_alias }} = Literal[()]
@@ -37,13 +39,20 @@
 class {{ insert_class }}:
 {{ macros.dataclass_fields(model.insert_fields)|indent(4, True) }}
 
-class {{ name }}Dict(TypedDict, closed=True):
-{{ macros.typed_dict_fields(model.dict_fields)|indent(4, True) }}
+class {{ scalar_dict_class }}(TypedDict):
+{% for field in scalar_fields %}    {{ field.name }}: {{ field.annotation }}
+{% else %}    pass
+{% endfor %}
+
+{% if include_relations %}class {{ name }}Dict({{ scalar_dict_class }}, closed=True):
+{% for field in model.dict_fields if field.name in include_names %}    {{ field.name }}: {{ field.annotation }}
+{% endfor %}{% else %}class {{ name }}Dict({{ scalar_dict_class }}, closed=True): ...
+{% endif %}
 
 class {{ insert_dict_class }}(TypedDict, closed=True):
 {{ macros.typed_dict_fields(model.typed_dict_fields)|indent(4, True) }}
 
-type {{ insert_input_alias }} = {{ insert_class }} | {{ name }} | {{ insert_dict_class }} | {{ name }}Dict
+type {{ insert_input_alias }} = {{ insert_class }} | {{ name }} | {{ insert_dict_class }} | {{ scalar_dict_class }}
 
 class {{ update_dict_class }}(TypedDict, total=False, closed=True):
 {{ macros.typed_dict_fields(model.update_fields)|indent(4, True) }}

@@ -64,12 +64,13 @@ class AddressInsert:
     user_id: int
 
 
-class AddressDict(TypedDict, closed=True):
+class AddressScalarDict(TypedDict):
     id: int
     location: str
     user_id: int
-    user: UserDict | None
 
+class AddressDict(AddressScalarDict, closed=True):
+    user: UserDict | None
 
 class AddressInsertDict(TypedDict, closed=True):
     id: NotRequired[int]
@@ -77,7 +78,7 @@ class AddressInsertDict(TypedDict, closed=True):
     user_id: int
 
 
-type AddressInsertInput = AddressInsert | Address | AddressInsertDict | AddressDict
+type AddressInsertInput = AddressInsert | Address | AddressInsertDict | AddressScalarDict
 
 class AddressUpdateDict(TypedDict, total=False, closed=True):
     id: int
@@ -239,18 +240,19 @@ class BirthDayInsert:
     date: datetime
 
 
-class BirthDayDict(TypedDict, closed=True):
+class BirthDayScalarDict(TypedDict):
     user_id: int
-    user: UserDict | None
     date: datetime
 
+class BirthDayDict(BirthDayScalarDict, closed=True):
+    user: UserDict | None
 
 class BirthDayInsertDict(TypedDict, closed=True):
     user_id: int
     date: datetime
 
 
-type BirthDayInsertInput = BirthDayInsert | BirthDay | BirthDayInsertDict | BirthDayDict
+type BirthDayInsertInput = BirthDayInsert | BirthDay | BirthDayInsertDict | BirthDayScalarDict
 
 class BirthDayUpdateDict(TypedDict, total=False, closed=True):
     user_id: int
@@ -404,18 +406,19 @@ class BookInsert:
     name: str
 
 
-class BookDict(TypedDict, closed=True):
+class BookScalarDict(TypedDict):
     id: int
     name: str
-    users: list[UserBookDict]
 
+class BookDict(BookScalarDict, closed=True):
+    users: list[UserBookDict]
 
 class BookInsertDict(TypedDict, closed=True):
     id: NotRequired[int]
     name: str
 
 
-type BookInsertInput = BookInsert | Book | BookInsertDict | BookDict
+type BookInsertInput = BookInsert | Book | BookInsertDict | BookScalarDict
 
 class BookUpdateDict(TypedDict, total=False, closed=True):
     id: int
@@ -574,7 +577,7 @@ class CompositeInsert:
     name: str
 
 
-class CompositeDict(TypedDict, closed=True):
+class CompositeScalarDict(TypedDict):
     id1: int
     id2: int
     uniq1: str
@@ -582,6 +585,7 @@ class CompositeDict(TypedDict, closed=True):
     uniq3: str
     name: str
 
+class CompositeDict(CompositeScalarDict, closed=True): ...
 
 class CompositeInsertDict(TypedDict, closed=True):
     id1: int
@@ -592,7 +596,7 @@ class CompositeInsertDict(TypedDict, closed=True):
     name: str
 
 
-type CompositeInsertInput = CompositeInsert | Composite | CompositeInsertDict | CompositeDict
+type CompositeInsertInput = CompositeInsert | Composite | CompositeInsertDict | CompositeScalarDict
 
 class CompositeUpdateDict(TypedDict, total=False, closed=True):
     id1: int
@@ -785,7 +789,7 @@ class UserInsert:
     vip_level: UserVIPLevel | None
 
 
-class UserDict(TypedDict, closed=True):
+class UserScalarDict(TypedDict):
     id: int
     name: str
     email: str
@@ -793,10 +797,11 @@ class UserDict(TypedDict, closed=True):
     status: UserStatus
     type: UserType
     vip_level: UserVIPLevel | None
+
+class UserDict(UserScalarDict, closed=True):
     birthday: BirthDayDict | None
     addresses: list[AddressDict]
     books: list[UserBookDict]
-
 
 class UserInsertDict(TypedDict, closed=True):
     id: NotRequired[int]
@@ -808,7 +813,7 @@ class UserInsertDict(TypedDict, closed=True):
     vip_level: UserVIPLevel | None
 
 
-type UserInsertInput = UserInsert | User | UserInsertDict | UserDict
+type UserInsertInput = UserInsert | User | UserInsertDict | UserScalarDict
 
 class UserUpdateDict(TypedDict, total=False, closed=True):
     id: int
@@ -1028,13 +1033,14 @@ class UserBookInsert:
     created_at: datetime
 
 
-class UserBookDict(TypedDict, closed=True):
+class UserBookScalarDict(TypedDict):
     user_id: int
     book_id: int
-    user: UserDict | None
-    book: BookDict | None
     created_at: datetime
 
+class UserBookDict(UserBookScalarDict, closed=True):
+    user: UserDict | None
+    book: BookDict | None
 
 class UserBookInsertDict(TypedDict, closed=True):
     user_id: int
@@ -1042,7 +1048,7 @@ class UserBookInsertDict(TypedDict, closed=True):
     created_at: datetime
 
 
-type UserBookInsertInput = UserBookInsert | UserBook | UserBookInsertDict | UserBookDict
+type UserBookInsertInput = UserBookInsert | UserBook | UserBookInsertDict | UserBookScalarDict
 
 class UserBookUpdateDict(TypedDict, total=False, closed=True):
     user_id: int
@@ -1237,6 +1243,7 @@ __all__ = (
     "AddressIncludeDict",
     "AddressOrderByDict",
     "AddressDict",
+    "AddressScalarDict",
     "AddressInsert",
     "AddressInsertDict",
     "AddressInsertInput",
@@ -1251,6 +1258,7 @@ __all__ = (
     "BirthDayIncludeDict",
     "BirthDayOrderByDict",
     "BirthDayDict",
+    "BirthDayScalarDict",
     "BirthDayInsert",
     "BirthDayInsertDict",
     "BirthDayInsertInput",
@@ -1265,6 +1273,7 @@ __all__ = (
     "BookIncludeDict",
     "BookOrderByDict",
     "BookDict",
+    "BookScalarDict",
     "BookInsert",
     "BookInsertDict",
     "BookInsertInput",
@@ -1279,6 +1288,7 @@ __all__ = (
     "CompositeIncludeDict",
     "CompositeOrderByDict",
     "CompositeDict",
+    "CompositeScalarDict",
     "CompositeInsert",
     "CompositeInsertDict",
     "CompositeInsertInput",
@@ -1292,6 +1302,7 @@ __all__ = (
     "UserIncludeDict",
     "UserOrderByDict",
     "UserDict",
+    "UserScalarDict",
     "UserInsert",
     "UserInsertDict",
     "UserInsertInput",
@@ -1308,6 +1319,7 @@ __all__ = (
     "UserBookIncludeDict",
     "UserBookOrderByDict",
     "UserBookDict",
+    "UserBookScalarDict",
     "UserBookInsert",
     "UserBookInsertDict",
     "UserBookInsertInput",

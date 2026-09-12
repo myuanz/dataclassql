@@ -547,6 +547,7 @@ class ClientCompiler:
                     f"{name}IncludeDict",
                     f"{name}OrderByDict",
                     f"{name}Dict",
+                    f"{name}ScalarDict",
                     f"{name}Insert",
                     f"{name}InsertDict",
                     f"{name}InsertInput",

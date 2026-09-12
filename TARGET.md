@@ -124,6 +124,7 @@ class UserTable:
 - [x] 元编程工具集, 收集 dataclass 字段信息等
 - [x] 基本的类型化代码生成 (Insert/InsertDict + insert/insert_many/find_many/find_first)
 - [x] 使用 `*InsertInput` 统一 insert/insert_many/upsert 接受的 Insert、模型、InsertDict 和完整模型 Dict, 序列化时只提取数据库列并忽略关系字段
+- [x] `asdict()` 支持 `keep`、`fetch`、`empty`、`omit` 四种关系策略; 生成 `*ScalarDict` 表示省略关系后的标量快照, 并可直接作为 `*InsertInput`
 - [x] sqlite 后端:
     - [x] 对应 prisma db push 的功能, 如: 创建表, 创建索引, 变更表结构和变更索引等
     - [x] 运行时查询和插入等功能

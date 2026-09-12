@@ -457,8 +457,16 @@ def test_generate_client_matches_expected_shape() -> None:
 
     assert module.model_names == ('Address', 'BirthDay', 'Book', 'Composite', 'User', 'UserBook')
     assert 'class UserDict' in code
+    assert 'class UserInsertDict(TypedDict, closed=True):' in code
+    assert 'class CompositeInsertDict(TypedDict, closed=True):' in code
     user_dict = namespace['UserDict']
+    user_scalar_dict = namespace['UserScalarDict']
+    assert issubclass(user_dict, dict)
     dict_hints = get_type_hints(user_dict, globalns=namespace, localns=namespace)
+    scalar_dict_hints = get_type_hints(user_scalar_dict, globalns=namespace, localns=namespace)
+    assert set(scalar_dict_hints) == {
+        'id', 'name', 'email', 'last_login', 'status', 'type', 'vip_level'
+    }
     addresses_hint = dict_hints['addresses']
     assert get_origin(addresses_hint) is list
     assert get_args(addresses_hint) == (namespace['AddressDict'],)
@@ -466,6 +474,7 @@ def test_generate_client_matches_expected_shape() -> None:
     assert set(get_args(birthday_hint)) == {namespace['BirthDayDict'], type(None)}
 
     assert 'DataSourceConfig' in namespace['__all__']
+    assert 'UserScalarDict' in namespace['__all__']
     assert 'UserUpdateDict' in namespace['__all__']
 
     data_source_config = namespace['DataSourceConfig']
@@ -523,6 +532,7 @@ def test_generate_client_matches_expected_shape() -> None:
 
     user_insert_cls = namespace['UserInsert']
     user_insert_dict = namespace['UserInsertDict']
+    user_scalar_dict = namespace['UserScalarDict']
     user_insert_input = namespace['UserInsertInput']
     user_where_dict = namespace['UserWhereDict']
     assert 'StringFilter' in namespace
@@ -544,7 +554,7 @@ def test_generate_client_matches_expected_shape() -> None:
         user_insert_cls,
         user_insert_dict,
         namespace['User'],
-        namespace['UserDict'],
+        user_scalar_dict,
     }
 
     user_model_hints = get_type_hints(User)
@@ -567,7 +577,8 @@ def test_generate_client_matches_expected_shape() -> None:
 
     assert getattr(user_insert_dict, '__total__') is True
 
-    assert "def asdict(value: User, *, relation_policy: RelationPolicy = 'keep') -> UserDict" in module.asdict_stub
+    assert "def asdict(value: User, *, relation_policy: Literal['omit'] = 'omit') -> UserScalarDict" in module.asdict_stub
+    assert "def asdict(value: User, *, relation_policy: Literal['keep', 'fetch', 'empty']) -> UserDict" in module.asdict_stub
     assert getattr(user_where_dict, '__total__') is False
     assert user_insert_dict not in user_where_dict.__mro__
 
@@ -1408,6 +1419,7 @@ def test_generated_client_uses_implicit_id_for_model_without_id(tmp_path: Path) 
     try:
         namespace: dict[str, Any] = {}
         module = generate_client([Event])
+        assert "class EventInsertDict(TypedDict, closed=True):\n    id: NotRequired[int]" in module.code
         exec(module.code, namespace)
 
         client_cls = namespace[module.client_class_name]

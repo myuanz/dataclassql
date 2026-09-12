@@ -13,12 +13,22 @@ from .runtime.backends.lazy import (
 )
 from .runtime.backends.relation_view import LazyLookupKey
 
-RelationPolicy = Literal['skip', 'fetch', 'keep']
+RelationPolicy = Literal['keep', 'fetch', 'empty', 'omit']
 type _DictFactory = Callable[[Iterable[tuple[str, Any]]], Any]
 _SEQUENCE_SKIP_TYPES = (str, bytes, bytearray)
 
 
-def asdict(value: Any, *, relation_policy: RelationPolicy = 'keep') -> Any:
+def asdict(value: Any, *, relation_policy: RelationPolicy = 'omit') -> Any:
+    '''将 dataclass 及其嵌套值转换为字典。
+
+    relation_policy 控制关系字段:
+    - keep : 保留已加载关系，未加载关系置为 [] 或 None。
+    - fetch: 查询并转换未加载关系。
+    - empty: 所有关系字段置为 [] 或 None。
+    - omit : 从结果中省略所有关系字段。
+    '''
+    if relation_policy not in ('keep', 'fetch', 'empty', 'omit'):
+        raise ValueError(f'Unsupported relation policy: {relation_policy}')
     return _AsdictConverter(relation_policy, dict).convert(value)
 
 
@@ -67,7 +77,9 @@ class _AsdictConverter:
                 name = field_obj.name
                 state = None if state_map is None else state_map.get(name)
                 descriptor = _LazyRelationDescriptor.find(instance.__class__, name)
-                if self.relation_policy == 'skip' and descriptor is not None:
+                if self.relation_policy == 'omit' and descriptor is not None:
+                    continue
+                if self.relation_policy == 'empty' and descriptor is not None:
                     value = [] if descriptor.many else None
                 elif state is not None:
                     value = self._convert_relation(instance, state)

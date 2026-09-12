@@ -107,6 +107,8 @@ def test_generate_command_outputs_code(tmp_path: Path, capsys: pytest.CaptureFix
     assert "class UserTable" in code
     stub_code = stub_target.read_text(encoding="utf-8")
     assert "RelationPolicy" in stub_code
+    assert "from dclassql.asdict import RelationPolicy" in stub_code
+    assert "relation_policy 控制关系字段" in stub_code
 
 
 def test_generate_command_rebinds_enum_imports(tmp_path: Path) -> None:

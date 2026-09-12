@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any, cast
 from weakref import ref
 
+import pytest
+
 from dclassql import asdict, record_sql
 from dclassql.codegen import generate_client
 from dclassql.model_inspector import DataSourceConfig
@@ -170,25 +172,32 @@ def test_asdict_handles_lazy_relations(tmp_path: Path) -> None:
     assert set(fetched_state) == {"profile", "posts"}
 
     base_result = asdict(fetched)
-    assert base_result["profile"] is None
-    assert base_result["posts"] == []
+    assert set(base_result) == {"id", "name", "metadata"}
     assert base_result["metadata"] == {"rank": 1}
 
     fetched_result = asdict(fetched, relation_policy="fetch")
     assert fetched_result["profile"]["bio"] == "hi"
     assert {entry["title"] for entry in fetched_result["posts"]} == {"first", "second"}
 
-    keep_result = asdict(fetched)
+    keep_result = asdict(fetched, relation_policy="keep")
     assert keep_result["profile"] is None
     assert keep_result["posts"] == []
 
-    skip_result = asdict(fetched, relation_policy="skip")
-    assert skip_result["profile"] is None
-    assert skip_result["posts"] == []
+    empty_result = asdict(fetched, relation_policy="empty")
+    assert empty_result["profile"] is None
+    assert empty_result["posts"] == []
+
+    with record_sql() as sqls:
+        omit_result = asdict(fetched, relation_policy="omit")
+    assert sqls == []
+    assert set(omit_result) == {"id", "name", "metadata"}
+
+    with pytest.raises(ValueError, match="Unsupported relation policy: skip"):
+        asdict(fetched, relation_policy=cast(Any, "skip"))
 
     sequence_result = asdict([fetched])
     assert isinstance(sequence_result, list)
-    assert sequence_result[0] == keep_result
+    assert sequence_result[0] == base_result
 
     assert dataclass_asdict(fetched) == keep_result
 
@@ -210,7 +219,7 @@ def test_asdict_handles_lazy_relations(tmp_path: Path) -> None:
     partially_included_state = LAZY_RELATION_REGISTRY.get(partially_included)
     assert partially_included_state is not None
     assert set(partially_included_state) == {"posts"}
-    partially_included_result = asdict(partially_included)
+    partially_included_result = asdict(partially_included, relation_policy="keep")
     assert partially_included_result["profile"]["bio"] == "hi"
     assert partially_included_result["posts"] == []
 
@@ -220,17 +229,20 @@ def test_asdict_handles_lazy_relations(tmp_path: Path) -> None:
     )
     assert included is not None
     assert LAZY_RELATION_REGISTRY.get(included) is None
-    included_result = asdict(included)
+    included_result = asdict(included, relation_policy="keep")
     assert included_result["profile"]["bio"] == "hi"
     assert len(included_result["posts"]) == 2
     assert dataclass_asdict(included) == included_result
-    included_skip_result = asdict(included, relation_policy="skip")
-    assert included_skip_result["profile"] is None
-    assert included_skip_result["posts"] == []
+    included_empty_result = asdict(included, relation_policy="empty")
+    assert included_empty_result["profile"] is None
+    assert included_empty_result["posts"] == []
+
+    included_omit_result = asdict(included, relation_policy="omit")
+    assert set(included_omit_result) == {"id", "name", "metadata"}
 
     post_table.insert(PostInsert(id=22, user_id=author.id, title="third"))
     with record_sql() as sqls:
-        snapshot_result = asdict(included)
+        snapshot_result = asdict(included, relation_policy="keep")
     assert sqls == []
     assert snapshot_result == included_result
 

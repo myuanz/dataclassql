@@ -3,25 +3,41 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any, Literal, overload
 
+from dclassql.asdict import RelationPolicy
+
 {% if models %}
 from .client import (
 {% for model in models %}    {{ model.name }},
     {{ model.name }}Dict,
+    {{ model.name }}ScalarDict,
 {% endfor %})
 
 {% endif %}
-RelationPolicy = Literal['skip', 'fetch', 'keep']
-
 {% for model in models %}@overload
-def asdict(value: {{ model.name }}, *, relation_policy: RelationPolicy = 'keep') -> {{ model.name }}Dict: ...
-
-{% endfor %}{% for model in models %}@overload
-def asdict(value: Sequence[{{ model.name }}], *, relation_policy: RelationPolicy = 'keep') -> list[{{ model.name }}Dict]: ...
-
-{% endfor %}@overload
-def asdict(value: Sequence[Any], *, relation_policy: RelationPolicy = 'keep') -> list[Any]: ...
+def asdict(value: {{ model.name }}, *, relation_policy: Literal['omit'] = 'omit') -> {{ model.name }}ScalarDict: ...
 
 @overload
-def asdict(value: None, *, relation_policy: RelationPolicy = 'keep') -> None: ...
+def asdict(value: {{ model.name }}, *, relation_policy: Literal['keep', 'fetch', 'empty']) -> {{ model.name }}Dict: ...
 
-def asdict(value: object, *, relation_policy: RelationPolicy = 'keep') -> Any: ...
+{% endfor %}{% for model in models %}@overload
+def asdict(value: Sequence[{{ model.name }}], *, relation_policy: Literal['omit'] = 'omit') -> list[{{ model.name }}ScalarDict]: ...
+
+@overload
+def asdict(value: Sequence[{{ model.name }}], *, relation_policy: Literal['keep', 'fetch', 'empty']) -> list[{{ model.name }}Dict]: ...
+
+{% endfor %}@overload
+def asdict(value: Sequence[Any], *, relation_policy: RelationPolicy = 'omit') -> list[Any]: ...
+
+@overload
+def asdict(value: None, *, relation_policy: RelationPolicy = 'omit') -> None: ...
+
+def asdict(value: object, *, relation_policy: RelationPolicy = 'omit') -> Any:
+    '''将 dataclass 及其嵌套值转换为字典。
+
+    relation_policy 控制关系字段:
+    - keep : 保留已加载关系，未加载关系置为 [] 或 None。
+    - fetch: 查询并转换未加载关系。
+    - empty: 所有关系字段置为 [] 或 None。
+    - omit : 从结果中省略所有关系字段。
+    '''
+    ...
