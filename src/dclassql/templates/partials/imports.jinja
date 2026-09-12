@@ -4,13 +4,13 @@ from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
 from typing import Annotated, Any, Literal, Mapping, Sequence, NotRequired, Never, overload
-from typing_extensions import TypedDict
+from typing_extensions import TypeForm, TypedDict
 
 from dclassql import DataSourceConfig
 from dclassql.runtime.backends import BackendProtocol, ColumnSpec, TableRelation
 from dclassql.runtime.backends.protocols import TableProtocol
 from dclassql.runtime.client_base import ClientBase
-from dclassql.runtime.json_value import deserialize_json_value, serialize_json_value
+from dclassql.runtime.json_value import deserialize_json_value, serialize_json_column_value
 
 {% if module_imports %}
 {% for block in module_imports -%}

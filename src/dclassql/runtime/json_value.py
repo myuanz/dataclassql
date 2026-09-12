@@ -4,27 +4,36 @@ from dataclasses import fields, is_dataclass
 from datetime import date, datetime
 from enum import Enum
 from functools import cache
-from typing import Any, get_type_hints, is_typeddict
+from typing import Any, cast, get_type_hints, is_typeddict
+
+from typing_extensions import TypeForm
 
 from dclassql.model_inspector import TypeHint
 
 
-def serialize_json_value(value: object) -> str | None:
-    if value is None:
-        return None
+def serialize_json_value(value: object) -> str:
     return json.dumps(_to_json_value(value), ensure_ascii=False, separators=(",", ":"))
 
 
-def deserialize_json_value(value: object, annotation: Any) -> object:
+def serialize_json_column_value(value: object | None) -> str | None:
     if value is None:
         return None
+    return serialize_json_value(value)
+
+
+def deserialize_json_value[T](value: object, annotation: TypeForm[T]) -> T:
+    type_hint = TypeHint(annotation)
+    if value is None:
+        if not type_hint.has_optional_wrapper:
+            raise TypeError(f"JSON value is null for non-optional {annotation!r}")
+        return cast(T, None)
     if isinstance(value, bytes):
         text = value.decode()
     elif isinstance(value, str):
         text = value
     else:
         raise TypeError(f"JSON column value must be str or bytes, got {type(value)!r}")
-    return _from_json_value(json.loads(text), TypeHint(annotation))
+    return cast(T, _from_json_value(json.loads(text), type_hint))
 
 
 def _to_json_value(value: object) -> object:
@@ -77,7 +86,10 @@ def _from_json_value(value: object, type_hint: TypeHint) -> object:
         value_hint = TypeHint(args[1])
         if not isinstance(value, dict):
             raise TypeError(f"Expected JSON object for {annotation!r}")
-        return {key: _from_json_value(item, value_hint) for key, item in value.items()}
+        return {
+            key: _from_json_value(item, value_hint)
+            for key, item in value.items()
+        }
     if annotation is datetime:
         if not isinstance(value, str):
             raise TypeError("datetime JSON value must be a string")

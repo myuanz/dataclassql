@@ -511,7 +511,10 @@ class ClientCompiler:
     def _column_value_expression(self, column: ColumnInfo) -> str:
         value = f"row[{column.name!r}]"
         if column.storage_kind == "json":
-            return f"deserialize_json_value({value}, {self.renderer.render(column.type_hint)})"
+            return (
+                f"deserialize_json_value({value}, "
+                f"TypeForm({self.renderer.render(column.type_hint)}))"
+            )
         if column.enum_type is None:
             return value
         converted = f"{column.enum_type.__name__}({value})"
@@ -612,7 +615,7 @@ def _render_init_stub(client_class_name: str) -> str:
 
 def _format_mapping_value_expr(column: ColumnInfo) -> str:
     if column.storage_kind == "json":
-        return f"serialize_json_value(data[{column.name!r}])"
+        return f"serialize_json_column_value(data[{column.name!r}])"
     if column.enum_type is None:
         return f"data[{column.name!r}]"
     value_expr = f"data[{column.name!r}]"
@@ -629,7 +632,7 @@ def _format_insert_value_expr(
     if not returned_field:
         return f"getattr(data, {column.name!r}, None)"
     if column.storage_kind == "json":
-        return f"serialize_json_value(data.{column.name})"
+        return f"serialize_json_column_value(data.{column.name})"
     if column.enum_type is None:
         return f"data.{column.name}"
     value_expr = f"data.{column.name}"

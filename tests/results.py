@@ -4,16 +4,16 @@ from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
 from typing import Annotated, Any, Literal, Mapping, Sequence, NotRequired, Never, overload
-from typing_extensions import TypedDict
+from typing_extensions import TypeForm, TypedDict
 
 from dclassql import DataSourceConfig
 from dclassql.runtime.backends import BackendProtocol, ColumnSpec, TableRelation
 from dclassql.runtime.backends.protocols import TableProtocol
 from dclassql.runtime.client_base import ClientBase
-from dclassql.runtime.json_value import deserialize_json_value, serialize_json_value
+from dclassql.runtime.json_value import deserialize_json_value, serialize_json_column_value
 
 from datetime import datetime
-from tests.test_codegen import Address, BirthDay, Book, Composite, User, UserBook, UserStatus, UserType, UserVIPLevel
+from tests.test_codegen import Address, BirthDay, Book, Composite, JsonMixedOrder, JsonPayload, JsonStamp, User, UserBook, UserStatus, UserType, UserVIPLevel
 
 class DateTimeFilter(TypedDict, total=False, closed=True):
     EQ: datetime | None
@@ -774,6 +774,195 @@ class CompositeTable(TableProtocol):
     def delete_many(self, *, where: CompositeWhereDict | None = None, return_records: Literal[True]) -> list[Composite]: ...
     def delete_many(self, *, where: CompositeWhereDict | None = None, return_records: Literal[False, True] = False) -> int | list[Composite]:
         return self._backend.delete_many(self, where=where, return_records=return_records)
+TJsonMixedOrderIncludeCol = Literal[()]
+TJsonMixedOrderSortableCol = Literal["id", "payload", "payloads", "mixed", "by_name"]
+TJsonMixedOrderDistinctCol = Literal["id", "payload", "payloads", "mixed", "by_name"]
+
+@dataclass(slots=True, kw_only=True)
+class JsonMixedOrderInsert:
+    id: int | None = None
+    payload: JsonPayload
+    payloads: list[JsonPayload]
+    mixed: tuple[JsonStamp, int, JsonPayload]
+    by_name: dict[str, JsonPayload]
+
+
+class JsonMixedOrderScalarDict(TypedDict):
+    id: int
+    payload: JsonPayload
+    payloads: list[JsonPayload]
+    mixed: tuple[JsonStamp, int, JsonPayload]
+    by_name: dict[str, JsonPayload]
+
+class JsonMixedOrderDict(JsonMixedOrderScalarDict, closed=True): ...
+
+class JsonMixedOrderInsertDict(TypedDict, closed=True):
+    id: NotRequired[int]
+    payload: JsonPayload
+    payloads: list[JsonPayload]
+    mixed: tuple[JsonStamp, int, JsonPayload]
+    by_name: dict[str, JsonPayload]
+
+
+type JsonMixedOrderInsertInput = JsonMixedOrderInsert | JsonMixedOrder | JsonMixedOrderInsertDict | JsonMixedOrderScalarDict
+
+class JsonMixedOrderUpdateDict(TypedDict, total=False, closed=True):
+    id: int
+    payload: JsonPayload
+    payloads: list[JsonPayload]
+    mixed: tuple[JsonStamp, int, JsonPayload]
+    by_name: dict[str, JsonPayload]
+
+
+class JsonMixedOrderUpsertWherePK(TypedDict, closed=True):
+    id: int
+
+
+JsonMixedOrderUpsertWhereDict = JsonMixedOrderUpsertWherePK
+
+
+class JsonMixedOrderWhereDict(TypedDict, total=False, closed=True):
+    id: int | None | IntFilter
+    payload: JsonPayload | None
+    payloads: list[JsonPayload] | None
+    mixed: tuple[JsonStamp, int, JsonPayload] | None
+    by_name: dict[str, JsonPayload] | None
+    AND: JsonMixedOrderWhereDict | Sequence[JsonMixedOrderWhereDict]
+    OR: Sequence[JsonMixedOrderWhereDict]
+    NOT: JsonMixedOrderWhereDict | Sequence[JsonMixedOrderWhereDict]
+
+
+class JsonMixedOrderIncludeDict(TypedDict, total=False, closed=True):
+    pass
+
+class JsonMixedOrderOrderByDict(TypedDict, total=False, closed=True):
+    id: Literal['asc', 'desc']
+    payload: Literal['asc', 'desc']
+    payloads: Literal['asc', 'desc']
+    mixed: Literal['asc', 'desc']
+    by_name: Literal['asc', 'desc']
+
+class JsonMixedOrderTable(TableProtocol):
+    model = JsonMixedOrder
+    insert_model = JsonMixedOrderInsert
+    table_name: str = 'JsonMixedOrder'
+    datasource = DataSourceConfig(url='sqlite:///analytics.db', name=None)
+    column_specs: tuple[ColumnSpec, ...] = (
+        ColumnSpec(name='id', python_type=int, storage_kind='scalar', nullable=False, auto_increment=True),
+        ColumnSpec(name='payload', python_type=JsonPayload, storage_kind='json', nullable=False, auto_increment=False),
+        ColumnSpec(name='payloads', python_type=list[JsonPayload], storage_kind='json', nullable=False, auto_increment=False),
+        ColumnSpec(name='mixed', python_type=tuple[JsonStamp, int, JsonPayload], storage_kind='json', nullable=False, auto_increment=False),
+        ColumnSpec(name='by_name', python_type=dict[str, JsonPayload], storage_kind='json', nullable=False, auto_increment=False),
+    )
+    column_specs_by_name: Mapping[str, ColumnSpec] = MappingProxyType({spec.name: spec for spec in column_specs})
+    primary_key: tuple[str] = ('id',)
+
+    indexes: tuple[tuple[str, ...], ...] = ()
+    unique_indexes: tuple[tuple[str, ...], ...] = ()
+    without_rowid: bool = False
+    relations: tuple[TableRelation, ...] = ()
+
+    def primary_values(self, instance: JsonMixedOrder) -> tuple[int]:
+        return (
+            instance.id,
+        )
+
+    @classmethod
+    def serialize_insert(cls, data: JsonMixedOrderInsertInput | Mapping[str, object]) -> dict[str, object]:
+        if isinstance(data, Mapping):
+            result: dict[str, object] = {}
+            if 'id' in data:
+                result['id'] = data['id']
+            if 'payload' in data:
+                result['payload'] = serialize_json_column_value(data['payload'])
+            if 'payloads' in data:
+                result['payloads'] = serialize_json_column_value(data['payloads'])
+            if 'mixed' in data:
+                result['mixed'] = serialize_json_column_value(data['mixed'])
+            if 'by_name' in data:
+                result['by_name'] = serialize_json_column_value(data['by_name'])
+            return result
+        if isinstance(data, (JsonMixedOrderInsert, JsonMixedOrder)):
+            return {
+                'id': data.id,
+                'payload': serialize_json_column_value(data.payload),
+                'payloads': serialize_json_column_value(data.payloads),
+                'mixed': serialize_json_column_value(data.mixed),
+                'by_name': serialize_json_column_value(data.by_name),
+            }
+        raise TypeError("Unsupported insert payload type for JsonMixedOrder")
+
+    @classmethod
+    def serialize_update(cls, data: Mapping[str, object]) -> dict[str, object]:
+        if not isinstance(data, Mapping):
+            raise TypeError("Update payload must be a mapping")
+        return cls.serialize_insert(data)
+
+    @classmethod
+    def deserialize_row(cls, row: Mapping[str, object]) -> JsonMixedOrder:
+        instance = JsonMixedOrder.__new__(JsonMixedOrder)  # type: ignore[call-arg]
+        instance.id = row['id'] # type: ignore[attr-defined]
+        instance.payload = deserialize_json_value(row['payload'], TypeForm(JsonPayload)) # type: ignore[attr-defined]
+        instance.payloads = deserialize_json_value(row['payloads'], TypeForm(list[JsonPayload])) # type: ignore[attr-defined]
+        instance.mixed = deserialize_json_value(row['mixed'], TypeForm(tuple[JsonStamp, int, JsonPayload])) # type: ignore[attr-defined]
+        instance.by_name = deserialize_json_value(row['by_name'], TypeForm(dict[str, JsonPayload])) # type: ignore[attr-defined]
+        return instance
+
+    def __init__(self, backend: BackendProtocol) -> None:
+        self._backend = backend
+
+    def __str__(self) -> str:
+        return self._backend.escape_identifier(self.table_name)
+
+    def insert(self, data: JsonMixedOrderInsertInput) -> JsonMixedOrder:
+        return self._backend.insert(self, data)
+
+    def insert_many(self, data: Sequence[JsonMixedOrderInsertInput], *, batch_size: int | None = None) -> list[JsonMixedOrder]:
+        return self._backend.insert_many(self, data, batch_size=batch_size)
+
+    def update(self, *, data: JsonMixedOrderUpdateDict, where: JsonMixedOrderWhereDict, include: JsonMixedOrderIncludeDict | None = None) -> JsonMixedOrder:
+        return self._backend.update(self, data=data, where=where, include=include)
+
+    @overload
+    def update_many(self, *, data: JsonMixedOrderUpdateDict, where: JsonMixedOrderWhereDict | None = None, return_records: Literal[False] = False) -> int: ...
+    @overload
+    def update_many(self, *, data: JsonMixedOrderUpdateDict, where: JsonMixedOrderWhereDict | None = None, return_records: Literal[True]) -> list[JsonMixedOrder]: ...
+    def update_many(self, *, data: JsonMixedOrderUpdateDict, where: JsonMixedOrderWhereDict | None = None, return_records: Literal[False, True] = False) -> int | list[JsonMixedOrder]:
+        return self._backend.update_many(self, data=data, where=where, return_records=return_records)
+
+    def upsert(
+        self,
+        *,
+        where: JsonMixedOrderUpsertWhereDict,
+        update: JsonMixedOrderUpdateDict,
+        insert: JsonMixedOrderInsertInput,
+        include: JsonMixedOrderIncludeDict | None = None,
+    ) -> JsonMixedOrder:
+        return self._backend.upsert(self, where=where, update=update, insert=insert, include=include)
+
+    def find_many(self, *, where: JsonMixedOrderWhereDict | None = None, include: JsonMixedOrderIncludeDict | None = None, order_by: JsonMixedOrderOrderByDict | None = None, distinct: TJsonMixedOrderDistinctCol | Sequence[TJsonMixedOrderDistinctCol] | None = None, take: int | None = None, skip: int | None = None) -> list[JsonMixedOrder]:
+        return self._backend.find_many(
+            self,
+            where=where, include=include, order_by=order_by, distinct=distinct,
+            take=take, skip=skip
+        )
+
+    def find_first(self, *, where: JsonMixedOrderWhereDict | None = None, include: JsonMixedOrderIncludeDict | None = None, order_by: JsonMixedOrderOrderByDict | None = None, distinct: TJsonMixedOrderDistinctCol | Sequence[TJsonMixedOrderDistinctCol] | None = None, skip: int | None = None) -> JsonMixedOrder | None:
+        return self._backend.find_first(
+            self,
+            where=where, include=include, order_by=order_by, distinct=distinct,
+            skip=skip
+        )
+
+    def delete(self, *, where: JsonMixedOrderWhereDict, include: JsonMixedOrderIncludeDict | None = None) -> JsonMixedOrder | None:
+        return self._backend.delete(self, where=where, include=include)
+
+    @overload
+    def delete_many(self, *, where: JsonMixedOrderWhereDict | None = None, return_records: Literal[False] = False) -> int: ...
+    @overload
+    def delete_many(self, *, where: JsonMixedOrderWhereDict | None = None, return_records: Literal[True]) -> list[JsonMixedOrder]: ...
+    def delete_many(self, *, where: JsonMixedOrderWhereDict | None = None, return_records: Literal[False, True] = False) -> int | list[JsonMixedOrder]:
+        return self._backend.delete_many(self, where=where, return_records=return_records)
 TUserIncludeCol = Literal["addresses", "birthday", "books"]
 TUserSortableCol = Literal["id", "name", "email", "last_login", "status", "type", "vip_level"]
 TUserDistinctCol = Literal["id", "name", "email", "last_login", "status", "type", "vip_level"]
@@ -1223,6 +1412,7 @@ class GeneratedClient(ClientBase):
         self.birth_day = BirthDayTable(self._backend())
         self.book = BookTable(self._backend())
         self.composite = CompositeTable(self._backend())
+        self.json_mixed_order = JsonMixedOrderTable(self._backend())
         self.user = UserTable(self._backend())
         self.user_book = UserBookTable(self._backend())
         self._tables = (
@@ -1230,6 +1420,7 @@ class GeneratedClient(ClientBase):
             self.birth_day,
             self.book,
             self.composite,
+            self.json_mixed_order,
             self.user,
             self.user_book,
         )
@@ -1296,6 +1487,20 @@ __all__ = (
     "CompositeUpsertWhereDict",
     "CompositeWhereDict",
     "CompositeTable",
+    "TJsonMixedOrderIncludeCol",
+    "TJsonMixedOrderSortableCol",
+    "TJsonMixedOrderDistinctCol",
+    "JsonMixedOrderIncludeDict",
+    "JsonMixedOrderOrderByDict",
+    "JsonMixedOrderDict",
+    "JsonMixedOrderScalarDict",
+    "JsonMixedOrderInsert",
+    "JsonMixedOrderInsertDict",
+    "JsonMixedOrderInsertInput",
+    "JsonMixedOrderUpdateDict",
+    "JsonMixedOrderUpsertWhereDict",
+    "JsonMixedOrderWhereDict",
+    "JsonMixedOrderTable",
     "TUserIncludeCol",
     "TUserSortableCol",
     "TUserDistinctCol",

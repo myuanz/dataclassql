@@ -11,6 +11,7 @@
 
 ### Changed
 
+- `deserialize_json_value()` 与生成的 JSON 反序列化表达式使用 `TypeForm[T]` 将运行时类型表达式关联到返回类型, 并在非 Optional JSON 列读到 `NULL` 时抛出 `TypeError`; 升级 `typing_extensions` 至 4.13.0+。
 - `*InsertInput` 接受 `*ScalarDict`; 完整 `*Dict` 通过继承关系继续满足插入类型。
 - `*InsertDict` 保持独立的插入参数定义, 与表示完整标量快照的 `*ScalarDict` 分离。
 - 生成的 `asdict` stub 复用运行时 `RelationPolicy`, 并与运行时函数共同提供四种关系策略的文档。

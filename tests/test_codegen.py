@@ -25,12 +25,18 @@ from typing import (
 from enum import Enum, StrEnum, IntEnum
 
 import pytest
+from typing_extensions import TypeForm
 
 from dclassql.codegen import generate_client
 from dclassql.model_inspector import ModelGraph, inspect_models
 from dclassql.push import db_push
 from dclassql.push.sqlite import _build_sqlite_schema
 from dclassql.runtime.backends import SQLiteBackend
+from dclassql.runtime.json_value import (
+    deserialize_json_value,
+    serialize_json_column_value,
+    serialize_json_value,
+)
 
 __datasource__ = {
     "provider": "sqlite",
@@ -443,7 +449,15 @@ class CompositeRelationChild:
 
 
 def test_generate_client_matches_expected_shape() -> None:
-    module = generate_client([User, Address, BirthDay, Book, UserBook, Composite])
+    module = generate_client([
+        User,
+        Address,
+        BirthDay,
+        Book,
+        UserBook,
+        Composite,
+        JsonMixedOrder,
+    ])
     code = module.code
     open('./tests/results.py', 'w', encoding='utf-8').write(code)
 
@@ -455,7 +469,17 @@ def test_generate_client_matches_expected_shape() -> None:
     namespace: dict[str, Any] = {}
     exec(code, namespace)
 
-    assert module.model_names == ('Address', 'BirthDay', 'Book', 'Composite', 'User', 'UserBook')
+    assert module.model_names == (
+        'Address',
+        'BirthDay',
+        'Book',
+        'Composite',
+        'JsonMixedOrder',
+        'User',
+        'UserBook',
+    )
+    assert "serialize_json_column_value(data['payload'])" in code
+    assert "deserialize_json_value(row['payload'], TypeForm(JsonPayload))" in code
     assert 'class UserDict' in code
     assert 'class UserInsertDict(TypedDict, closed=True):' in code
     assert 'class CompositeInsertDict(TypedDict, closed=True):' in code
@@ -822,8 +846,8 @@ def test_generated_client_serializes_unregistered_dataclass_fields_as_json() -> 
     code = module.code
     assert "stamp: JsonStamp" in code
     assert "stamps: list[JsonStamp]" in code
-    assert "serialize_json_value(data['stamp'])" in code
-    assert "deserialize_json_value(row['stamp'], JsonStamp)" in code
+    assert "serialize_json_column_value(data['stamp'])" in code
+    assert "deserialize_json_value(row['stamp'], TypeForm(JsonStamp))" in code
 
     namespace: dict[str, Any] = {}
     exec(code, namespace)
@@ -873,6 +897,26 @@ def test_generated_client_serializes_unregistered_dataclass_fields_as_json() -> 
         )
     finally:
         conn.close()
+
+
+def test_deserialize_json_value_preserves_annotation_and_nullability() -> None:
+    stamp = deserialize_json_value(
+        '{"dt":"2026-01-02T03:04:05","idx":1}',
+        JsonStamp,
+    )
+    assert stamp == JsonStamp(dt=datetime(2026, 1, 2, 3, 4, 5), idx=1)
+    assert deserialize_json_value(None, TypeForm(JsonStamp | None)) is None
+
+    with pytest.raises(TypeError, match="null for non-optional"):
+        deserialize_json_value(None, JsonStamp)
+
+
+def test_json_serialization_distinguishes_json_null_and_database_null() -> None:
+    assert serialize_json_value(None) == "null"
+    assert serialize_json_column_value(None) is None
+
+    stamp = JsonStamp(dt=datetime(2026, 1, 2, 3, 4, 5), idx=1)
+    assert serialize_json_column_value(stamp) == serialize_json_value(stamp)
 
 
 def test_generated_client_round_trips_typed_dict_and_heterogeneous_tuple() -> None:
@@ -975,7 +1019,7 @@ def test_nullable_list_item_cannot_be_a_relation_backref() -> None:
 def test_typing_optional_is_normalized_across_codegen_schema_and_json() -> None:
     module = generate_client([TypingOptionalOrder])
     assert "quantity: int | None | IntFilter" in module.code
-    assert "deserialize_json_value(row['stamp'], JsonStamp | None)" in module.code
+    assert "deserialize_json_value(row['stamp'], TypeForm(JsonStamp | None))" in module.code
 
     namespace: dict[str, Any] = {}
     exec(module.code, namespace)
@@ -1017,8 +1061,8 @@ def test_model_dataclass_field_without_foreign_key_is_json_column() -> None:
     module = generate_client([JsonModelOrder, JsonModelTrade])
     code = module.code
     assert "order: JsonModelOrder" in code
-    assert "serialize_json_value(data['order'])" in code
-    assert "deserialize_json_value(row['order'], JsonModelOrder)" in code
+    assert "serialize_json_column_value(data['order'])" in code
+    assert "deserialize_json_value(row['order'], TypeForm(JsonModelOrder))" in code
 
     graph = ModelGraph.from_models([JsonModelOrder, JsonModelTrade])
     trade_info = graph.by_name["JsonModelTrade"]
@@ -1039,7 +1083,7 @@ def test_foreign_key_dataclass_field_stays_relation_not_json_column() -> None:
     module = generate_client([RelationCustomer, RelationOrder])
     assert "orders" not in RelationCustomer.__dict__
     code = module.code
-    assert "serialize_json_value(data['customer'])" not in code
+    assert "serialize_json_column_value(data['customer'])" not in code
     assert 'attribute="customer"' in code
     assert "remote_table=lambda: RelationCustomerTable" in code
     assert '"customer_id": "id"' in code
