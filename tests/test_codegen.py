@@ -505,8 +505,14 @@ def test_generate_client_matches_expected_shape() -> None:
         "email": "a@example.com",
         "last_login": datetime.now(),
         "status": namespace["UserStatus"].ACTIVE,
+        "type": namespace["UserType"].MEMBER,
+        "vip_level": None,
+        "birthday": None,
+        "addresses": [],
+        "books": [],
     })
     assert insert_payload["status"] == namespace["UserStatus"].ACTIVE.value
+    assert set(insert_payload) == set(column_names)
 
     assert generated_client.datasource == data_source_config(url='sqlite:///analytics.db', name=None)
     init_hints = get_type_hints(generated_client.__init__, globalns=namespace, localns=namespace)
@@ -517,6 +523,7 @@ def test_generate_client_matches_expected_shape() -> None:
 
     user_insert_cls = namespace['UserInsert']
     user_insert_dict = namespace['UserInsertDict']
+    user_insert_input = namespace['UserInsertInput']
     user_where_dict = namespace['UserWhereDict']
     assert 'StringFilter' in namespace
     assert 'IntFilter' in namespace
@@ -533,6 +540,12 @@ def test_generate_client_matches_expected_shape() -> None:
 
     insert_field_names = [f.name for f in fields(user_insert_cls)]
     assert insert_field_names == list(column_names)
+    assert set(get_args(user_insert_input.__value__)) == {
+        user_insert_cls,
+        user_insert_dict,
+        namespace['User'],
+        namespace['UserDict'],
+    }
 
     user_model_hints = get_type_hints(User)
     assert get_origin(user_model_hints['addresses']) is list
@@ -592,14 +605,14 @@ def test_generate_client_matches_expected_shape() -> None:
 
     insert_hints = get_type_hints(user_table_cls.insert, globalns=namespace, localns=namespace)
     insert_data_type = insert_hints['data']
-    assert set(get_args(insert_data_type)) == {user_insert_cls, user_insert_dict, namespace['User']}
+    assert insert_data_type is user_insert_input
     assert insert_hints['return'] is namespace['User']
 
     insert_many_hints = get_type_hints(user_table_cls.insert_many, globalns=namespace, localns=namespace)
     insert_many_data = insert_many_hints['data']
     assert get_origin(insert_many_data) is ABCSequence
     inner_union = get_args(insert_many_data)[0]
-    assert set(get_args(inner_union)) == {user_insert_cls, user_insert_dict, namespace['User']}
+    assert inner_union is user_insert_input
     assert insert_many_hints['return'] == list[namespace['User']]
     assert insert_many_hints['batch_size'] == int | None
 
@@ -685,11 +698,7 @@ def test_generate_client_matches_expected_shape() -> None:
     upsert_hints = get_type_hints(user_table_cls.upsert, globalns=namespace, localns=namespace)
     assert upsert_hints['where'] is namespace['UserUpsertWhereDict']
     assert upsert_hints['update'] is namespace['UserUpdateDict']
-    upsert_insert_union = upsert_hints['insert']
-    upsert_insert_args = set(get_args(upsert_insert_union))
-    assert namespace['UserInsert'] in upsert_insert_args
-    assert namespace['UserInsertDict'] in upsert_insert_args
-    assert namespace['User'] in upsert_insert_args
+    assert upsert_hints['insert'] is user_insert_input
     assert upsert_hints['return'] is namespace['User']
 
     delete_hints = get_type_hints(user_table_cls.delete, globalns=namespace, localns=namespace)

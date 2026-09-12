@@ -80,5 +80,6 @@ def test_collect_exports_includes_expected_symbols() -> None:
         assert f"{name}Table" in exports
         assert f"T{name}IncludeCol" in exports
         assert f"{name}IncludeDict" in exports
+        assert f"{name}InsertInput" in exports
         assert f"{name}OrderByDict" in exports
     assert "UserAddressesRelationFilter" in exports

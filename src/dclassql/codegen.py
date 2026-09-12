@@ -549,6 +549,7 @@ class ClientCompiler:
                     f"{name}Dict",
                     f"{name}Insert",
                     f"{name}InsertDict",
+                    f"{name}InsertInput",
                     f"{name}UpdateDict",
                     f"{name}UpsertWhereDict",
                     f"{name}WhereDict",

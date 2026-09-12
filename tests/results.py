@@ -77,6 +77,8 @@ class AddressInsertDict(TypedDict, closed=True):
     user_id: int
 
 
+type AddressInsertInput = AddressInsert | Address | AddressInsertDict | AddressDict
+
 class AddressUpdateDict(TypedDict, total=False, closed=True):
     id: int
     location: str
@@ -139,9 +141,9 @@ class AddressTable(TableProtocol):
         )
 
     @classmethod
-    def serialize_insert(cls, data: AddressInsert | Address | Mapping[str, object]) -> dict[str, object]:
+    def serialize_insert(cls, data: AddressInsertInput | Mapping[str, object]) -> dict[str, object]:
         if isinstance(data, Mapping):
-            result = dict(data)
+            result: dict[str, object] = {}
             if 'id' in data:
                 result['id'] = data['id']
             if 'location' in data:
@@ -178,10 +180,10 @@ class AddressTable(TableProtocol):
     def __str__(self) -> str:
         return self._backend.escape_identifier(self.table_name)
 
-    def insert(self, data: AddressInsert | Address | AddressInsertDict) -> Address:
+    def insert(self, data: AddressInsertInput) -> Address:
         return self._backend.insert(self, data)
 
-    def insert_many(self, data: Sequence[AddressInsert | Address | AddressInsertDict], *, batch_size: int | None = None) -> list[Address]:
+    def insert_many(self, data: Sequence[AddressInsertInput], *, batch_size: int | None = None) -> list[Address]:
         return self._backend.insert_many(self, data, batch_size=batch_size)
 
     def update(self, *, data: AddressUpdateDict, where: AddressWhereDict, include: AddressIncludeDict | None = None) -> Address:
@@ -199,7 +201,7 @@ class AddressTable(TableProtocol):
         *,
         where: AddressUpsertWhereDict,
         update: AddressUpdateDict,
-        insert: AddressInsert | Address | AddressInsertDict,
+        insert: AddressInsertInput,
         include: AddressIncludeDict | None = None,
     ) -> Address:
         return self._backend.upsert(self, where=where, update=update, insert=insert, include=include)
@@ -247,6 +249,8 @@ class BirthDayInsertDict(TypedDict, closed=True):
     user_id: int
     date: datetime
 
+
+type BirthDayInsertInput = BirthDayInsert | BirthDay | BirthDayInsertDict | BirthDayDict
 
 class BirthDayUpdateDict(TypedDict, total=False, closed=True):
     user_id: int
@@ -306,9 +310,9 @@ class BirthDayTable(TableProtocol):
         )
 
     @classmethod
-    def serialize_insert(cls, data: BirthDayInsert | BirthDay | Mapping[str, object]) -> dict[str, object]:
+    def serialize_insert(cls, data: BirthDayInsertInput | Mapping[str, object]) -> dict[str, object]:
         if isinstance(data, Mapping):
-            result = dict(data)
+            result: dict[str, object] = {}
             if 'user_id' in data:
                 result['user_id'] = data['user_id']
             if 'date' in data:
@@ -341,10 +345,10 @@ class BirthDayTable(TableProtocol):
     def __str__(self) -> str:
         return self._backend.escape_identifier(self.table_name)
 
-    def insert(self, data: BirthDayInsert | BirthDay | BirthDayInsertDict) -> BirthDay:
+    def insert(self, data: BirthDayInsertInput) -> BirthDay:
         return self._backend.insert(self, data)
 
-    def insert_many(self, data: Sequence[BirthDayInsert | BirthDay | BirthDayInsertDict], *, batch_size: int | None = None) -> list[BirthDay]:
+    def insert_many(self, data: Sequence[BirthDayInsertInput], *, batch_size: int | None = None) -> list[BirthDay]:
         return self._backend.insert_many(self, data, batch_size=batch_size)
 
     def update(self, *, data: BirthDayUpdateDict, where: BirthDayWhereDict, include: BirthDayIncludeDict | None = None) -> BirthDay:
@@ -362,7 +366,7 @@ class BirthDayTable(TableProtocol):
         *,
         where: BirthDayUpsertWhereDict,
         update: BirthDayUpdateDict,
-        insert: BirthDayInsert | BirthDay | BirthDayInsertDict,
+        insert: BirthDayInsertInput,
         include: BirthDayIncludeDict | None = None,
     ) -> BirthDay:
         return self._backend.upsert(self, where=where, update=update, insert=insert, include=include)
@@ -410,6 +414,8 @@ class BookInsertDict(TypedDict, closed=True):
     id: NotRequired[int]
     name: str
 
+
+type BookInsertInput = BookInsert | Book | BookInsertDict | BookDict
 
 class BookUpdateDict(TypedDict, total=False, closed=True):
     id: int
@@ -470,9 +476,9 @@ class BookTable(TableProtocol):
         )
 
     @classmethod
-    def serialize_insert(cls, data: BookInsert | Book | Mapping[str, object]) -> dict[str, object]:
+    def serialize_insert(cls, data: BookInsertInput | Mapping[str, object]) -> dict[str, object]:
         if isinstance(data, Mapping):
-            result = dict(data)
+            result: dict[str, object] = {}
             if 'id' in data:
                 result['id'] = data['id']
             if 'name' in data:
@@ -505,10 +511,10 @@ class BookTable(TableProtocol):
     def __str__(self) -> str:
         return self._backend.escape_identifier(self.table_name)
 
-    def insert(self, data: BookInsert | Book | BookInsertDict) -> Book:
+    def insert(self, data: BookInsertInput) -> Book:
         return self._backend.insert(self, data)
 
-    def insert_many(self, data: Sequence[BookInsert | Book | BookInsertDict], *, batch_size: int | None = None) -> list[Book]:
+    def insert_many(self, data: Sequence[BookInsertInput], *, batch_size: int | None = None) -> list[Book]:
         return self._backend.insert_many(self, data, batch_size=batch_size)
 
     def update(self, *, data: BookUpdateDict, where: BookWhereDict, include: BookIncludeDict | None = None) -> Book:
@@ -526,7 +532,7 @@ class BookTable(TableProtocol):
         *,
         where: BookUpsertWhereDict,
         update: BookUpdateDict,
-        insert: BookInsert | Book | BookInsertDict,
+        insert: BookInsertInput,
         include: BookIncludeDict | None = None,
     ) -> Book:
         return self._backend.upsert(self, where=where, update=update, insert=insert, include=include)
@@ -585,6 +591,8 @@ class CompositeInsertDict(TypedDict, closed=True):
     uniq3: str
     name: str
 
+
+type CompositeInsertInput = CompositeInsert | Composite | CompositeInsertDict | CompositeDict
 
 class CompositeUpdateDict(TypedDict, total=False, closed=True):
     id1: int
@@ -663,9 +671,9 @@ class CompositeTable(TableProtocol):
         )
 
     @classmethod
-    def serialize_insert(cls, data: CompositeInsert | Composite | Mapping[str, object]) -> dict[str, object]:
+    def serialize_insert(cls, data: CompositeInsertInput | Mapping[str, object]) -> dict[str, object]:
         if isinstance(data, Mapping):
-            result = dict(data)
+            result: dict[str, object] = {}
             if 'id1' in data:
                 result['id1'] = data['id1']
             if 'id2' in data:
@@ -713,10 +721,10 @@ class CompositeTable(TableProtocol):
     def __str__(self) -> str:
         return self._backend.escape_identifier(self.table_name)
 
-    def insert(self, data: CompositeInsert | Composite | CompositeInsertDict) -> Composite:
+    def insert(self, data: CompositeInsertInput) -> Composite:
         return self._backend.insert(self, data)
 
-    def insert_many(self, data: Sequence[CompositeInsert | Composite | CompositeInsertDict], *, batch_size: int | None = None) -> list[Composite]:
+    def insert_many(self, data: Sequence[CompositeInsertInput], *, batch_size: int | None = None) -> list[Composite]:
         return self._backend.insert_many(self, data, batch_size=batch_size)
 
     def update(self, *, data: CompositeUpdateDict, where: CompositeWhereDict, include: CompositeIncludeDict | None = None) -> Composite:
@@ -734,7 +742,7 @@ class CompositeTable(TableProtocol):
         *,
         where: CompositeUpsertWhereDict,
         update: CompositeUpdateDict,
-        insert: CompositeInsert | Composite | CompositeInsertDict,
+        insert: CompositeInsertInput,
         include: CompositeIncludeDict | None = None,
     ) -> Composite:
         return self._backend.upsert(self, where=where, update=update, insert=insert, include=include)
@@ -799,6 +807,8 @@ class UserInsertDict(TypedDict, closed=True):
     type: UserType
     vip_level: UserVIPLevel | None
 
+
+type UserInsertInput = UserInsert | User | UserInsertDict | UserDict
 
 class UserUpdateDict(TypedDict, total=False, closed=True):
     id: int
@@ -901,9 +911,9 @@ class UserTable(TableProtocol):
         )
 
     @classmethod
-    def serialize_insert(cls, data: UserInsert | User | Mapping[str, object]) -> dict[str, object]:
+    def serialize_insert(cls, data: UserInsertInput | Mapping[str, object]) -> dict[str, object]:
         if isinstance(data, Mapping):
-            result = dict(data)
+            result: dict[str, object] = {}
             if 'id' in data:
                 result['id'] = data['id']
             if 'name' in data:
@@ -958,10 +968,10 @@ class UserTable(TableProtocol):
     def __str__(self) -> str:
         return self._backend.escape_identifier(self.table_name)
 
-    def insert(self, data: UserInsert | User | UserInsertDict) -> User:
+    def insert(self, data: UserInsertInput) -> User:
         return self._backend.insert(self, data)
 
-    def insert_many(self, data: Sequence[UserInsert | User | UserInsertDict], *, batch_size: int | None = None) -> list[User]:
+    def insert_many(self, data: Sequence[UserInsertInput], *, batch_size: int | None = None) -> list[User]:
         return self._backend.insert_many(self, data, batch_size=batch_size)
 
     def update(self, *, data: UserUpdateDict, where: UserWhereDict, include: UserIncludeDict | None = None) -> User:
@@ -979,7 +989,7 @@ class UserTable(TableProtocol):
         *,
         where: UserUpsertWhereDict,
         update: UserUpdateDict,
-        insert: UserInsert | User | UserInsertDict,
+        insert: UserInsertInput,
         include: UserIncludeDict | None = None,
     ) -> User:
         return self._backend.upsert(self, where=where, update=update, insert=insert, include=include)
@@ -1031,6 +1041,8 @@ class UserBookInsertDict(TypedDict, closed=True):
     book_id: int
     created_at: datetime
 
+
+type UserBookInsertInput = UserBookInsert | UserBook | UserBookInsertDict | UserBookDict
 
 class UserBookUpdateDict(TypedDict, total=False, closed=True):
     user_id: int
@@ -1104,9 +1116,9 @@ class UserBookTable(TableProtocol):
         )
 
     @classmethod
-    def serialize_insert(cls, data: UserBookInsert | UserBook | Mapping[str, object]) -> dict[str, object]:
+    def serialize_insert(cls, data: UserBookInsertInput | Mapping[str, object]) -> dict[str, object]:
         if isinstance(data, Mapping):
-            result = dict(data)
+            result: dict[str, object] = {}
             if 'user_id' in data:
                 result['user_id'] = data['user_id']
             if 'book_id' in data:
@@ -1144,10 +1156,10 @@ class UserBookTable(TableProtocol):
     def __str__(self) -> str:
         return self._backend.escape_identifier(self.table_name)
 
-    def insert(self, data: UserBookInsert | UserBook | UserBookInsertDict) -> UserBook:
+    def insert(self, data: UserBookInsertInput) -> UserBook:
         return self._backend.insert(self, data)
 
-    def insert_many(self, data: Sequence[UserBookInsert | UserBook | UserBookInsertDict], *, batch_size: int | None = None) -> list[UserBook]:
+    def insert_many(self, data: Sequence[UserBookInsertInput], *, batch_size: int | None = None) -> list[UserBook]:
         return self._backend.insert_many(self, data, batch_size=batch_size)
 
     def update(self, *, data: UserBookUpdateDict, where: UserBookWhereDict, include: UserBookIncludeDict | None = None) -> UserBook:
@@ -1165,7 +1177,7 @@ class UserBookTable(TableProtocol):
         *,
         where: UserBookUpsertWhereDict,
         update: UserBookUpdateDict,
-        insert: UserBookInsert | UserBook | UserBookInsertDict,
+        insert: UserBookInsertInput,
         include: UserBookIncludeDict | None = None,
     ) -> UserBook:
         return self._backend.upsert(self, where=where, update=update, insert=insert, include=include)
@@ -1227,6 +1239,7 @@ __all__ = (
     "AddressDict",
     "AddressInsert",
     "AddressInsertDict",
+    "AddressInsertInput",
     "AddressUpdateDict",
     "AddressUpsertWhereDict",
     "AddressWhereDict",
@@ -1240,6 +1253,7 @@ __all__ = (
     "BirthDayDict",
     "BirthDayInsert",
     "BirthDayInsertDict",
+    "BirthDayInsertInput",
     "BirthDayUpdateDict",
     "BirthDayUpsertWhereDict",
     "BirthDayWhereDict",
@@ -1253,6 +1267,7 @@ __all__ = (
     "BookDict",
     "BookInsert",
     "BookInsertDict",
+    "BookInsertInput",
     "BookUpdateDict",
     "BookUpsertWhereDict",
     "BookWhereDict",
@@ -1266,6 +1281,7 @@ __all__ = (
     "CompositeDict",
     "CompositeInsert",
     "CompositeInsertDict",
+    "CompositeInsertInput",
     "CompositeUpdateDict",
     "CompositeUpsertWhereDict",
     "CompositeWhereDict",
@@ -1278,6 +1294,7 @@ __all__ = (
     "UserDict",
     "UserInsert",
     "UserInsertDict",
+    "UserInsertInput",
     "UserUpdateDict",
     "UserUpsertWhereDict",
     "UserWhereDict",
@@ -1293,6 +1310,7 @@ __all__ = (
     "UserBookDict",
     "UserBookInsert",
     "UserBookInsertDict",
+    "UserBookInsertInput",
     "UserBookUpdateDict",
     "UserBookUpsertWhereDict",
     "UserBookWhereDict",

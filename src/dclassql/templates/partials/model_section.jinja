@@ -2,6 +2,7 @@
 {%- set info = model.model_info -%}
 {%- set insert_class = name ~ 'Insert' -%}
 {%- set insert_dict_class = name ~ 'InsertDict' -%}
+{%- set insert_input_alias = name ~ 'InsertInput' -%}
 {%- set where_dict_class = name ~ 'WhereDict' -%}
 {%- set include_dict_class = name ~ 'IncludeDict' -%}
 {%- set order_by_dict_class = name ~ 'OrderByDict' -%}
@@ -14,8 +15,6 @@
 {%- set update_dict_class = name ~ 'UpdateDict' -%}
 {%- set upsert_where_alias = name ~ 'UpsertWhereDict' -%}
 {%- set upsert_update_class = update_dict_class -%}
-{%- set upsert_insert_class = insert_class -%}
-{%- set upsert_insert_dict_class = insert_dict_class -%}
 
 {% set backend_signature = 'BackendProtocol' %}
 
@@ -43,6 +42,8 @@ class {{ name }}Dict(TypedDict, closed=True):
 
 class {{ insert_dict_class }}(TypedDict, closed=True):
 {{ macros.typed_dict_fields(model.typed_dict_fields)|indent(4, True) }}
+
+type {{ insert_input_alias }} = {{ insert_class }} | {{ name }} | {{ insert_dict_class }} | {{ name }}Dict
 
 class {{ update_dict_class }}(TypedDict, total=False, closed=True):
 {{ macros.typed_dict_fields(model.update_fields)|indent(4, True) }}
@@ -120,9 +121,9 @@ class {{ table_class }}(TableProtocol):
 {% endif %}
 
     @classmethod
-    def serialize_insert(cls, data: {{ insert_class }} | {{ name }} | Mapping[str, object]) -> dict[str, object]:
+    def serialize_insert(cls, data: {{ insert_input_alias }} | Mapping[str, object]) -> dict[str, object]:
         if isinstance(data, Mapping):
-            result = dict(data)
+            result: dict[str, object] = {}
 {% for column in model.column_specs %}
             if {{ column.name_repr }} in data:
                 result[{{ column.name_repr }}] = {{ column.mapping_value_expr }}{{ '  # type: ignore[attr-defined]' if column.is_enum else '' }}
@@ -152,10 +153,10 @@ class {{ table_class }}(TableProtocol):
     def __str__(self) -> str:
         return self._backend.escape_identifier(self.table_name)
 
-    def insert(self, data: {{ insert_class }} | {{ name }} | {{ insert_dict_class }}) -> {{ name }}:
+    def insert(self, data: {{ insert_input_alias }}) -> {{ name }}:
         return self._backend.insert(self, data)
 
-    def insert_many(self, data: Sequence[{{ insert_class }} | {{ name }} | {{ insert_dict_class }}], *, batch_size: int | None = None) -> list[{{ name }}]:
+    def insert_many(self, data: Sequence[{{ insert_input_alias }}], *, batch_size: int | None = None) -> list[{{ name }}]:
         return self._backend.insert_many(self, data, batch_size=batch_size)
 
     def update(self, *, data: {{ update_dict_class }}, where: {{ where_dict_class }}, include: {{ include_dict_class }} | None = None) -> {{ name }}:
@@ -173,7 +174,7 @@ class {{ table_class }}(TableProtocol):
         *,
         where: {{ upsert_where_alias }},
         update: {{ upsert_update_class }},
-        insert: {{ upsert_insert_class }} | {{ name }} | {{ upsert_insert_dict_class }},
+        insert: {{ insert_input_alias }},
         include: {{ include_dict_class }} | None = None,
     ) -> {{ name }}:
         return self._backend.upsert(self, where=where, update=update, insert=insert, include=include)
