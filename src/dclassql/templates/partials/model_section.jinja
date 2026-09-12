@@ -4,6 +4,7 @@
 {%- set insert_class = name ~ 'Insert' -%}
 {%- set insert_dict_class = name ~ 'InsertDict' -%}
 {%- set insert_input_alias = name ~ 'InsertInput' -%}
+{%- set update_input_alias = name ~ 'UpdateInput' -%}
 {%- set where_dict_class = name ~ 'WhereDict' -%}
 {%- set include_dict_class = name ~ 'IncludeDict' -%}
 {%- set order_by_dict_class = name ~ 'OrderByDict' -%}
@@ -17,7 +18,6 @@
 {%- set sortable_columns = model.column_specs -%}
 {%- set update_dict_class = name ~ 'UpdateDict' -%}
 {%- set upsert_where_alias = name ~ 'UpsertWhereDict' -%}
-{%- set upsert_update_class = update_dict_class -%}
 
 {% set backend_signature = 'BackendProtocol' %}
 
@@ -57,6 +57,8 @@ type {{ insert_input_alias }} = {{ insert_class }} | {{ name }} | {{ insert_dict
 class {{ update_dict_class }}(TypedDict, total=False, closed=True):
 {{ macros.typed_dict_fields(model.update_fields)|indent(4, True) }}
 
+type {{ update_input_alias }} = {{ update_dict_class }} | {{ insert_class }} | {{ name }} | {{ insert_dict_class }} | {{ scalar_dict_class }}
+
 {% for upsert_dict in model.upsert_where_dicts %}
 class {{ upsert_dict.name }}(TypedDict, closed=True):
 {{ macros.typed_dict_fields(upsert_dict.fields)|indent(4, True) }}
@@ -93,7 +95,7 @@ class {{ order_by_dict_class }}(TypedDict, total=False, closed=True):
     pass
 {% endif %}
 
-class {{ table_class }}(TableProtocol):
+class {{ table_class }}(TableProtocol[{{ name }}, {{ insert_input_alias }}, {{ update_input_alias }}, {{ where_dict_class }}, {{ include_dict_class }}, {{ order_by_dict_class }}]):
     model = {{ name }}
     insert_model = {{ insert_class }}
     table_name: str = {{ model.table_name_literal }}
@@ -145,10 +147,10 @@ class {{ table_class }}(TableProtocol):
         raise TypeError("Unsupported insert payload type for {{ name }}")
 
     @classmethod
-    def serialize_update(cls, data: Mapping[str, object]) -> dict[str, object]:
-        if not isinstance(data, Mapping):
-            raise TypeError("Update payload must be a mapping")
-        return cls.serialize_insert(data)
+    def serialize_update(cls, data: {{ update_input_alias }} | Mapping[str, object]) -> dict[str, object]:
+        result = cls.serialize_insert(data)
+{% for name in model.model_info.constraints.primary_key.names %}        result.pop({{ name | tojson }}, None)
+{% endfor %}        return result
 
     @classmethod
     def deserialize_row(cls, row: Mapping[str, object]) -> {{ name }}:
@@ -168,21 +170,21 @@ class {{ table_class }}(TableProtocol):
     def insert_many(self, data: Sequence[{{ insert_input_alias }}], *, batch_size: int | None = None) -> list[{{ name }}]:
         return self._backend.insert_many(self, data, batch_size=batch_size)
 
-    def update(self, *, data: {{ update_dict_class }}, where: {{ where_dict_class }}, include: {{ include_dict_class }} | None = None) -> {{ name }}:
+    def update(self, *, data: {{ update_input_alias }}, where: {{ where_dict_class }}, include: {{ include_dict_class }} | None = None) -> {{ name }}:
         return self._backend.update(self, data=data, where=where, include=include)
 
     @overload
-    def update_many(self, *, data: {{ update_dict_class }}, where: {{ where_dict_class }} | None = None, return_records: Literal[False] = False) -> int: ...
+    def update_many(self, *, data: {{ update_input_alias }}, where: {{ where_dict_class }} | None = None, return_records: Literal[False] = False) -> int: ...
     @overload
-    def update_many(self, *, data: {{ update_dict_class }}, where: {{ where_dict_class }} | None = None, return_records: Literal[True]) -> list[{{ name }}]: ...
-    def update_many(self, *, data: {{ update_dict_class }}, where: {{ where_dict_class }} | None = None, return_records: Literal[False, True] = False) -> int | list[{{ name }}]:
+    def update_many(self, *, data: {{ update_input_alias }}, where: {{ where_dict_class }} | None = None, return_records: Literal[True]) -> list[{{ name }}]: ...
+    def update_many(self, *, data: {{ update_input_alias }}, where: {{ where_dict_class }} | None = None, return_records: Literal[False, True] = False) -> int | list[{{ name }}]:
         return self._backend.update_many(self, data=data, where=where, return_records=return_records)
 
     def upsert(
         self,
         *,
         where: {{ upsert_where_alias }},
-        update: {{ upsert_update_class }},
+        update: {{ update_input_alias }},
         insert: {{ insert_input_alias }},
         include: {{ include_dict_class }} | None = None,
     ) -> {{ name }}:

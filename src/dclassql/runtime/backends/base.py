@@ -12,7 +12,7 @@ from pypika.terms import Criterion, Parameter
 from pypika.utils import format_quotes
 
 from dclassql.runtime.sql_recorder import push_sql
-from dclassql.typing import IncludeT, InsertT, ModelT, OrderByT, OrderDirection, UpsertWhereT, WhereT
+from dclassql.typing import IncludeT, InsertInputT, ModelT, OrderByT, OrderDirection, UpdateInputT, UpsertWhereT, WhereT
 
 from .lazy import LazyRelationState
 from .protocols import BackendProtocol, TableProtocol
@@ -51,8 +51,8 @@ class BackendBase(BackendProtocol, ABC):
 
     def insert(
         self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
-        data: InsertT | ModelT | Mapping[str, object],
+        table: TableProtocol[ModelT, InsertInputT, UpdateInputT, WhereT, IncludeT, OrderByT],
+        data: InsertInputT | Mapping[str, object],
     ) -> ModelT:
         payload = table.serialize_insert(data)
         if not payload:
@@ -77,8 +77,8 @@ class BackendBase(BackendProtocol, ABC):
 
     def insert_many(
         self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
-        data: Sequence[InsertT | ModelT | Mapping[str, object]],
+        table: TableProtocol[ModelT, InsertInputT, UpdateInputT, WhereT, IncludeT, OrderByT],
+        data: Sequence[InsertInputT | Mapping[str, object]],
         *,
         batch_size: int | None = None,
     ) -> list[ModelT]:
@@ -87,9 +87,9 @@ class BackendBase(BackendProtocol, ABC):
 
     def update(
         self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        table: TableProtocol[ModelT, InsertInputT, UpdateInputT, WhereT, IncludeT, OrderByT],
         *,
-        data: Mapping[str, object],
+        data: UpdateInputT | Mapping[str, object],
         where: WhereT,
         include: Mapping[str, bool] | None = None,
     ) -> ModelT:
@@ -128,11 +128,11 @@ class BackendBase(BackendProtocol, ABC):
 
     def upsert(
         self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        table: TableProtocol[ModelT, InsertInputT, UpdateInputT, WhereT, IncludeT, OrderByT],
         *,
         where: UpsertWhereT,
-        update: Mapping[str, object],
-        insert: InsertT | ModelT | Mapping[str, object],
+        update: UpdateInputT | Mapping[str, object],
+        insert: InsertInputT | Mapping[str, object],
         include: Mapping[str, bool] | None = None,
     ) -> ModelT:
         where_payload = dict(where)
@@ -195,7 +195,7 @@ class BackendBase(BackendProtocol, ABC):
 
     def find_many(
         self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        table: TableProtocol[ModelT, InsertInputT, UpdateInputT, WhereT, IncludeT, OrderByT],
         *,
         where: WhereT | None = None,
         include: Mapping[str, bool] | None = None,
@@ -229,7 +229,7 @@ class BackendBase(BackendProtocol, ABC):
 
     def _build_select_query(
         self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        table: TableProtocol[ModelT, InsertInputT, UpdateInputT, WhereT, IncludeT, OrderByT],
         sql_table: Table,
         where: WhereT | None,
         order_by: OrderByT | None,
@@ -252,7 +252,7 @@ class BackendBase(BackendProtocol, ABC):
 
     def find_first(
         self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        table: TableProtocol[ModelT, InsertInputT, UpdateInputT, WhereT, IncludeT, OrderByT],
         *,
         where: WhereT | None = None,
         include: Mapping[str, bool] | None = None,
@@ -273,7 +273,7 @@ class BackendBase(BackendProtocol, ABC):
 
     def count(
         self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        table: TableProtocol[ModelT, InsertInputT, UpdateInputT, WhereT, IncludeT, OrderByT],
         *,
         where: WhereT | None = None,
     ) -> int:
@@ -297,7 +297,7 @@ class BackendBase(BackendProtocol, ABC):
 
     def delete(
         self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        table: TableProtocol[ModelT, InsertInputT, UpdateInputT, WhereT, IncludeT, OrderByT],
         *,
         where: WhereT,
         include: Mapping[str, bool] | None = None,
@@ -329,7 +329,7 @@ class BackendBase(BackendProtocol, ABC):
     @overload
     def delete_many(
         self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        table: TableProtocol[ModelT, InsertInputT, UpdateInputT, WhereT, IncludeT, OrderByT],
         *,
         where: WhereT | None = None,
         return_records: Literal[False] = False,
@@ -338,7 +338,7 @@ class BackendBase(BackendProtocol, ABC):
     @overload
     def delete_many(
         self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        table: TableProtocol[ModelT, InsertInputT, UpdateInputT, WhereT, IncludeT, OrderByT],
         *,
         where: WhereT | None = None,
         return_records: Literal[True],
@@ -346,7 +346,7 @@ class BackendBase(BackendProtocol, ABC):
 
     def delete_many(
         self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        table: TableProtocol[ModelT, InsertInputT, UpdateInputT, WhereT, IncludeT, OrderByT],
         *,
         where: WhereT | None = None,
         return_records: Literal[False, True] = False,
@@ -376,9 +376,9 @@ class BackendBase(BackendProtocol, ABC):
     @overload
     def update_many(
         self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        table: TableProtocol[ModelT, InsertInputT, UpdateInputT, WhereT, IncludeT, OrderByT],
         *,
-        data: Mapping[str, object],
+        data: UpdateInputT | Mapping[str, object],
         where: WhereT | None = None,
         return_records: Literal[False] = False,
     ) -> int: ...
@@ -386,18 +386,18 @@ class BackendBase(BackendProtocol, ABC):
     @overload
     def update_many(
         self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        table: TableProtocol[ModelT, InsertInputT, UpdateInputT, WhereT, IncludeT, OrderByT],
         *,
-        data: Mapping[str, object],
+        data: UpdateInputT | Mapping[str, object],
         where: WhereT | None = None,
         return_records: Literal[True],
     ) -> list[ModelT]: ...
 
     def update_many(
         self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        table: TableProtocol[ModelT, InsertInputT, UpdateInputT, WhereT, IncludeT, OrderByT],
         *,
-        data: Mapping[str, object],
+        data: UpdateInputT | Mapping[str, object],
         where: WhereT | None = None,
         return_records: Literal[False, True] = False,
     ) -> int | list[ModelT]:
@@ -432,7 +432,7 @@ class BackendBase(BackendProtocol, ABC):
 
     def _fetch_single(
         self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        table: TableProtocol[ModelT, InsertInputT, UpdateInputT, WhereT, IncludeT, OrderByT],
         where: Mapping[str, object],
         include: Mapping[str, bool] | None,
     ) -> ModelT:
@@ -466,7 +466,7 @@ class BackendBase(BackendProtocol, ABC):
 
     def _materialize_instance(
         self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        table: TableProtocol[ModelT, InsertInputT, UpdateInputT, WhereT, IncludeT, OrderByT],
         row: Mapping[str, Any],
         include_map: Mapping[str, bool],
     ) -> ModelT:
@@ -477,7 +477,7 @@ class BackendBase(BackendProtocol, ABC):
 
     def _attach_relations(
         self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        table: TableProtocol[ModelT, InsertInputT, UpdateInputT, WhereT, IncludeT, OrderByT],
         instance: ModelT,
         include_map: Mapping[str, bool],
     ) -> None:
@@ -520,7 +520,7 @@ class BackendBase(BackendProtocol, ABC):
 
     def _compile_where(
         self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        table: TableProtocol[ModelT, InsertInputT, UpdateInputT, WhereT, IncludeT, OrderByT],
         sql_table: Table,
         where: Mapping[str, object],
     ) -> tuple[Criterion | None, list[object]]:
@@ -534,7 +534,7 @@ class BackendBase(BackendProtocol, ABC):
 
     def _normalize_distinct(
         self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        table: TableProtocol[ModelT, InsertInputT, UpdateInputT, WhereT, IncludeT, OrderByT],
         distinct: Sequence[str] | str | None,
     ) -> tuple[str, ...]:
         if distinct is None:
@@ -553,7 +553,7 @@ class BackendBase(BackendProtocol, ABC):
 
     def _normalize_order_by(
         self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        table: TableProtocol[ModelT, InsertInputT, UpdateInputT, WhereT, IncludeT, OrderByT],
         order_by: Mapping[str, OrderDirection] | None,
     ) -> tuple[tuple[str, Order], ...]:
         if not order_by:

@@ -100,10 +100,16 @@ def test_update_returns_updated_row(tmp_path: Path) -> None:
     assert updated.name == "New"
     assert updated.email == "new@example.com"
 
+    updated = user_table.update(
+        data=type(inserted)(id=inserted.id + 100, name="Model", email=None),
+        where={"id": inserted.id},
+    )
+    assert updated == type(inserted)(id=inserted.id, name="Model", email=None)
+
     with record_sql() as sqls:
         fetched = user_table.find_first(where={"id": inserted.id})
     assert sqls == [('SELECT "id","name","email" FROM "RuntimeUser" WHERE "id"=? LIMIT 1;', (inserted.id,))]
-    assert fetched.name == "New"
+    assert fetched.name == "Model"
     client.__class__.close_all()
 
 

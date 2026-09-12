@@ -500,6 +500,7 @@ def test_generate_client_matches_expected_shape() -> None:
     assert 'DataSourceConfig' in namespace['__all__']
     assert 'UserScalarDict' in namespace['__all__']
     assert 'UserUpdateDict' in namespace['__all__']
+    assert 'UserUpdateInput' in namespace['__all__']
 
     data_source_config = namespace['DataSourceConfig']
     generated_client = namespace[module.client_class_name]
@@ -546,6 +547,20 @@ def test_generate_client_matches_expected_shape() -> None:
     })
     assert insert_payload["status"] == namespace["UserStatus"].ACTIVE.value
     assert set(insert_payload) == set(column_names)
+    update_payload = user_table_cls.serialize_update(User(
+        id=1,
+        name="A",
+        email="a@example.com",
+        last_login=datetime.now(),
+        status=UserStatus.ACTIVE,
+        type=UserType.MEMBER,
+        vip_level=None,
+        birthday=None,
+        addresses=[],
+        books=[],
+    ))
+    assert update_payload["status"] == UserStatus.ACTIVE.value
+    assert set(update_payload) == set(column_names) - {"id"}
 
     assert generated_client.datasource == data_source_config(url='sqlite:///analytics.db', name=None)
     init_hints = get_type_hints(generated_client.__init__, globalns=namespace, localns=namespace)
@@ -558,6 +573,7 @@ def test_generate_client_matches_expected_shape() -> None:
     user_insert_dict = namespace['UserInsertDict']
     user_scalar_dict = namespace['UserScalarDict']
     user_insert_input = namespace['UserInsertInput']
+    user_update_input = namespace['UserUpdateInput']
     user_where_dict = namespace['UserWhereDict']
     assert 'StringFilter' in namespace
     assert 'IntFilter' in namespace
@@ -575,6 +591,13 @@ def test_generate_client_matches_expected_shape() -> None:
     insert_field_names = [f.name for f in fields(user_insert_cls)]
     assert insert_field_names == list(column_names)
     assert set(get_args(user_insert_input.__value__)) == {
+        user_insert_cls,
+        user_insert_dict,
+        namespace['User'],
+        user_scalar_dict,
+    }
+    assert set(get_args(user_update_input.__value__)) == {
+        namespace['UserUpdateDict'],
         user_insert_cls,
         user_insert_dict,
         namespace['User'],
@@ -715,12 +738,18 @@ def test_generate_client_matches_expected_shape() -> None:
     assert namespace['TUserDistinctCol'] in distinct_args_first
 
     update_hints = get_type_hints(user_table_cls.update, globalns=namespace, localns=namespace)
-    assert update_hints['data'] is namespace['UserUpdateDict']
+    assert update_hints['data'] is user_update_input
     assert update_hints['where'] is user_where_dict
     assert update_hints['return'] is namespace['User']
+    update_dict_hints = get_type_hints(
+        namespace['UserUpdateDict'],
+        globalns=namespace,
+        localns=namespace,
+    )
+    assert "id" not in update_dict_hints
 
     update_many_hints = get_type_hints(user_table_cls.update_many, globalns=namespace, localns=namespace)
-    assert update_many_hints['data'] is namespace['UserUpdateDict']
+    assert update_many_hints['data'] is user_update_input
     um_where_union = update_many_hints['where']
     um_where_args = set(get_args(um_where_union))
     assert type(None) in um_where_args
@@ -732,7 +761,7 @@ def test_generate_client_matches_expected_shape() -> None:
 
     upsert_hints = get_type_hints(user_table_cls.upsert, globalns=namespace, localns=namespace)
     assert upsert_hints['where'] is namespace['UserUpsertWhereDict']
-    assert upsert_hints['update'] is namespace['UserUpdateDict']
+    assert upsert_hints['update'] is user_update_input
     assert upsert_hints['insert'] is user_insert_input
     assert upsert_hints['return'] is namespace['User']
 
@@ -1473,6 +1502,10 @@ def test_generated_client_uses_implicit_id_for_model_without_id(tmp_path: Path) 
             client.push_db()
             manual = client.event.insert(insert_cls(id=10, name="manual", amount=1.0))
             stored = client.event.insert({"name": "filled", "amount": 2.0})
+            updated = client.event.update(
+                data=Event(name="updated", amount=3.0),
+                where={"id": 10},
+            )
             rows = client.event.find_many()
             by_id = client.event.find_many(where={"id": 10})
         finally:
@@ -1480,8 +1513,9 @@ def test_generated_client_uses_implicit_id_for_model_without_id(tmp_path: Path) 
 
         assert manual == Event(name="manual", amount=1.0)
         assert stored == Event(name="filled", amount=2.0)
-        assert rows == [Event(name="manual", amount=1.0), Event(name="filled", amount=2.0)]
-        assert by_id == [Event(name="manual", amount=1.0)]
+        assert updated == Event(name="updated", amount=3.0)
+        assert rows == [Event(name="updated", amount=3.0), Event(name="filled", amount=2.0)]
+        assert by_id == [Event(name="updated", amount=3.0)]
 
         conn = sqlite3.connect(db_path)
         try:
@@ -1494,7 +1528,7 @@ def test_generated_client_uses_implicit_id_for_model_without_id(tmp_path: Path) 
             ("name", 0),
             ("amount", 0),
         ]
-        assert records == [(10, "manual", 1.0), (11, "filled", 2.0)]
+        assert records == [(10, "updated", 3.0), (11, "filled", 2.0)]
     finally:
         sys.modules.pop(module_name, None)
 

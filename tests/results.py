@@ -81,10 +81,11 @@ class AddressInsertDict(TypedDict, closed=True):
 type AddressInsertInput = AddressInsert | Address | AddressInsertDict | AddressScalarDict
 
 class AddressUpdateDict(TypedDict, total=False, closed=True):
-    id: int
     location: str
     user_id: int
 
+
+type AddressUpdateInput = AddressUpdateDict | AddressInsert | Address | AddressInsertDict | AddressScalarDict
 
 class AddressUpsertWherePK(TypedDict, closed=True):
     id: int
@@ -116,7 +117,7 @@ class AddressOrderByDict(TypedDict, total=False, closed=True):
     location: Literal['asc', 'desc']
     user_id: Literal['asc', 'desc']
 
-class AddressTable(TableProtocol):
+class AddressTable(TableProtocol[Address, AddressInsertInput, AddressUpdateInput, AddressWhereDict, AddressIncludeDict, AddressOrderByDict]):
     model = Address
     insert_model = AddressInsert
     table_name: str = 'Address'
@@ -161,10 +162,10 @@ class AddressTable(TableProtocol):
         raise TypeError("Unsupported insert payload type for Address")
 
     @classmethod
-    def serialize_update(cls, data: Mapping[str, object]) -> dict[str, object]:
-        if not isinstance(data, Mapping):
-            raise TypeError("Update payload must be a mapping")
-        return cls.serialize_insert(data)
+    def serialize_update(cls, data: AddressUpdateInput | Mapping[str, object]) -> dict[str, object]:
+        result = cls.serialize_insert(data)
+        result.pop("id", None)
+        return result
 
     @classmethod
     def deserialize_row(cls, row: Mapping[str, object]) -> Address:
@@ -187,21 +188,21 @@ class AddressTable(TableProtocol):
     def insert_many(self, data: Sequence[AddressInsertInput], *, batch_size: int | None = None) -> list[Address]:
         return self._backend.insert_many(self, data, batch_size=batch_size)
 
-    def update(self, *, data: AddressUpdateDict, where: AddressWhereDict, include: AddressIncludeDict | None = None) -> Address:
+    def update(self, *, data: AddressUpdateInput, where: AddressWhereDict, include: AddressIncludeDict | None = None) -> Address:
         return self._backend.update(self, data=data, where=where, include=include)
 
     @overload
-    def update_many(self, *, data: AddressUpdateDict, where: AddressWhereDict | None = None, return_records: Literal[False] = False) -> int: ...
+    def update_many(self, *, data: AddressUpdateInput, where: AddressWhereDict | None = None, return_records: Literal[False] = False) -> int: ...
     @overload
-    def update_many(self, *, data: AddressUpdateDict, where: AddressWhereDict | None = None, return_records: Literal[True]) -> list[Address]: ...
-    def update_many(self, *, data: AddressUpdateDict, where: AddressWhereDict | None = None, return_records: Literal[False, True] = False) -> int | list[Address]:
+    def update_many(self, *, data: AddressUpdateInput, where: AddressWhereDict | None = None, return_records: Literal[True]) -> list[Address]: ...
+    def update_many(self, *, data: AddressUpdateInput, where: AddressWhereDict | None = None, return_records: Literal[False, True] = False) -> int | list[Address]:
         return self._backend.update_many(self, data=data, where=where, return_records=return_records)
 
     def upsert(
         self,
         *,
         where: AddressUpsertWhereDict,
-        update: AddressUpdateDict,
+        update: AddressUpdateInput,
         insert: AddressInsertInput,
         include: AddressIncludeDict | None = None,
     ) -> Address:
@@ -255,9 +256,10 @@ class BirthDayInsertDict(TypedDict, closed=True):
 type BirthDayInsertInput = BirthDayInsert | BirthDay | BirthDayInsertDict | BirthDayScalarDict
 
 class BirthDayUpdateDict(TypedDict, total=False, closed=True):
-    user_id: int
     date: datetime
 
+
+type BirthDayUpdateInput = BirthDayUpdateDict | BirthDayInsert | BirthDay | BirthDayInsertDict | BirthDayScalarDict
 
 class BirthDayUpsertWherePK(TypedDict, closed=True):
     user_id: int
@@ -287,7 +289,7 @@ class BirthDayOrderByDict(TypedDict, total=False, closed=True):
     user_id: Literal['asc', 'desc']
     date: Literal['asc', 'desc']
 
-class BirthDayTable(TableProtocol):
+class BirthDayTable(TableProtocol[BirthDay, BirthDayInsertInput, BirthDayUpdateInput, BirthDayWhereDict, BirthDayIncludeDict, BirthDayOrderByDict]):
     model = BirthDay
     insert_model = BirthDayInsert
     table_name: str = 'BirthDay'
@@ -328,10 +330,10 @@ class BirthDayTable(TableProtocol):
         raise TypeError("Unsupported insert payload type for BirthDay")
 
     @classmethod
-    def serialize_update(cls, data: Mapping[str, object]) -> dict[str, object]:
-        if not isinstance(data, Mapping):
-            raise TypeError("Update payload must be a mapping")
-        return cls.serialize_insert(data)
+    def serialize_update(cls, data: BirthDayUpdateInput | Mapping[str, object]) -> dict[str, object]:
+        result = cls.serialize_insert(data)
+        result.pop("user_id", None)
+        return result
 
     @classmethod
     def deserialize_row(cls, row: Mapping[str, object]) -> BirthDay:
@@ -353,21 +355,21 @@ class BirthDayTable(TableProtocol):
     def insert_many(self, data: Sequence[BirthDayInsertInput], *, batch_size: int | None = None) -> list[BirthDay]:
         return self._backend.insert_many(self, data, batch_size=batch_size)
 
-    def update(self, *, data: BirthDayUpdateDict, where: BirthDayWhereDict, include: BirthDayIncludeDict | None = None) -> BirthDay:
+    def update(self, *, data: BirthDayUpdateInput, where: BirthDayWhereDict, include: BirthDayIncludeDict | None = None) -> BirthDay:
         return self._backend.update(self, data=data, where=where, include=include)
 
     @overload
-    def update_many(self, *, data: BirthDayUpdateDict, where: BirthDayWhereDict | None = None, return_records: Literal[False] = False) -> int: ...
+    def update_many(self, *, data: BirthDayUpdateInput, where: BirthDayWhereDict | None = None, return_records: Literal[False] = False) -> int: ...
     @overload
-    def update_many(self, *, data: BirthDayUpdateDict, where: BirthDayWhereDict | None = None, return_records: Literal[True]) -> list[BirthDay]: ...
-    def update_many(self, *, data: BirthDayUpdateDict, where: BirthDayWhereDict | None = None, return_records: Literal[False, True] = False) -> int | list[BirthDay]:
+    def update_many(self, *, data: BirthDayUpdateInput, where: BirthDayWhereDict | None = None, return_records: Literal[True]) -> list[BirthDay]: ...
+    def update_many(self, *, data: BirthDayUpdateInput, where: BirthDayWhereDict | None = None, return_records: Literal[False, True] = False) -> int | list[BirthDay]:
         return self._backend.update_many(self, data=data, where=where, return_records=return_records)
 
     def upsert(
         self,
         *,
         where: BirthDayUpsertWhereDict,
-        update: BirthDayUpdateDict,
+        update: BirthDayUpdateInput,
         insert: BirthDayInsertInput,
         include: BirthDayIncludeDict | None = None,
     ) -> BirthDay:
@@ -421,9 +423,10 @@ class BookInsertDict(TypedDict, closed=True):
 type BookInsertInput = BookInsert | Book | BookInsertDict | BookScalarDict
 
 class BookUpdateDict(TypedDict, total=False, closed=True):
-    id: int
     name: str
 
+
+type BookUpdateInput = BookUpdateDict | BookInsert | Book | BookInsertDict | BookScalarDict
 
 class BookUpsertWherePK(TypedDict, closed=True):
     id: int
@@ -454,7 +457,7 @@ class BookOrderByDict(TypedDict, total=False, closed=True):
     id: Literal['asc', 'desc']
     name: Literal['asc', 'desc']
 
-class BookTable(TableProtocol):
+class BookTable(TableProtocol[Book, BookInsertInput, BookUpdateInput, BookWhereDict, BookIncludeDict, BookOrderByDict]):
     model = Book
     insert_model = BookInsert
     table_name: str = 'Book'
@@ -495,10 +498,10 @@ class BookTable(TableProtocol):
         raise TypeError("Unsupported insert payload type for Book")
 
     @classmethod
-    def serialize_update(cls, data: Mapping[str, object]) -> dict[str, object]:
-        if not isinstance(data, Mapping):
-            raise TypeError("Update payload must be a mapping")
-        return cls.serialize_insert(data)
+    def serialize_update(cls, data: BookUpdateInput | Mapping[str, object]) -> dict[str, object]:
+        result = cls.serialize_insert(data)
+        result.pop("id", None)
+        return result
 
     @classmethod
     def deserialize_row(cls, row: Mapping[str, object]) -> Book:
@@ -520,21 +523,21 @@ class BookTable(TableProtocol):
     def insert_many(self, data: Sequence[BookInsertInput], *, batch_size: int | None = None) -> list[Book]:
         return self._backend.insert_many(self, data, batch_size=batch_size)
 
-    def update(self, *, data: BookUpdateDict, where: BookWhereDict, include: BookIncludeDict | None = None) -> Book:
+    def update(self, *, data: BookUpdateInput, where: BookWhereDict, include: BookIncludeDict | None = None) -> Book:
         return self._backend.update(self, data=data, where=where, include=include)
 
     @overload
-    def update_many(self, *, data: BookUpdateDict, where: BookWhereDict | None = None, return_records: Literal[False] = False) -> int: ...
+    def update_many(self, *, data: BookUpdateInput, where: BookWhereDict | None = None, return_records: Literal[False] = False) -> int: ...
     @overload
-    def update_many(self, *, data: BookUpdateDict, where: BookWhereDict | None = None, return_records: Literal[True]) -> list[Book]: ...
-    def update_many(self, *, data: BookUpdateDict, where: BookWhereDict | None = None, return_records: Literal[False, True] = False) -> int | list[Book]:
+    def update_many(self, *, data: BookUpdateInput, where: BookWhereDict | None = None, return_records: Literal[True]) -> list[Book]: ...
+    def update_many(self, *, data: BookUpdateInput, where: BookWhereDict | None = None, return_records: Literal[False, True] = False) -> int | list[Book]:
         return self._backend.update_many(self, data=data, where=where, return_records=return_records)
 
     def upsert(
         self,
         *,
         where: BookUpsertWhereDict,
-        update: BookUpdateDict,
+        update: BookUpdateInput,
         insert: BookInsertInput,
         include: BookIncludeDict | None = None,
     ) -> Book:
@@ -599,13 +602,13 @@ class CompositeInsertDict(TypedDict, closed=True):
 type CompositeInsertInput = CompositeInsert | Composite | CompositeInsertDict | CompositeScalarDict
 
 class CompositeUpdateDict(TypedDict, total=False, closed=True):
-    id1: int
-    id2: int
     uniq1: str
     uniq2: str
     uniq3: str
     name: str
 
+
+type CompositeUpdateInput = CompositeUpdateDict | CompositeInsert | Composite | CompositeInsertDict | CompositeScalarDict
 
 class CompositeUpsertWherePK(TypedDict, closed=True):
     id1: int
@@ -647,7 +650,7 @@ class CompositeOrderByDict(TypedDict, total=False, closed=True):
     uniq3: Literal['asc', 'desc']
     name: Literal['asc', 'desc']
 
-class CompositeTable(TableProtocol):
+class CompositeTable(TableProtocol[Composite, CompositeInsertInput, CompositeUpdateInput, CompositeWhereDict, CompositeIncludeDict, CompositeOrderByDict]):
     model = Composite
     insert_model = CompositeInsert
     table_name: str = 'Composite'
@@ -703,10 +706,11 @@ class CompositeTable(TableProtocol):
         raise TypeError("Unsupported insert payload type for Composite")
 
     @classmethod
-    def serialize_update(cls, data: Mapping[str, object]) -> dict[str, object]:
-        if not isinstance(data, Mapping):
-            raise TypeError("Update payload must be a mapping")
-        return cls.serialize_insert(data)
+    def serialize_update(cls, data: CompositeUpdateInput | Mapping[str, object]) -> dict[str, object]:
+        result = cls.serialize_insert(data)
+        result.pop("id1", None)
+        result.pop("id2", None)
+        return result
 
     @classmethod
     def deserialize_row(cls, row: Mapping[str, object]) -> Composite:
@@ -731,21 +735,21 @@ class CompositeTable(TableProtocol):
     def insert_many(self, data: Sequence[CompositeInsertInput], *, batch_size: int | None = None) -> list[Composite]:
         return self._backend.insert_many(self, data, batch_size=batch_size)
 
-    def update(self, *, data: CompositeUpdateDict, where: CompositeWhereDict, include: CompositeIncludeDict | None = None) -> Composite:
+    def update(self, *, data: CompositeUpdateInput, where: CompositeWhereDict, include: CompositeIncludeDict | None = None) -> Composite:
         return self._backend.update(self, data=data, where=where, include=include)
 
     @overload
-    def update_many(self, *, data: CompositeUpdateDict, where: CompositeWhereDict | None = None, return_records: Literal[False] = False) -> int: ...
+    def update_many(self, *, data: CompositeUpdateInput, where: CompositeWhereDict | None = None, return_records: Literal[False] = False) -> int: ...
     @overload
-    def update_many(self, *, data: CompositeUpdateDict, where: CompositeWhereDict | None = None, return_records: Literal[True]) -> list[Composite]: ...
-    def update_many(self, *, data: CompositeUpdateDict, where: CompositeWhereDict | None = None, return_records: Literal[False, True] = False) -> int | list[Composite]:
+    def update_many(self, *, data: CompositeUpdateInput, where: CompositeWhereDict | None = None, return_records: Literal[True]) -> list[Composite]: ...
+    def update_many(self, *, data: CompositeUpdateInput, where: CompositeWhereDict | None = None, return_records: Literal[False, True] = False) -> int | list[Composite]:
         return self._backend.update_many(self, data=data, where=where, return_records=return_records)
 
     def upsert(
         self,
         *,
         where: CompositeUpsertWhereDict,
-        update: CompositeUpdateDict,
+        update: CompositeUpdateInput,
         insert: CompositeInsertInput,
         include: CompositeIncludeDict | None = None,
     ) -> Composite:
@@ -807,12 +811,13 @@ class JsonMixedOrderInsertDict(TypedDict, closed=True):
 type JsonMixedOrderInsertInput = JsonMixedOrderInsert | JsonMixedOrder | JsonMixedOrderInsertDict | JsonMixedOrderScalarDict
 
 class JsonMixedOrderUpdateDict(TypedDict, total=False, closed=True):
-    id: int
     payload: JsonPayload
     payloads: list[JsonPayload]
     mixed: tuple[JsonStamp, int, JsonPayload]
     by_name: dict[str, JsonPayload]
 
+
+type JsonMixedOrderUpdateInput = JsonMixedOrderUpdateDict | JsonMixedOrderInsert | JsonMixedOrder | JsonMixedOrderInsertDict | JsonMixedOrderScalarDict
 
 class JsonMixedOrderUpsertWherePK(TypedDict, closed=True):
     id: int
@@ -842,7 +847,7 @@ class JsonMixedOrderOrderByDict(TypedDict, total=False, closed=True):
     mixed: Literal['asc', 'desc']
     by_name: Literal['asc', 'desc']
 
-class JsonMixedOrderTable(TableProtocol):
+class JsonMixedOrderTable(TableProtocol[JsonMixedOrder, JsonMixedOrderInsertInput, JsonMixedOrderUpdateInput, JsonMixedOrderWhereDict, JsonMixedOrderIncludeDict, JsonMixedOrderOrderByDict]):
     model = JsonMixedOrder
     insert_model = JsonMixedOrderInsert
     table_name: str = 'JsonMixedOrder'
@@ -893,10 +898,10 @@ class JsonMixedOrderTable(TableProtocol):
         raise TypeError("Unsupported insert payload type for JsonMixedOrder")
 
     @classmethod
-    def serialize_update(cls, data: Mapping[str, object]) -> dict[str, object]:
-        if not isinstance(data, Mapping):
-            raise TypeError("Update payload must be a mapping")
-        return cls.serialize_insert(data)
+    def serialize_update(cls, data: JsonMixedOrderUpdateInput | Mapping[str, object]) -> dict[str, object]:
+        result = cls.serialize_insert(data)
+        result.pop("id", None)
+        return result
 
     @classmethod
     def deserialize_row(cls, row: Mapping[str, object]) -> JsonMixedOrder:
@@ -920,21 +925,21 @@ class JsonMixedOrderTable(TableProtocol):
     def insert_many(self, data: Sequence[JsonMixedOrderInsertInput], *, batch_size: int | None = None) -> list[JsonMixedOrder]:
         return self._backend.insert_many(self, data, batch_size=batch_size)
 
-    def update(self, *, data: JsonMixedOrderUpdateDict, where: JsonMixedOrderWhereDict, include: JsonMixedOrderIncludeDict | None = None) -> JsonMixedOrder:
+    def update(self, *, data: JsonMixedOrderUpdateInput, where: JsonMixedOrderWhereDict, include: JsonMixedOrderIncludeDict | None = None) -> JsonMixedOrder:
         return self._backend.update(self, data=data, where=where, include=include)
 
     @overload
-    def update_many(self, *, data: JsonMixedOrderUpdateDict, where: JsonMixedOrderWhereDict | None = None, return_records: Literal[False] = False) -> int: ...
+    def update_many(self, *, data: JsonMixedOrderUpdateInput, where: JsonMixedOrderWhereDict | None = None, return_records: Literal[False] = False) -> int: ...
     @overload
-    def update_many(self, *, data: JsonMixedOrderUpdateDict, where: JsonMixedOrderWhereDict | None = None, return_records: Literal[True]) -> list[JsonMixedOrder]: ...
-    def update_many(self, *, data: JsonMixedOrderUpdateDict, where: JsonMixedOrderWhereDict | None = None, return_records: Literal[False, True] = False) -> int | list[JsonMixedOrder]:
+    def update_many(self, *, data: JsonMixedOrderUpdateInput, where: JsonMixedOrderWhereDict | None = None, return_records: Literal[True]) -> list[JsonMixedOrder]: ...
+    def update_many(self, *, data: JsonMixedOrderUpdateInput, where: JsonMixedOrderWhereDict | None = None, return_records: Literal[False, True] = False) -> int | list[JsonMixedOrder]:
         return self._backend.update_many(self, data=data, where=where, return_records=return_records)
 
     def upsert(
         self,
         *,
         where: JsonMixedOrderUpsertWhereDict,
-        update: JsonMixedOrderUpdateDict,
+        update: JsonMixedOrderUpdateInput,
         insert: JsonMixedOrderInsertInput,
         include: JsonMixedOrderIncludeDict | None = None,
     ) -> JsonMixedOrder:
@@ -1005,7 +1010,6 @@ class UserInsertDict(TypedDict, closed=True):
 type UserInsertInput = UserInsert | User | UserInsertDict | UserScalarDict
 
 class UserUpdateDict(TypedDict, total=False, closed=True):
-    id: int
     name: str
     email: str
     last_login: datetime
@@ -1013,6 +1017,8 @@ class UserUpdateDict(TypedDict, total=False, closed=True):
     type: UserType
     vip_level: UserVIPLevel | None
 
+
+type UserUpdateInput = UserUpdateDict | UserInsert | User | UserInsertDict | UserScalarDict
 
 class UserUpsertWherePK(TypedDict, closed=True):
     id: int
@@ -1073,7 +1079,7 @@ class UserOrderByDict(TypedDict, total=False, closed=True):
     type: Literal['asc', 'desc']
     vip_level: Literal['asc', 'desc']
 
-class UserTable(TableProtocol):
+class UserTable(TableProtocol[User, UserInsertInput, UserUpdateInput, UserWhereDict, UserIncludeDict, UserOrderByDict]):
     model = User
     insert_model = UserInsert
     table_name: str = 'User'
@@ -1136,10 +1142,10 @@ class UserTable(TableProtocol):
         raise TypeError("Unsupported insert payload type for User")
 
     @classmethod
-    def serialize_update(cls, data: Mapping[str, object]) -> dict[str, object]:
-        if not isinstance(data, Mapping):
-            raise TypeError("Update payload must be a mapping")
-        return cls.serialize_insert(data)
+    def serialize_update(cls, data: UserUpdateInput | Mapping[str, object]) -> dict[str, object]:
+        result = cls.serialize_insert(data)
+        result.pop("id", None)
+        return result
 
     @classmethod
     def deserialize_row(cls, row: Mapping[str, object]) -> User:
@@ -1168,21 +1174,21 @@ class UserTable(TableProtocol):
     def insert_many(self, data: Sequence[UserInsertInput], *, batch_size: int | None = None) -> list[User]:
         return self._backend.insert_many(self, data, batch_size=batch_size)
 
-    def update(self, *, data: UserUpdateDict, where: UserWhereDict, include: UserIncludeDict | None = None) -> User:
+    def update(self, *, data: UserUpdateInput, where: UserWhereDict, include: UserIncludeDict | None = None) -> User:
         return self._backend.update(self, data=data, where=where, include=include)
 
     @overload
-    def update_many(self, *, data: UserUpdateDict, where: UserWhereDict | None = None, return_records: Literal[False] = False) -> int: ...
+    def update_many(self, *, data: UserUpdateInput, where: UserWhereDict | None = None, return_records: Literal[False] = False) -> int: ...
     @overload
-    def update_many(self, *, data: UserUpdateDict, where: UserWhereDict | None = None, return_records: Literal[True]) -> list[User]: ...
-    def update_many(self, *, data: UserUpdateDict, where: UserWhereDict | None = None, return_records: Literal[False, True] = False) -> int | list[User]:
+    def update_many(self, *, data: UserUpdateInput, where: UserWhereDict | None = None, return_records: Literal[True]) -> list[User]: ...
+    def update_many(self, *, data: UserUpdateInput, where: UserWhereDict | None = None, return_records: Literal[False, True] = False) -> int | list[User]:
         return self._backend.update_many(self, data=data, where=where, return_records=return_records)
 
     def upsert(
         self,
         *,
         where: UserUpsertWhereDict,
-        update: UserUpdateDict,
+        update: UserUpdateInput,
         insert: UserInsertInput,
         include: UserIncludeDict | None = None,
     ) -> User:
@@ -1240,10 +1246,10 @@ class UserBookInsertDict(TypedDict, closed=True):
 type UserBookInsertInput = UserBookInsert | UserBook | UserBookInsertDict | UserBookScalarDict
 
 class UserBookUpdateDict(TypedDict, total=False, closed=True):
-    user_id: int
-    book_id: int
     created_at: datetime
 
+
+type UserBookUpdateInput = UserBookUpdateDict | UserBookInsert | UserBook | UserBookInsertDict | UserBookScalarDict
 
 class UserBookUpsertWherePK(TypedDict, closed=True):
     user_id: int
@@ -1283,7 +1289,7 @@ class UserBookOrderByDict(TypedDict, total=False, closed=True):
     book_id: Literal['asc', 'desc']
     created_at: Literal['asc', 'desc']
 
-class UserBookTable(TableProtocol):
+class UserBookTable(TableProtocol[UserBook, UserBookInsertInput, UserBookUpdateInput, UserBookWhereDict, UserBookIncludeDict, UserBookOrderByDict]):
     model = UserBook
     insert_model = UserBookInsert
     table_name: str = 'UserBook'
@@ -1330,10 +1336,11 @@ class UserBookTable(TableProtocol):
         raise TypeError("Unsupported insert payload type for UserBook")
 
     @classmethod
-    def serialize_update(cls, data: Mapping[str, object]) -> dict[str, object]:
-        if not isinstance(data, Mapping):
-            raise TypeError("Update payload must be a mapping")
-        return cls.serialize_insert(data)
+    def serialize_update(cls, data: UserBookUpdateInput | Mapping[str, object]) -> dict[str, object]:
+        result = cls.serialize_insert(data)
+        result.pop("user_id", None)
+        result.pop("book_id", None)
+        return result
 
     @classmethod
     def deserialize_row(cls, row: Mapping[str, object]) -> UserBook:
@@ -1357,21 +1364,21 @@ class UserBookTable(TableProtocol):
     def insert_many(self, data: Sequence[UserBookInsertInput], *, batch_size: int | None = None) -> list[UserBook]:
         return self._backend.insert_many(self, data, batch_size=batch_size)
 
-    def update(self, *, data: UserBookUpdateDict, where: UserBookWhereDict, include: UserBookIncludeDict | None = None) -> UserBook:
+    def update(self, *, data: UserBookUpdateInput, where: UserBookWhereDict, include: UserBookIncludeDict | None = None) -> UserBook:
         return self._backend.update(self, data=data, where=where, include=include)
 
     @overload
-    def update_many(self, *, data: UserBookUpdateDict, where: UserBookWhereDict | None = None, return_records: Literal[False] = False) -> int: ...
+    def update_many(self, *, data: UserBookUpdateInput, where: UserBookWhereDict | None = None, return_records: Literal[False] = False) -> int: ...
     @overload
-    def update_many(self, *, data: UserBookUpdateDict, where: UserBookWhereDict | None = None, return_records: Literal[True]) -> list[UserBook]: ...
-    def update_many(self, *, data: UserBookUpdateDict, where: UserBookWhereDict | None = None, return_records: Literal[False, True] = False) -> int | list[UserBook]:
+    def update_many(self, *, data: UserBookUpdateInput, where: UserBookWhereDict | None = None, return_records: Literal[True]) -> list[UserBook]: ...
+    def update_many(self, *, data: UserBookUpdateInput, where: UserBookWhereDict | None = None, return_records: Literal[False, True] = False) -> int | list[UserBook]:
         return self._backend.update_many(self, data=data, where=where, return_records=return_records)
 
     def upsert(
         self,
         *,
         where: UserBookUpsertWhereDict,
-        update: UserBookUpdateDict,
+        update: UserBookUpdateInput,
         insert: UserBookInsertInput,
         include: UserBookIncludeDict | None = None,
     ) -> UserBook:
@@ -1439,6 +1446,7 @@ __all__ = (
     "AddressInsertDict",
     "AddressInsertInput",
     "AddressUpdateDict",
+    "AddressUpdateInput",
     "AddressUpsertWhereDict",
     "AddressWhereDict",
     "AddressTable",
@@ -1454,6 +1462,7 @@ __all__ = (
     "BirthDayInsertDict",
     "BirthDayInsertInput",
     "BirthDayUpdateDict",
+    "BirthDayUpdateInput",
     "BirthDayUpsertWhereDict",
     "BirthDayWhereDict",
     "BirthDayTable",
@@ -1469,6 +1478,7 @@ __all__ = (
     "BookInsertDict",
     "BookInsertInput",
     "BookUpdateDict",
+    "BookUpdateInput",
     "BookUpsertWhereDict",
     "BookWhereDict",
     "BookTable",
@@ -1484,6 +1494,7 @@ __all__ = (
     "CompositeInsertDict",
     "CompositeInsertInput",
     "CompositeUpdateDict",
+    "CompositeUpdateInput",
     "CompositeUpsertWhereDict",
     "CompositeWhereDict",
     "CompositeTable",
@@ -1498,6 +1509,7 @@ __all__ = (
     "JsonMixedOrderInsertDict",
     "JsonMixedOrderInsertInput",
     "JsonMixedOrderUpdateDict",
+    "JsonMixedOrderUpdateInput",
     "JsonMixedOrderUpsertWhereDict",
     "JsonMixedOrderWhereDict",
     "JsonMixedOrderTable",
@@ -1512,6 +1524,7 @@ __all__ = (
     "UserInsertDict",
     "UserInsertInput",
     "UserUpdateDict",
+    "UserUpdateInput",
     "UserUpsertWhereDict",
     "UserWhereDict",
     "UserTable",
@@ -1529,6 +1542,7 @@ __all__ = (
     "UserBookInsertDict",
     "UserBookInsertInput",
     "UserBookUpdateDict",
+    "UserBookUpdateInput",
     "UserBookUpsertWhereDict",
     "UserBookWhereDict",
     "UserBookTable",

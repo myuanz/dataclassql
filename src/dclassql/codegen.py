@@ -327,6 +327,7 @@ class ClientCompiler:
         typed_dict_fields: list[TypedDictFieldSpec] = []
         update_fields: list[TypedDictFieldSpec] = []
         dict_field_map: dict[str, str] = {}
+        primary_key = set(state.info.constraints.primary_key.names)
         for column in state.db_columns:
             annotation = _format_insert_annotation(column, self.renderer)
             default_expr = _render_default_fragment(state.info.model, column)
@@ -342,7 +343,8 @@ class ClientCompiler:
 
             rendered_type = self.renderer.render(column.type_hint)
             dict_field_map[column.name] = rendered_type
-            update_fields.append(TypedDictFieldSpec(column.name, rendered_type))
+            if column.name not in primary_key:
+                update_fields.append(TypedDictFieldSpec(column.name, rendered_type))
         return (
             insert_fields,
             typed_dict_fields,
@@ -555,6 +557,7 @@ class ClientCompiler:
                     f"{name}InsertDict",
                     f"{name}InsertInput",
                     f"{name}UpdateDict",
+                    f"{name}UpdateInput",
                     f"{name}UpsertWhereDict",
                     f"{name}WhereDict",
                     f"{name}Table",

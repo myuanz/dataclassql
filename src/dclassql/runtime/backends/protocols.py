@@ -8,7 +8,15 @@ from pypika import Query, Table
 from pypika.terms import Parameter
 
 from dclassql.model_inspector import DataSourceConfig
-from dclassql.typing import IncludeT, InsertT, ModelT, OrderByT, WhereT, UpsertWhereT
+from dclassql.typing import (
+    IncludeT,
+    InsertInputT,
+    ModelT,
+    OrderByT,
+    UpdateInputT,
+    UpsertWhereT,
+    WhereT,
+)
 
 from .metadata import ColumnSpec, TableRelation
 
@@ -27,20 +35,20 @@ class SchemaTableProtocol(Protocol):
 
 
 @runtime_checkable
-class TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT](SchemaTableProtocol, Protocol):
+class TableProtocol[ModelT, InsertInputT, UpdateInputT, WhereT, IncludeT, OrderByT](SchemaTableProtocol, Protocol):
     '''描述使用表时需要的信息'''
     def __init__(self, backend: BackendProtocol) -> None: ...
 
     model: type[ModelT]
-    insert_model: type[InsertT]
+    insert_model: type[object]
     datasource: DataSourceConfig
     column_specs_by_name: Mapping[str, ColumnSpec]
     relations: tuple[TableRelation[Any], ...]
 
     @classmethod
-    def serialize_insert(cls, data: InsertT | ModelT | Mapping[str, object]) -> dict[str, object]: ...
+    def serialize_insert(cls, data: InsertInputT | Mapping[str, object]) -> dict[str, object]: ...
     @classmethod
-    def serialize_update(cls, data: Mapping[str, object]) -> dict[str, object]: ...
+    def serialize_update(cls, data: UpdateInputT | Mapping[str, object]) -> dict[str, object]: ...
 
     @classmethod
     def deserialize_row(cls, row: Mapping[str, object]) -> ModelT: ...
@@ -58,56 +66,56 @@ class BackendProtocol(Protocol):
 
     def insert(
         self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
-        data: InsertT | ModelT | Mapping[str, object],
+        table: TableProtocol[ModelT, InsertInputT, UpdateInputT, WhereT, IncludeT, OrderByT],
+        data: InsertInputT,
     ) -> ModelT: ...
     def update(
         self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        table: TableProtocol[ModelT, InsertInputT, UpdateInputT, WhereT, IncludeT, OrderByT],
         *,
-        data: Mapping[str, object],
+        data: UpdateInputT,
         where: WhereT,
         include: IncludeT | None = None,
     ) -> ModelT: ...
     def upsert(
         self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        table: TableProtocol[ModelT, InsertInputT, UpdateInputT, WhereT, IncludeT, OrderByT],
         *,
         where: UpsertWhereT,
-        update: Mapping[str, object],
-        insert: InsertT | ModelT | Mapping[str, object],
+        update: UpdateInputT,
+        insert: InsertInputT,
         include: IncludeT | None = None,
     ) -> ModelT: ...
 
     def insert_many(
         self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
-        data: Sequence[InsertT | ModelT | Mapping[str, object]],
+        table: TableProtocol[ModelT, InsertInputT, UpdateInputT, WhereT, IncludeT, OrderByT],
+        data: Sequence[InsertInputT],
         *,
         batch_size: int | None = None,
     ) -> list[ModelT]: ...
     @overload
     def update_many(
         self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        table: TableProtocol[ModelT, InsertInputT, UpdateInputT, WhereT, IncludeT, OrderByT],
         *,
-        data: Mapping[str, object],
+        data: UpdateInputT,
         where: WhereT | None = None,
         return_records: Literal[False] = False,
     ) -> int: ...
     @overload
     def update_many(
         self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        table: TableProtocol[ModelT, InsertInputT, UpdateInputT, WhereT, IncludeT, OrderByT],
         *,
-        data: Mapping[str, object],
+        data: UpdateInputT,
         where: WhereT | None = None,
         return_records: Literal[True],
     ) -> list[ModelT]: ...
 
     def find_many(
         self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        table: TableProtocol[ModelT, InsertInputT, UpdateInputT, WhereT, IncludeT, OrderByT],
         *,
         where: WhereT | None = None,
         include: IncludeT | None = None,
@@ -119,7 +127,7 @@ class BackendProtocol(Protocol):
 
     def find_first(
         self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        table: TableProtocol[ModelT, InsertInputT, UpdateInputT, WhereT, IncludeT, OrderByT],
         *,
         where: WhereT | None = None,
         include: IncludeT | None = None,
@@ -130,14 +138,14 @@ class BackendProtocol(Protocol):
 
     def count(
         self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        table: TableProtocol[ModelT, InsertInputT, UpdateInputT, WhereT, IncludeT, OrderByT],
         *,
         where: WhereT | None = None,
     ) -> int: ...
 
     def delete(
         self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        table: TableProtocol[ModelT, InsertInputT, UpdateInputT, WhereT, IncludeT, OrderByT],
         *,
         where: WhereT,
         include: IncludeT | None = None,
@@ -146,7 +154,7 @@ class BackendProtocol(Protocol):
     @overload
     def delete_many(
         self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        table: TableProtocol[ModelT, InsertInputT, UpdateInputT, WhereT, IncludeT, OrderByT],
         *,
         where: WhereT | None = None,
         return_records: Literal[False] = False,
@@ -155,7 +163,7 @@ class BackendProtocol(Protocol):
     @overload
     def delete_many(
         self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        table: TableProtocol[ModelT, InsertInputT, UpdateInputT, WhereT, IncludeT, OrderByT],
         *,
         where: WhereT | None = None,
         return_records: Literal[True],

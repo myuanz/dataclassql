@@ -7,7 +7,7 @@ from pypika import Query, Table
 from pypika.queries import QueryBuilder
 from pypika.terms import Criterion, ExistsCriterion, Field, Not, Parameter
 
-from dclassql.typing import IncludeT, InsertT, ModelT, OrderByT, WhereT
+from dclassql.typing import IncludeT, InsertInputT, ModelT, OrderByT, UpdateInputT, WhereT
 from dclassql.utils.ensure import ensure_sequence, ensure_string
 
 from .protocols import BackendProtocol, TableProtocol, TableRelation
@@ -58,7 +58,7 @@ class WhereCompiler:
     def __init__(
         self,
         backend: BackendProtocol,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        table: TableProtocol[ModelT, InsertInputT, UpdateInputT, WhereT, IncludeT, OrderByT],
         sql_table: Table,
     ) -> None:
         self._backend = backend

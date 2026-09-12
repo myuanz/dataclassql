@@ -10,7 +10,7 @@ from pypika.dialects import SQLLiteQuery
 from pypika.enums import Order
 from pypika.queries import QueryBuilder
 
-from dclassql.typing import IncludeT, InsertT, ModelT, OrderByT, WhereT
+from dclassql.typing import IncludeT, InsertInputT, ModelT, OrderByT, UpdateInputT, WhereT
 from dclassql.utils.ensure import ensure_sqlite_row_factory
 
 from .base import BackendBase
@@ -42,8 +42,8 @@ class SQLiteBackend(BackendBase):
 
     def insert_many(
         self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
-        data: Sequence[InsertT | Mapping[str, object]],
+        table: TableProtocol[ModelT, InsertInputT, UpdateInputT, WhereT, IncludeT, OrderByT],
+        data: Sequence[InsertInputT | Mapping[str, object]],
         *,
         batch_size: int | None = None,
     ) -> list[ModelT]:
@@ -166,7 +166,7 @@ class SQLiteBackend(BackendBase):
 
     def find_many(
         self,
-        table: TableProtocol[ModelT, InsertT, WhereT, IncludeT, OrderByT],
+        table: TableProtocol[ModelT, InsertInputT, UpdateInputT, WhereT, IncludeT, OrderByT],
         *,
         where: WhereT | None = None,
         include: Mapping[str, bool] | None = None,

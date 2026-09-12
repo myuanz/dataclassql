@@ -4,19 +4,11 @@
 
 ## Unreleased
 
-### Added
-
-- `asdict()` 的关系策略扩展为 `keep`、`fetch`、`empty`、`omit`: `empty` 将关系字段置为 `[]` 或 `None`, `omit` 从结果中省略关系字段。
-- 生成客户端新增 `*ScalarDict`; 完整 `*Dict` 继承标量字典, `asdict(..., relation_policy="omit")` 返回对应的 `*ScalarDict`。
-
 ### Changed
 
-- `deserialize_json_value()` 与生成的 JSON 反序列化表达式使用 `TypeForm[T]` 将运行时类型表达式关联到返回类型, 并在非 Optional JSON 列读到 `NULL` 时抛出 `TypeError`; 升级 `typing_extensions` 至 4.13.0+。
-- `*InsertInput` 接受 `*ScalarDict`; 完整 `*Dict` 通过继承关系继续满足插入类型。
-- `*InsertDict` 保持独立的插入参数定义, 与表示完整标量快照的 `*ScalarDict` 分离。
-- 生成的 `asdict` stub 复用运行时 `RelationPolicy`, 并与运行时函数共同提供四种关系策略的文档。
-- `asdict()` 的默认关系策略由 `keep` 改为 `omit`。
-- 移除原有的 `skip` 关系策略, 由语义更明确的 `empty` 替代。
+- 生成客户端新增 `*ScalarDict` 和 `*UpdateInput`, 完整 `*Dict` 继承 `*ScalarDict`; `*InsertInput`、`*UpdateInput` 分别统一插入与更新参数, 更新时忽略主键。运行时协议相应区分 `InsertInputT` 与 `UpdateInputT`。
+- `asdict()` 的关系策略调整为 `keep`、`fetch`、`empty`、`omit`, 默认使用 `omit`; `omit` 返回 `*ScalarDict`, 生成的 stub 复用运行时 `RelationPolicy` 及其文档。
+- JSON 函数完善类型标注：`serialize_json_value()` 始终返回 JSON 文本, `serialize_json_column_value()` 保留数据库 `NULL`, `deserialize_json_value()` 使用 `TypeForm[T]` 关联返回类型并校验非 Optional 列；升级 `typing_extensions` 至 4.13.0+。
 
 ## 0.5.2
 
